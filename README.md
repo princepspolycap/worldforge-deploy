@@ -4,11 +4,9 @@
 
 <img width="4404" height="2475" alt="agentsleague_v2" src="https://github.com/user-attachments/assets/4a6d085b-cecb-448d-b0f9-b35a49c397c6" />
 
-## Register first to participate!
+## The contest has ended — meet the winners!
 
-<a href="https://aka.ms/agentsleague/register">
-  <img src=".github/assets/register-button.svg" alt="Register Now" />
-</a>
+[🏆 Read the Winners Announcement Blog Post](https://techcommunity.microsoft.com/blog/azuredevcommunityblog/agents-league-meet-the-winners/4507503)
 
 </div>
 
@@ -136,18 +134,12 @@ Projects are evaluated by experts and product teams using this rubric:
 
 <div align="center">
 
-## 🚀 Ready to Compete?
+## 🏆 Winners Announced!
 
-### Register for Agents League!
-
-<a href="https://aka.ms/agentsleague/register">
-  <img src=".github/assets/register-button-small.svg" alt="Register" />
-</a>
+[Read the Winners Blog Post](https://techcommunity.microsoft.com/blog/azuredevcommunityblog/agents-league-meet-the-winners/4507503)
 
 ---
 
-[🎮 Join Discord](https://aka.ms/agentsleague/discord) • [📦 Browse Starter Kits](./starter-kits/) • [📝 Submit Your Project](https://github.com/microsoft/agentsleague/issues/new?template=project.yml)
-
-**Questions?** Ask on [Discord](https://aka.ms/agentsleague/discord)
+[📦 Browse Starter Kits](./starter-kits/) • [👀 Browse All Submissions](https://github.com/microsoft/agentsleague/issues)
 
 </div>
