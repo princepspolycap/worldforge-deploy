@@ -6,7 +6,7 @@
 
 ## Register now and start building!
 
-**Register 👉 [aka.ms/agentsleague/register](https://aka.ms/agentsleague/register)**
+**Register 👉 [aka.ms/agentsleague/aisf/register](https://aka.ms/agentsleague/aisf/register)**
 
 </div>
 
