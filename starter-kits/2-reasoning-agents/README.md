@@ -305,6 +305,16 @@ Optional — but *highly valued*:
 - Advanced **reasoning patterns** (planner–executor, critics, reflection loops)
 - **Responsible AI** considerations (guardrails, validation, fallbacks)
 
+### Microsoft IQ Integration (Required)
+
+Your project **must** integrate at least one **Microsoft IQ** intelligence layer. Choose whichever fits your project best:
+
+- [**Foundry IQ**](https://learn.microsoft.com/azure/foundry/agents/concepts/what-is-foundry-iq) — Agentic knowledge retrieval for AI agents. Connects multiple enterprise sources, enforces permissions, and delivers cited, grounded answers to reduce hallucination.
+- [**Work IQ**](https://learn.microsoft.com/microsoft-365/copilot/extensibility/workiq-overview) — The intelligence layer behind Microsoft 365 Copilot. Builds memory from emails, meetings, chats, and documents to understand work context, people, and relationships.
+- [**Fabric IQ**](https://blog.fabric.microsoft.com/blog/introducing-fabric-iq) — Semantic intelligence layer for Microsoft Fabric. Uses ontologies and knowledge graphs to give business meaning to enterprise data, enabling AI agents to reason over real business concepts.
+
+📖 **Learn more**: [Microsoft IQ Series](https://aka.ms/iq-series)
+
 ### 🏆 Evaluation Criteria
 
 Submissions will be scored using the following weighted criteria:

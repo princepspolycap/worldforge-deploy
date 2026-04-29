@@ -1,6 +1,6 @@
 # 🏢 Enterprise Agents - Starter Kit
 
-**Track**: Battle #3 - Enterprise Agents with M365 Agents Toolkit  
+**Track**: Battle #3 - Enterprise Agents for Microsoft 365 Copilot  
 
 Welcome to the Enterprise Agents track! In this challenge, you will build intelligent agents that extend **Microsoft 365 Copilot** to address real-world enterprise scenarios. Your goal is to create agents that seamlessly integrate with Microsoft 365 workloads, leveraging the power of AI to automate tasks, enhance productivity, and deliver exceptional user experiences within the enterprise ecosystem.
 
@@ -363,11 +363,22 @@ A solution that implements **connected agents** (multi-agent architecture) will 
 
 Consider designing your solution with multiple agents that collaborate to address different aspects of your enterprise scenario.
 
+#### 6. Microsoft IQ Integration (Required)
+
+Your agent **must** integrate at least one **Microsoft IQ** intelligence layer. Choose whichever fits your project best:
+
+- [**Foundry IQ**](https://learn.microsoft.com/azure/foundry/agents/concepts/what-is-foundry-iq) — Agentic knowledge retrieval for AI agents. Connects multiple enterprise sources, enforces permissions, and delivers cited, grounded answers to reduce hallucination.
+- [**Work IQ**](https://learn.microsoft.com/microsoft-365/copilot/extensibility/workiq-overview) — The intelligence layer behind Microsoft 365 Copilot. Builds memory from emails, meetings, chats, and documents to understand work context, people, and relationships.
+- [**Fabric IQ**](https://blog.fabric.microsoft.com/blog/introducing-fabric-iq) — Semantic intelligence layer for Microsoft Fabric. Uses ontologies and knowledge graphs to give business meaning to enterprise data, enabling AI agents to reason over real business concepts.
+
+📖 **Learn more**: [Microsoft IQ Series](https://aka.ms/iq-series)
+
 ### Evaluation Summary
 
 | Criterion | Impact |
 |-----------|--------|
 | Microsoft 365 Copilot Chat Agent | **Required** |
+| Microsoft IQ Integration | **Required** |
 | External MCP Server Integration (Read/Write) | **Optional** |
 | OAuth Security for MCP Server | **Optional** |
 | Adaptive Cards for UI/UX | **Optional** |

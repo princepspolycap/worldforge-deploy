@@ -4,27 +4,27 @@
 
 <img width="4404" height="2475" alt="agentsleague_v2" src="https://github.com/user-attachments/assets/4a6d085b-cecb-448d-b0f9-b35a49c397c6" />
 
-## The contest has ended — meet the winners!
+## Register now and start building!
 
-[🏆 Read the Winners Announcement Blog Post](https://techcommunity.microsoft.com/blog/azuredevcommunityblog/agents-league-meet-the-winners/4507503)
+**Register 👉 [aka.ms/agentsleague/register](https://aka.ms/agentsleague/register)**
 
 </div>
 
 ---
 
-**A 2-week AI developer challenge running between February 16 - March 1, 2026 with live coding battles, community building, and competition.**
+**An AI developer challenge running between June 8 - 14, 2026 with live coding battles, community building, and competition.**
 
-Build innovative AI agents using GitHub Copilot, Copilot CLI or Copilot CLI SDK for Microsoft Foundry, or M365 Agents Toolkit. Compete for recognition, network with developers globally, and get feedback from Microsoft product teams.
+Build innovative AI agents for Creative Apps, Reasoning Agents or Enterprise Agents categories. Compete for recognition, network with developers globally, and get feedback from Microsoft product teams. This time, all projects must integrate with at least one of the **Microsoft IQ** intelligence layer: Foundry IQ, Work IQ, or Fabric IQ.
 
 ⚠️ **Important**: Before submitting, read our [Disclaimer](./DISCLAIMER.md) - do not upload confidential information.
 
 ## What's Agents League?
 
-A **2-week developer competition** combining:
+A **1-week developer competition** combining:
 
 - **📽️ Live coding battles** - Watch experts compete in real-time on Microsoft Reactor
-- **💻 Asynchronous challenges** - Build at your own pace over 2 weeks
-- **💬 Community engagement** - Discord AMAs, Show & Tell sessions, community voting
+- **💻 Asynchronous challenges** - Build at your own pace
+- **💬 Community engagement** - Ask questions and get help on [Discord](https://aka.ms/agentsleague/discord)
 - **🏆 Recognition** - Winners earn amazing prizes
 
 **Open to everyone** - all skill levels welcome! Watch the battles for inspiration, then build one project or compete in all three tracks.
@@ -39,13 +39,13 @@ Pick one or compete in all three!
 |-------|------|-----------|-------------|
 | 🎨 **Creative Apps** | GitHub Copilot | Build innovative creative applications using AI-assisted development | [View →](./starter-kits/1-creative-apps/) |
 | 🧠 **Reasoning Agents** | Microsoft Foundry | Create intelligent agents that solve complex problems through multi-step reasoning | [View →](./starter-kits/2-reasoning-agents/) |
-| 💼 **Enterprise Agents** | M365 Agents Toolkit | Build business-ready knowledge agents integrated with Microsoft 365 | [View →](./starter-kits/3-enterprise-agents/) |
+| 💼 **Enterprise Agents** | Microsoft 365 Copilot | Build business-ready agents for Microsoft 365 Copilot | [View →](./starter-kits/3-enterprise-agents/) |
 
 ## How to Participate
 
 ### 1. Register
 
-**Register 👉 [aka.ms/agentsleague/register](https://aka.ms/agentsleague/register)**
+**Register 👉 [aka.ms/agentsleague/aisf/register](https://aka.ms/agentsleague/aisf/register)**
 
 Registration gives you:
 
@@ -57,23 +57,19 @@ Registration gives you:
 
 - **Creative Apps** - Build with GitHub Copilot
 - **Reasoning Agents** - Build with Microsoft Foundry  
-- **Enterprise Agents** - Build with M365 Agents Toolkit
+- **Enterprise Agents** - Build agents for Microsoft 365 Copilot
 
 Browse [`starter-kits/`](./starter-kits/) for setup guides and examples
 
 ### 3. Watch & Learn
 
-**Week 1: Live Battles** - Watch experts build in real-time on [Microsoft Reactor](https://aka.ms/agentsleague/battles)
+**Live Battles on [Microsoft Reactor](https://aka.ms/agentsleague/aisf/battles)**
 
-- **Tue Feb 17, 9 AM PT** - 🎨 Creative Apps [Watch Live →](https://aka.ms/agentsleague/battle1)
-- **Wed Feb 18, 9 AM PT** - 🧠 Reasoning Agents [Watch Live →](https://aka.ms/agentsleague/battle2)
-- **Thu Feb 19, 9 AM PT** - 💼 Enterprise Agents [Watch Live →](https://aka.ms/agentsleague/battle3)
+- **Tue June 9, 9 AM PT** - 🎨 Creative Apps
+- **Wed June 10, 9 AM PT** - 🧠 Reasoning Agents
+- **Thu June 11, 9 AM PT** - 💼 Enterprise Agents
 
-**Week 2: AMAs & Show & Tell** - Ask questions, get help, see community progress on [Discord](https://aka.ms/agentsleague/discord)
-
-- **Tue Feb 24, 9 AM PT** - 🎨 Creative Apps [Join on Discord →](https://aka.ms/agentsleague/discord/ama1)
-- **Wed Feb 25, 9 AM PT** - 🧠 Reasoning Agents [Join on Discord →](https://aka.ms/agentsleague/discord/ama2)
-- **Thu Feb 26, 9 AM PT** - 💼 Enterprise Agents [Join on Discord →](https://aka.ms/agentsleague/discord/ama3)
+Have questions? Ask on [Discord](https://aka.ms/agentsleague/discord)!
 
 ### 4. Build Your Project
 
@@ -81,13 +77,31 @@ Browse [`starter-kits/`](./starter-kits/) for setup guides and examples
 - Create something unique and functional
 - Make a demo video
 
+#### 🧠 Microsoft IQ — Required
+
+All submissions must integrate at least one **Microsoft IQ** intelligence layer:
+
+| IQ Layer | What It Does |
+|----------|-------------|
+| [**Foundry IQ**](https://learn.microsoft.com/azure/foundry/agents/concepts/what-is-foundry-iq) | Agentic knowledge retrieval for AI agents — connects multiple enterprise sources, enforces permissions, and delivers cited, grounded answers to reduce hallucination |
+| [**Work IQ**](https://learn.microsoft.com/microsoft-365/copilot/extensibility/workiq-overview) | The intelligence layer behind Microsoft 365 Copilot — builds memory from emails, meetings, chats, and documents to understand work context, people, and relationships |
+| [**Fabric IQ**](https://blog.fabric.microsoft.com/blog/introducing-fabric-iq) | Semantic intelligence layer for Microsoft Fabric — uses ontologies and knowledge graphs to give business meaning to enterprise data, enabling AI agents to reason over real business concepts |
+
+You can use **any** of the IQs in **any** track — pick whichever fits your project best.
+
+See each [starter kit](./starter-kits/) for track-specific IQ requirements.
+
+📖 **Learn more**: [Microsoft IQ Series](https://aka.ms/iq-series) — Deep-dive sessions on Foundry IQ, Work IQ, and Fabric IQ.
+
 ### 5. Submit Your Project
 
-**Submission Deadline**: March 1, 2026 (11:59 PM PT)
+**Submission Deadline**: June 14, 2026
 
-Open a new issue in this repo using the [project submission template](https://github.com/microsoft/agentsleague/issues/new?template=project.yml)
+<!-- TODO: Add project submission link -->
+Submit your project via the submission form (link coming soon).
 
-⚠️ **Before submitting**: 
+⚠️ **Before submitting**:
+
 - Read the [Disclaimer](./DISCLAIMER.md) - No confidential information allowed
 - Review the [Code of Conduct](./CODE_OF_CONDUCT.md)
 - Ensure your repository is public and includes a README
@@ -98,13 +112,14 @@ Get help, share progress, vote for favorites
 
 [![Agents League Discord](https://img.shields.io/badge/Discord-Agents_League_Discord_Channel-yellow?style=for-the-badge&logo=github&color=00001&logoColor=fff)](https://aka.ms/agentsleague/discord)
 
-Community and Guidance 
+Community and Guidance
 
 [![Microsoft Foundry Discord](https://dcbadge.limes.pink/api/server/nTYy5BXMWG)](https://discord.gg/nTYy5BXMWG)
 
 If you have product feedback or errors while building visit:
 
 [![Microsoft Foundry Developer Forum](https://img.shields.io/badge/GitHub-Microsoft_Foundry_Developer_Forum-blue?style=for-the-badge&logo=github&color=000000&logoColor=fff)](https://aka.ms/foundry/forum)
+
 
 ## Prizes & Recognition
 
@@ -114,16 +129,16 @@ If you have product feedback or errors while building visit:
 
 ### 🏆 Category Winners
 
-- **$500** for the winner of each track:
+<!-- TODO: Add prize details -->
+- Prize details coming soon!
   - 🎨 Creative Apps
   - 🧠 Reasoning Agents
   - 💼 Enterprise Agents
 
 ### ⭐ Special Recognition
 
-- **GitHub Copilot Pro** - Awarded to:
-  - Community Favorite (voted by community)
-  - Product Team Picks (selected by Microsoft product teams)
+<!-- TODO: Add special recognition details -->
+- Details coming soon!
 
 ## Judging
 
@@ -142,7 +157,7 @@ Projects are evaluated by experts and product teams using this rubric:
 
 - [Creative Apps](./starter-kits/1-creative-apps/) - GitHub Copilot
 - [Reasoning Agents](./starter-kits/2-reasoning-agents/) - Microsoft Foundry  
-- [Enterprise Agents](./starter-kits/3-enterprise-agents/) - M365 Toolkit
+- [Enterprise Agents](./starter-kits/3-enterprise-agents/) - Microsoft 365 Copilot
 
 ### 💬 Community & Support
 
@@ -159,12 +174,18 @@ Projects are evaluated by experts and product teams using this rubric:
 
 <div align="center">
 
-## 🏆 Winners Announced!
+## 📅 Key Dates
 
-[Read the Winners Blog Post](https://techcommunity.microsoft.com/blog/azuredevcommunityblog/agents-league-meet-the-winners/4507503)
+| Date | Milestone |
+|------|-----------|
+| **May 15** | Registration Opens (Post-Build activation) |
+| **May 19** | Promo launches |
+| **June 8–12** | AISF Event Week |
+| **June 14** | Hackathon submissions close |
+| **June 30** | Winners Announced |
 
 ---
 
-[📦 Browse Starter Kits](./starter-kits/) • [👀 Browse All Submissions](https://github.com/microsoft/agentsleague/issues)
+[📦 Browse Starter Kits](./starter-kits/) • [📝 Register Now](https://aka.ms/agentsleague/aisf/register)
 
 </div>
