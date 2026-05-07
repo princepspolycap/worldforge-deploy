@@ -193,6 +193,10 @@ Your project **must** integrate at least one Microsoft IQ intelligence layer. Yo
 
 Below is a suggested architecture that combines the original starter kit with the Microsoft IQ layers.
 
+![Reasoning Agents Architecture](reasoning-agents-architecture.png)
+``
+
+
 ### 1. Learning Path Curator Agent
 **Primary role:** Suggest relevant learning paths and supporting material.
 
@@ -255,6 +259,7 @@ Below is a suggested architecture that combines the original starter kit with th
 
 ## 🔄 Example End-to-End Flow
 
+![Reasoning Agents](reasoning-agents-challenge-architecture.png)
 1. A learner asks for help preparing for a certification.
 2. **Foundry IQ** retrieves grounded learning materials from an approved knowledge base.
 3. **Fabric IQ** interprets structured data such as required skills, recommended hours, and prior synthetic study outcomes.
