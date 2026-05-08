@@ -89,7 +89,7 @@ A solution that implements **MCP Apps** will be **rated higher**. This demonstra
 
 Use this lab as the primary reference when building this capability:
 
-- **MCP Apps Lab**: [https://microsoft.github.io/copilot-camp/pages/extend-m365-copilot/11-mcp-app/](https://microsoft.github.io/copilot-camp/pages/extend-m365-copilot/11-mcp-app/)
+- **MCP Apps Lab**: [Self-paced lab](https://microsoft.github.io/copilot-camp/pages/extend-m365-copilot/11-mcp-app/)
 
 #### 4. External MCP Server Integration (Optional)
 
@@ -117,13 +117,13 @@ Judge using only evidence that is clearly present in the repository, documentati
 
 If either required technical item is missing, mark the submission as **incomplete** before calculating the final score.
 
-| Evaluation Area | How to Score | Max Score | Weight |
-|-----------------|--------------|-----------|--------|
-| **Technical Implementation** | Score using the 33-point technical checklist below, then normalize to the overall weight | **33 points** | **30%** |
-| **Accuracy & Relevance** | Score from **0-10**, then convert proportionally to the weighted score | **10 raw** | **17.5%** |
-| **Creativity & Originality** | Score from **0-10**, then convert proportionally to the weighted score | **10 raw** | **17.5%** |
-| **User Experience & Presentation** | Score from **0-10**, then convert proportionally to the weighted score | **10 raw** | **17.5%** |
-| **Reliability & Safety** | Score from **0-10**, then convert proportionally to the weighted score | **10 raw** | **17.5%** |
+| Evaluation Area |  Max Score | Weight |
+|-----------------|--------------|--------|
+| **Technical Implementation** |  **33 points** | **30%** |
+| **Accuracy & Relevance** | **10 raw** | **17.5%** |
+| **Creativity & Originality** |  **10 raw** | **17.5%** |
+| **User Experience & Presentation** |  **10 raw** | **17.5%** |
+| **Reliability & Safety** |  **10 raw** | **17.5%** |
 
 Overall scoring formula:
 
@@ -158,7 +158,15 @@ Overall scoring formula:
 | **User Experience & Presentation** | 0-10 | The submission is easy to understand, easy to try, and clearly presented through documentation, demo flow, and interaction design. |
 | **Reliability & Safety** | 0-10 | The solution demonstrates robust behaviour, safe tool usage, strong data handling hygiene, clear guardrails, and reasonable failure handling. |
 
-#### Reference Links for Technical Evaluation
+
+
+---
+
+## 📚 Resources
+
+Explore the following resources to deepen your knowledge and accelerate your development:
+
+### Reference Links for Technical Evaluation
 
 | Criterion | Copilot Studio | Declarative Agents (DA) with ATK | Custom Engine Agents (CEA) with ATK |
 |-----------|----------------|----------------------------------|--------------------------------------|
@@ -168,11 +176,6 @@ Overall scoring formula:
 | **External MCP Server Integration (Read/Write)** | [https://microsoft.github.io/copilot-camp/pages/make/copilot-studio/06-mcp/](https://microsoft.github.io/copilot-camp/pages/make/copilot-studio/06-mcp/) | [https://microsoft.github.io/copilot-camp/pages/extend-m365-copilot/08-mcp-server/](https://microsoft.github.io/copilot-camp/pages/extend-m365-copilot/08-mcp-server/) | [https://microsoft.github.io/copilot-camp/pages/custom-engine/agent-framework/07-add-mcp-tools/](https://microsoft.github.io/copilot-camp/pages/custom-engine/agent-framework/07-add-mcp-tools/) |
 | **OAuth Security for MCP Server** | [https://microsoft.github.io/agent-academy/operative/10-mcp/](https://microsoft.github.io/agent-academy/operative/10-mcp/) | [https://microsoft.github.io/copilot-camp/pages/extend-m365-copilot/10-mcp-auth/](https://microsoft.github.io/copilot-camp/pages/extend-m365-copilot/10-mcp-auth/) |  |
 
----
-
-## 📚 Resources
-
-Explore the following resources to deepen your knowledge and accelerate your development:
 
 ### Copilot Dev Camp
 
@@ -195,13 +198,12 @@ Access official Microsoft documentation, tutorials, and learning paths:
 - **Declarative Agents**: [https://aka.ms/declarative-agents-docs](https://aka.ms/declarative-agents-docs)
 - **Microsoft 365 Agents Toolkit**: [https://aka.ms/m365-agents-toolkit](https://aka.ms/m365-agents-toolkit)
 - **Microsoft Entra ID Documentation**: [https://learn.microsoft.com/entra/identity/](https://learn.microsoft.com/entra/identity/)
-- **Adaptive Cards Documentation**: [https://learn.microsoft.com/adaptive-cards/](https://learn.microsoft.com/adaptive-cards/)
-- **Model Context Protocol (MCP)**: [https://learn.microsoft.com/azure/ai-services/agents/](https://learn.microsoft.com/azure/ai-services/agents/)
+- **MCP Apps gallery** :[https://github.com/microsoft/mcp-interactiveUI-samples](https://github.com/microsoft/mcp-interactiveUI-samples)
+
 
 
 ### Additional Resources
 
-- **10 MCP Servers to Get You Started**: [https://developer.microsoft.com/blog/10-microsoft-mcp-servers-to-accelerate-your-development-workflow](https://developer.microsoft.com/blog/10-microsoft-mcp-servers-to-accelerate-your-development-workflow)
 - **Microsoft Graph API**: [https://learn.microsoft.com/graph/](https://learn.microsoft.com/graph/)
 - **Microsoft 365 Developer Program**: [https://developer.microsoft.com/microsoft-365/dev-program](https://developer.microsoft.com/microsoft-365/dev-program)
 
