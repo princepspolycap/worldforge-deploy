@@ -19,7 +19,7 @@ Welcome to the Enterprise Agents track! In this challenge, you will build intell
 > 
 > | Requirement | Description |
 > |-------------|-------------|
-> | 🎫 **Microsoft 365 Copilot License** | You need an active Microsoft 365 Copilot license to test and deploy agents |
+> | 🎫 **Microsoft 365 Copilot License** | You need an active Microsoft 365 Copilot license to test and deploy agents, unless you want to use Copilot Free and not rely on Microsoft 365 workloads |
 > | 🏢 **Tenant with Sideloading Enabled** | Access to a Microsoft 365 tenant where you can sideload custom apps for testing |
 > | ☁️ **Azure Subscription** | Required to create resources for Custom Engine Agents (CEA) |
 
@@ -87,7 +87,7 @@ Your agent **must** be hosted in **Microsoft 365 Copilot Chat**. This means your
 Your agent **must** integrate at least one **Microsoft IQ** intelligence layer. Choose whichever fits your project best:
 
 - [**Foundry IQ**](https://learn.microsoft.com/azure/foundry/agents/concepts/what-is-foundry-iq) — Agentic knowledge retrieval for AI agents. Connects multiple enterprise sources, enforces permissions, and delivers cited, grounded answers to reduce hallucination.
-- [**Work IQ**](https://learn.microsoft.com/microsoft-365/copilot/extensibility/workiq-overview) — The intelligence layer behind Microsoft 365 Copilot. Builds memory from emails, meetings, chats, and documents to understand work context, people, and relationships.
+- [**Work IQ**](https://learn.microsoft.com/microsoft-365/copilot/extensibility/workiq-overview) — The intelligence layer behind Microsoft 365 Copilot. Builds memory from emails, meetings, chats, and documents to understand work context, people, and relationships. Extend your data and context memory with Skills and Tools.
 - [**Fabric IQ**](https://blog.fabric.microsoft.com/blog/introducing-fabric-iq) — Semantic intelligence layer for Microsoft Fabric. Uses ontologies and knowledge graphs to give business meaning to enterprise data, enabling AI agents to reason over real business concepts.
 
 📖 **Learn more**: [Microsoft IQ Series](https://aka.ms/iq-series)
@@ -124,7 +124,7 @@ Implementing **OAuth-based authentication and authorization** when consuming the
 
 ### Evaluation Summary
 
-Use the rubric below when judging a submission. This format is intended to be easy for an AI evaluator to apply consistently.
+Judges will use the rubric below when judging a submission. This format is intended to be easy for an AI evaluator to apply consistently.
 
 Judge using only evidence that is clearly present in the repository, documentation, screenshots, or demo materials. Do not infer features that are only mentioned as future work.
 
