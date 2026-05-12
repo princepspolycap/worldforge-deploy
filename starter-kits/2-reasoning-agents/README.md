@@ -189,8 +189,6 @@ Your project **must** integrate at least one Microsoft IQ intelligence layer to 
 Below is a suggested architecture for the enterprise learning and workforce optimisation system, combining multi-agent orchestration with the Microsoft IQ layers.
 
 ![Reasoning Agents Architecture](reasoning-agents-architecture.png)
-``
-
 
 ### 1. Learning Path Curator Agent
 **Primary role:** Suggest relevant learning paths and supporting material.
