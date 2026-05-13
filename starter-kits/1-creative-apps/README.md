@@ -14,38 +14,35 @@ In this track, we encourage you to build creative applications that demonstrate 
 
 Build applications that create, transform, or enhance creative content:
 
-- **Story Generator**: An AI-powered narrative engine that creates interactive fiction, short stories, or personalized bedtime stories based on user prompts and preferences
-- **Music Composer**: A tool that creates melodies, chord progressions, or full musical arrangements
-- **Script Writer**: An assistant for creating screenplays, dialogue, or theatrical scripts
+- **Story Generator**: An AI-powered narrative engine that creates interactive fiction, short stories, or personalized bedtime stories based on user prompts and preferences. _Hint: consider how grounded context could make the story feel more relevant or personal._
+- **Script Writer**: An assistant for creating screenplays, dialogue, or theatrical scripts. _Hint: think about how real-world knowledge, relationships, or scenarios could shape the scene._
 
 ### Visual Creativity
 
 Develop tools that enable visual expression and design:
 
-- **Design Assistant**: A tool that helps users create logos, color palettes, layouts, or design mockups
-- **Image Manipulation Tool**: An application for creative photo editing, filters, or artistic transformations
-- **ASCII Art Generator**: Convert images or text into creative ASCII or Unicode art
+- **Design Assistant**: A tool that helps users create logos, color palettes, layouts, or design mockups. _Hint: explore how trusted knowledge or business meaning could influence the creative direction._
 
 ### Game Development
 
 Create playful, interactive experiences:
 
-- **Puzzle Generator**: Applications that create unique puzzles, riddles, or brain teasers
-- **Game Asset Creator**: Tools for generating sprites, textures, or game dialogue
+- **Puzzle Generator**: Applications that create unique puzzles, riddles, or brain teasers. _Hint: puzzles can become more interesting when they draw from meaningful concepts or source material._
+- **Game Asset Creator**: Tools for generating sprites, textures, or game dialogue. _Hint: consider how context could help assets feel coherent within a world, story, or audience._
 
 ### Creative Productivity
 
 Build tools that enhance creative workflows:
 
-- **Content Remixer**: Transform existing content into new formats, styles, or mediums for various platforms
-- **Idea Brainstormer**: An application that generates creative ideas, prompts, or concepts for writers, artists, or designers
+- **Content Remixer**: Transform existing content into new formats, styles, or mediums for various platforms. _Hint: the best remixes often preserve the meaning of the source while changing the expression._
+- **Idea Brainstormer**: An application that generates creative ideas, prompts, or concepts for writers, artists, or designers. _Hint: try grounding suggestions in a user goal, audience, or domain rather than starting from a blank page._
 
 ### Interactive Experiences
 
 Craft engaging, conversational, or immersive applications:
 
-- **Character Chatbot**: Create conversational agents with unique personalities, backstories, or expertise
-- **Educational Games**: Interactive learning experiences that make education engaging and fun
+- **Character Chatbot**: Create conversational agents with unique personalities, backstories, or expertise. _Hint: richer characters can draw on consistent memory, knowledge, or relationships._
+- **Educational Games**: Interactive learning experiences that make education engaging and fun. _Hint: look for ways to turn grounded knowledge or data into play._
 
 Feel free to combine categories, invent entirely new concepts, or explore areas not listed here. **There are no restrictions on application type or technology stack — web, CLI, mobile, desktop, embedded, VR/AR, and more are all welcome!**
 
