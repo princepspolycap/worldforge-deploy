@@ -58,11 +58,18 @@ Before starting this challenge, ensure you have the following:
 
 ## Environment Setup Guidance
 
-### Step 1: Clone the Repository
-
+### Step 1: Initiate your Project Repository
 ```bash
-git clone https://github.com/YOUR-USERNAME/agentsleague.git
-cd agentsleague/starter-kits/2-reasoning-agents
+# Create a new directory for your project
+mkdir <your-unique-project-name>            
+cd <your-unique-project-name>
+# Initialize a new Git repository
+git init
+# Create a README file
+echo "# Reasoning Agents Challenge" > README.md
+# Create a .gitignore file
+echo ".venv/" > .gitignore
+echo ".env" >> .gitignore
 ```
 
 ### Step 2: Create a Python Virtual Environment
