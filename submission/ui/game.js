@@ -428,10 +428,10 @@ function phaserUpdate() {
     
     if (cursors.left.isDown) {
         player.body.setVelocityX(-speed);
-        player.body.setData("facing", "left");
+        player.setData("facing", "left");
     } else if (cursors.right.isDown) {
         player.body.setVelocityX(speed);
-        player.body.setData("facing", "right");
+        player.setData("facing", "right");
     }
     
     if (cursors.up.isDown) {
