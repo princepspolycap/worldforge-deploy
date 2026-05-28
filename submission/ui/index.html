@@ -1,243 +1,353 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Your Company Is the Dungeon — Agents League</title>
-    <!-- Tailwind CSS for modern responsive overlay layout -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Your Company Is the Dungeon - Agents League</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Phaser 3 CDN for the game canvas -->
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&family=Share+Tech+Mono&display=swap');
-        
-        .pixel-font-title {
-            font-family: 'Press Start 2P', monospace;
-        }
-        .pixel-font-cozy {
-            font-family: 'VT323', monospace;
-        }
-        .terminal-font {
-            font-family: 'Share Tech Mono', monospace;
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Share+Tech+Mono&family=VT323&display=swap');
+
+        :root {
+            --bg-deep: #050810;
+            --bg-panel: #0b1326;
+            --bg-panel-2: #0f1a33;
+            --line: #1b2742;
+            --accent: #2dd4bf;
+            --accent-2: #38bdf8;
+            --warn: #fbbf24;
+            --bad: #f43f5e;
+            --good: #34d399;
+            --violet: #c084fc;
         }
 
-        .xp-bar-start {
-            width: 0%;
+        body {
+            font-family: 'Share Tech Mono', monospace;
+            background:
+                radial-gradient(900px 400px at 12% -10%, rgba(56, 189, 248, 0.15), transparent 60%),
+                radial-gradient(900px 500px at 95% 10%, rgba(192, 132, 252, 0.10), transparent 60%),
+                linear-gradient(180deg, #050810 0%, #02040a 100%);
+            background-attachment: fixed;
+            color: #e2e8f0;
         }
-        
-        /* Custom scrollbar for retro feel */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
+
+        .pixel,
+        .pixel-font-title { font-family: 'Press Start 2P', monospace; letter-spacing: 0.04em; }
+        .cozy  { font-family: 'VT323', monospace; }
+        .mono  { font-family: 'Share Tech Mono', monospace; }
+
+        .panel {
+            background: linear-gradient(180deg, rgba(11,19,38,0.85), rgba(5,8,16,0.85));
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            box-shadow:
+                0 0 0 1px rgba(45, 212, 191, 0.04) inset,
+                0 12px 30px -18px rgba(45, 212, 191, 0.15);
         }
-        ::-webkit-scrollbar-track {
-            background: #111827;
+
+        .panel-soft {
+            background: rgba(8, 13, 25, 0.7);
+            border: 1px solid var(--line);
+            border-radius: 8px;
         }
-        ::-webkit-scrollbar-thumb {
-            background: #374151;
-            border-radius: 4px;
+
+        .glow-teal  { box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.35), 0 0 28px rgba(45, 212, 191, 0.18); }
+        .glow-amber { box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.40), 0 0 24px rgba(251, 191, 36, 0.18); }
+        .glow-rose  { box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.40), 0 0 24px rgba(244, 63, 94, 0.15); }
+
+        .kbd {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 18px; padding: 1px 5px;
+            border: 1px solid #334155; background: #0b1326;
+            color: #94a3b8; font-size: 10px; border-radius: 3px;
         }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #4B5563;
+
+        .scanlines::before {
+            content: ""; position: absolute; inset: 0;
+            background: repeating-linear-gradient(180deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 3px);
+            pointer-events: none; mix-blend-mode: overlay;
+        }
+
+        .xp-fill {
+            background: linear-gradient(90deg, #14b8a6 0%, #34d399 50%, #fde047 100%);
+            box-shadow: 0 0 12px rgba(52, 211, 153, 0.45);
+        }
+
+        /* Quest path connectors */
+        .room-node { position: relative; }
+        .room-node + .room-node::before {
+            content: "";
+            position: absolute;
+            left: -16px; top: 50%;
+            width: 14px; height: 2px;
+            background: linear-gradient(90deg, rgba(45,212,191,0.0), rgba(45,212,191,0.5));
+        }
+        .room-node.cleared + .room-node::before {
+            background: linear-gradient(90deg, rgba(52,211,153,0.0), rgba(52,211,153,0.8));
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0a1020; }
+        ::-webkit-scrollbar-thumb { background: #1f2a44; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #2c395b; }
+
+        .blink { animation: blink 1.1s steps(2, start) infinite; }
+        @keyframes blink { to { visibility: hidden; } }
+
+        .ring-active { animation: ringPulse 1.8s ease-out infinite; }
+        @keyframes ringPulse {
+            0%   { box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.55); }
+            100% { box-shadow: 0 0 0 12px rgba(45, 212, 191, 0); }
         }
     </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col overflow-x-hidden selection:bg-teal-500 selection:text-slate-900">
+<body class="min-h-screen flex flex-col">
 
-    <!-- Header Section -->
-    <header class="border-b-2 border-dashed border-teal-500/30 bg-slate-900/80 backdrop-blur px-6 py-4 flex flex-wrap items-center justify-between gap-4 z-10 shadow-lg">
-        <div class="flex items-center gap-3">
-            <span class="text-3xl">⚔️</span>
-            <div>
-                <h1 class="pixel-font-title text-base sm:text-lg text-teal-400 tracking-wider">YOUR COMPANY IS THE DUNGEON</h1>
-                <p class="text-xs text-slate-400 font-mono tracking-tight mt-1">Microsoft Agents League Battle · Reasoning Track</p>
+    <!-- ============================== TOP STRIP ============================== -->
+    <header class="border-b border-[#10182b] bg-[#070c18]/85 backdrop-blur px-5 py-3 flex items-center gap-4 flex-wrap">
+        <div class="flex items-center gap-3 min-w-0">
+            <div class="w-9 h-9 rounded-md panel-soft glow-teal flex items-center justify-center text-teal-300 pixel text-xs">YC</div>
+            <div class="min-w-0">
+                <h1 class="pixel text-[12px] text-teal-300 leading-tight">YOUR COMPANY IS THE DUNGEON</h1>
+                <p class="text-[10px] text-slate-500 tracking-wider mt-0.5">REASONING AGENTS - MICROSOFT AGENTS LEAGUE</p>
             </div>
         </div>
-        
-        <!-- Live Pitch Display -->
-        <div class="flex-1 max-w-xl mx-4 bg-slate-950/60 border border-slate-800 rounded px-3 py-2 text-xs">
-            <span class="text-teal-400 font-mono font-bold block mb-1">Company Pitch:</span>
-            <span id="pitch-banner" class="text-slate-200 italic">No business pitch initialized. Forge one below!</span>
+
+        <!-- Live pitch banner -->
+        <div class="flex-1 min-w-[220px] max-w-2xl panel-soft px-3 py-1.5 flex items-center gap-2">
+            <span class="text-[10px] text-teal-400 pixel">PITCH</span>
+            <span id="pitch-banner" class="text-xs text-slate-300 italic truncate">No business pitch initialized. Forge one to enter the dungeon.</span>
         </div>
 
-        <div class="flex items-center gap-4">
-            <!-- Level & XP indicators -->
-            <div id="status-panel" class="hidden flex items-center gap-3 bg-slate-950 border border-teal-500/30 rounded px-4 py-2">
-                <div class="text-center">
-                    <span class="text-[10px] text-teal-400 block font-mono">LEVEL</span>
-                    <span id="level-badge" class="pixel-font-title text-base text-yellow-400">1</span>
-                </div>
-                <div class="w-24 bg-slate-800 rounded-full h-2.5 overflow-hidden">
-                    <div id="xp-bar" class="xp-bar-start bg-gradient-to-r from-teal-500 to-emerald-400 h-full transition-all duration-500"></div>
-                </div>
-                <div class="text-right">
-                    <span class="text-[10px] text-slate-400 block font-mono">REPUTATION</span>
-                    <span id="xp-label" class="text-xs font-mono font-bold text-teal-300">0 / 50 XP</span>
-                </div>
-                <div class="text-center border-l border-slate-800 pl-3 ml-1">
-                    <span class="text-[10px] text-orange-400 block font-mono">STREAK</span>
-                    <span id="streak-badge" class="pixel-font-title text-base text-orange-300">0</span>
-                </div>
-            </div>
-            
-            <button id="autoplay-btn" class="hidden px-3 py-1 bg-indigo-950 hover:bg-indigo-900 border border-indigo-500/40 rounded text-xs font-mono transition-colors text-indigo-200">
+        <div class="flex items-center gap-2">
+            <button id="autoplay-btn" class="hidden px-3 py-1.5 panel-soft text-xs text-indigo-200 hover:text-indigo-100 hover:border-indigo-400/50 transition-colors">
                 Autoplay Demo
             </button>
-            <button id="reset-btn" class="hidden px-3 py-1 bg-rose-950 hover:bg-rose-900 border border-rose-500/40 rounded text-xs font-mono transition-colors">
+            <button id="reset-btn" class="hidden px-3 py-1.5 panel-soft text-xs text-rose-300 hover:text-rose-200 hover:border-rose-400/50 transition-colors">
                 Reset
             </button>
         </div>
     </header>
 
-    <!-- Main Container -->
-    <main class="flex-1 grid grid-cols-1 xl:grid-cols-12 p-4 gap-6">
-        
-        <!-- LEFT COLUMN: Launcher / Initializer or The RPG Side-Scroller (8 Columns) -->
-        <div class="xl:col-span-8 flex flex-col gap-6">
-            
-            <!-- pitch Input Form (shown if game not initialized) -->
-            <div id="launcher-view" class="bg-slate-900 border border-slate-800 rounded-lg p-6 shadow-md flex-1 flex flex-col justify-center max-w-2xl mx-auto w-full my-8">
-                <span class="text-4xl text-center mb-4">🔮</span>
-                <h2 class="pixel-font-title text-center text-teal-300 text-lg mb-2">FORGE YOUR BUSINESS ADVENTURE</h2>
-                <p class="text-slate-400 text-sm font-mono text-center mb-6">
-                    Enter your startup idea. The Master Narrator will decompose it into a set of specialized agent quests.
+    <!-- ============================== HUD ============================== -->
+    <div id="status-panel" class="hidden border-b border-[#10182b] bg-[#060a14]/70 px-5 py-2.5 flex items-center gap-4 flex-wrap">
+        <div class="flex items-center gap-2">
+            <span class="text-[10px] text-teal-400 pixel">LEVEL</span>
+            <span id="level-badge" class="pixel text-base text-amber-300">1</span>
+        </div>
+        <div class="flex-1 min-w-[200px] flex items-center gap-2">
+            <span class="text-[10px] text-slate-400 pixel hidden sm:inline">REPUTATION</span>
+            <div class="flex-1 h-3 bg-[#0a1020] border border-[#1b2742] rounded overflow-hidden">
+                <div id="xp-bar" class="xp-fill h-full transition-all duration-500" style="width: 0%"></div>
+            </div>
+            <span id="xp-label" class="text-[11px] text-teal-200 mono whitespace-nowrap">0 / 50 XP</span>
+        </div>
+        <div class="flex items-center gap-2 pl-3 border-l border-[#1b2742]">
+            <span class="text-[10px] text-orange-400 pixel">STREAK</span>
+            <span id="streak-badge" class="pixel text-base text-orange-300">0</span>
+        </div>
+        <div class="hidden md:flex items-center gap-2 pl-3 border-l border-[#1b2742]">
+            <span class="text-[10px] text-violet-300 pixel">STAGE</span>
+            <span id="stage-badge" class="text-[11px] text-violet-200 mono uppercase tracking-wider">Idea</span>
+        </div>
+    </div>
+
+    <!-- ============================== MAIN ============================== -->
+    <main class="flex-1 grid grid-cols-1 xl:grid-cols-12 gap-5 p-5 max-w-[1500px] w-full mx-auto">
+
+        <!-- ====== LAUNCHER (shown until a pitch is submitted) ====== -->
+        <section id="launcher-view" class="col-span-12 max-w-2xl mx-auto w-full">
+            <div class="panel p-7 relative scanlines">
+                <div class="absolute -top-3 left-5 px-2 py-0.5 panel-soft text-[10px] text-teal-300 pixel">NEW VENTURE</div>
+                <h2 class="pixel text-teal-300 text-sm sm:text-base mb-2">FORGE A BUSINESS QUEST LINE</h2>
+                <p class="text-xs text-slate-400 mb-5 leading-relaxed">
+                    Enter your startup idea. The Foundry-powered <span class="text-teal-300">Master Narrator</span> will decompose it into a quest line, and a party of specialist agents will produce real artifacts for you to judge.
                 </p>
-                
+
                 <div class="space-y-4">
                     <div>
-                        <label class="block text-xs font-mono text-teal-400 mb-1" for="company-input">Company Name</label>
-                        <input id="company-input" type="text" value="QuestForge Ltd." placeholder="e.g. Acme AI" 
-                               class="w-full bg-slate-950 border border-slate-700 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 rounded px-3 py-2 text-sm text-slate-100 outline-none transition-colors font-mono">
+                        <label for="company-input" class="block text-[10px] text-teal-400 pixel mb-1.5">COMPANY NAME</label>
+                        <input id="company-input" type="text" value="QuestForge Ltd."
+                               class="w-full bg-[#04070f] border border-[#1b2742] focus:border-teal-500 focus:ring-1 focus:ring-teal-500 rounded px-3 py-2 text-sm text-slate-100 outline-none mono" />
                     </div>
-                    
                     <div>
-                        <label class="block text-xs font-mono text-teal-400 mb-1" for="pitch-input">Startup Pitch</label>
-                        <textarea id="pitch-input" rows="3" placeholder="e.g. A billing tracker for freelance writers that automatically generates invoices based on calendar meetings."
-                                  class="w-full bg-slate-950 border border-slate-700 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 rounded px-3 py-2 text-sm text-slate-100 outline-none transition-colors font-mono"></textarea>
+                        <label for="pitch-input" class="block text-[10px] text-teal-400 pixel mb-1.5">STARTUP PITCH</label>
+                        <textarea id="pitch-input" rows="3"
+                                  placeholder="e.g. A billing tracker for freelance writers that turns calendar meetings into invoices."
+                                  class="w-full bg-[#04070f] border border-[#1b2742] focus:border-teal-500 focus:ring-1 focus:ring-teal-500 rounded px-3 py-2 text-sm text-slate-100 outline-none mono leading-relaxed"></textarea>
                     </div>
-                    
-                    <button id="launch-btn" class="w-full py-3 bg-teal-600 hover:bg-teal-500 border border-teal-400/40 rounded font-bold transition-all hover:shadow-[0_0_15px_rgba(20,184,166,0.4)] text-slate-950 text-sm pixel-font-title tracking-wider mt-4">
-                        ENTER THE DUNGEON ⚔️
+                    <button id="launch-btn"
+                            class="w-full py-3 bg-gradient-to-r from-teal-500 to-emerald-400 text-slate-950 rounded font-bold pixel text-xs glow-teal hover:brightness-110 transition-all">
+                        ENTER THE DUNGEON
                     </button>
-                </div>
-            </div>
-
-            <!-- RPG Canvas Screen & Quest Steps Details (shown when initialized) -->
-            <div id="game-view" class="hidden flex flex-col gap-6">
-                <!-- Phaser Canvas container -->
-                <div class="bg-slate-900 border-2 border-slate-800 rounded-lg p-1.5 shadow-2xl relative overflow-hidden">
-                    <div id="canvas-container" class="w-full h-[360px] bg-slate-950 rounded flex items-center justify-center">
-                        <!-- Phaser injects the game canvas here -->
-                    </div>
-                    
-                    <!-- Keyboard control instructions overlay -->
-                    <div class="absolute bottom-4 left-4 bg-slate-950/80 border border-slate-800 rounded px-3 py-1.5 text-[10px] font-mono text-slate-400 pointer-events-none flex items-center gap-3">
-                        <span class="flex items-center gap-1"><span class="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded">W</span> <span class="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded">A</span> <span class="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded">S</span> <span class="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded">D</span> or Arrow Keys to move player</span>
-                        <div class="w-1.5 h-1.5 bg-teal-400 rounded-full animate-pulse"></div>
-                        <span>Approach the active agent and press E to run a turn</span>
-                    </div>
-                </div>
-
-                <!-- Quest Step Track Board -->
-                <div class="bg-slate-900 border border-slate-800 rounded-lg p-5">
-                    <h3 class="pixel-font-title text-xs text-teal-400 mb-4 tracking-wide">ACTIVE QUEST: FORGE YOUR LANDING PAGE</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono" id="quest-board">
-                        <!-- Populated dynamically -->
+                    <div class="grid grid-cols-3 gap-3 pt-3 text-[10px] text-slate-500">
+                        <div class="panel-soft px-2 py-2 text-center">
+                            <div class="pixel text-teal-300 text-[9px] mb-1">FOUNDRY</div>
+                            Master Narrator + 3 specialists
+                        </div>
+                        <div class="panel-soft px-2 py-2 text-center">
+                            <div class="pixel text-teal-300 text-[9px] mb-1">FOUNDRY IQ</div>
+                            Grounded launch playbooks
+                        </div>
+                        <div class="panel-soft px-2 py-2 text-center">
+                            <div class="pixel text-teal-300 text-[9px] mb-1">VERIFY</div>
+                            Human-in-the-loop gate
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <!-- RIGHT COLUMN: Reasoning Output & Verification Gates (4 Columns) -->
-        <div id="sidebar-view" class="hidden xl:col-span-4 flex flex-col gap-6">
-            
-            <!-- Step Execution & Artifact Viewer Sandbox -->
-            <div class="bg-slate-900 border border-slate-800 rounded-lg p-5 flex flex-col flex-1 min-h-[450px]">
-                <div class="border-b border-slate-800 pb-3 mb-4 flex items-center justify-between">
-                    <h3 class="pixel-font-title text-xs text-teal-400 tracking-wide">ARTIFACT VAULT</h3>
-                    <span id="active-agent-badge" class="px-2 py-0.5 bg-teal-950 border border-teal-500/40 text-[10px] text-teal-300 font-mono rounded">Soren (Strategist)</span>
+        <!-- ====== GAME COLUMN (canvas + quest path) ====== -->
+        <section id="game-view" class="hidden xl:col-span-8 col-span-12 flex flex-col gap-5">
+
+            <!-- Stage shell with canvas -->
+            <div class="panel p-2 relative overflow-hidden scanlines">
+                <!-- Cabinet bezel -->
+                <div class="flex items-center justify-between px-3 py-2">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+                        <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                        <span class="text-[10px] text-slate-500 ml-2 pixel">STAGE 01 / OFFICE LEVEL</span>
+                    </div>
+                    <span class="text-[10px] text-teal-400 pixel">PHASER 3 LIVE</span>
                 </div>
 
-                <!-- Run Simulation / Reasoning trigger -->
-                <div id="trigger-panel" class="mb-4 bg-slate-950/80 border border-slate-800 rounded p-4 flex flex-col items-center justify-center text-center">
-                    <div id="room-access-status" class="w-full mb-3 rounded border border-slate-800 bg-slate-900 px-3 py-2 text-[11px] text-slate-400 font-mono">
+                <!-- Canvas mount -->
+                <div id="canvas-container" class="w-full h-[420px] bg-[#02040a] rounded border border-[#0e1830] relative overflow-hidden">
+                    <!-- Phaser inserts the canvas here -->
+                </div>
+
+                <!-- Canvas footer hints -->
+                <div class="flex items-center justify-between px-3 py-2 text-[10px] text-slate-500 flex-wrap gap-2">
+                    <div class="flex items-center gap-1.5">
+                        <span class="kbd">W</span><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span>
+                        <span class="ml-1">or</span>
+                        <span class="kbd">&larr;</span><span class="kbd">&uarr;</span><span class="kbd">&darr;</span><span class="kbd">&rarr;</span>
+                        <span class="ml-2">walk</span>
+                        <span class="kbd ml-3">E</span><span>or</span><span class="kbd">SPACE</span><span>interact</span>
+                    </div>
+                    <div class="flex items-center gap-1.5 text-teal-400">
+                        <span class="w-1.5 h-1.5 rounded-full bg-teal-400 blink"></span>
+                        Approach the active agent to run their turn
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quest path -->
+            <div class="panel p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="pixel text-[11px] text-teal-300">QUEST PATH</h3>
+                    <span class="text-[10px] text-slate-500">FORGE YOUR FIRST LANDING PAGE</span>
+                </div>
+                <div id="quest-board" class="grid grid-cols-1 md:grid-cols-3 gap-5 pl-4">
+                    <!-- Quest cards injected here -->
+                </div>
+            </div>
+        </section>
+
+        <!-- ====== SIDEBAR: ARTIFACT + REASONING ====== -->
+        <aside id="sidebar-view" class="hidden xl:col-span-4 col-span-12 flex flex-col gap-5">
+
+            <!-- Artifact card -->
+            <div class="panel p-4 flex flex-col min-h-[500px]">
+                <div class="flex items-center justify-between pb-3 border-b border-[#1b2742] mb-3">
+                    <div class="flex items-center gap-2">
+                        <span class="w-1.5 h-5 bg-teal-400 rounded"></span>
+                        <h3 class="pixel text-[11px] text-teal-300">ARTIFACT VAULT</h3>
+                    </div>
+                    <span id="active-agent-badge" class="px-2 py-0.5 panel-soft text-[10px] text-teal-200 mono">No active room</span>
+                </div>
+
+                <!-- Trigger card (when artifact not yet generated) -->
+                <div id="trigger-panel" class="mb-3">
+                    <div id="room-access-status"
+                         class="rounded border border-[#1b2742] bg-[#0a1326] px-3 py-2 text-[11px] text-slate-400 mono mb-3">
                         Move to the active room to unlock the next agent turn.
                     </div>
-                    <p class="text-xs text-slate-400 font-mono mb-3">Each room is a playable agent handoff: stand near the active NPC, trigger the turn, then review the artifact before XP is awarded.</p>
-                    <button id="run-step-btn" class="w-full py-2 bg-gradient-to-r from-teal-500 to-emerald-500 text-slate-950 font-mono font-bold text-xs rounded border border-teal-400 hover:shadow-[0_0_10px_rgba(20,184,166,0.3)] transition-all">
+                    <button id="run-step-btn"
+                            class="w-full py-2.5 bg-gradient-to-r from-teal-500 to-emerald-400 text-slate-950 rounded font-bold pixel text-[11px] glow-teal hover:brightness-110 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:from-slate-700 disabled:to-slate-600">
                         APPROACH ACTIVE AGENT
                     </button>
-                    <!-- Spinner loading -->
-                    <div id="reasoning-loader" class="hidden flex items-center gap-2 mt-3 text-xs text-teal-400 font-mono">
+                    <div id="reasoning-loader" class="hidden flex items-center gap-2 mt-3 text-[11px] text-teal-300 mono">
                         <div class="w-4 h-4 border-2 border-teal-400 border-t-transparent rounded-full animate-spin"></div>
-                        <span>Querying Microsoft Foundry...</span>
+                        Querying Microsoft Foundry...
                     </div>
                 </div>
 
-                <!-- Display Artifact Body -->
-                <div class="flex-1 flex flex-col min-h-0 bg-slate-950 rounded border border-slate-800 p-3 mb-4 overflow-y-auto">
-                    <!-- Score & checks -->
-                    <div id="validation-score-box" class="hidden mb-4 p-3 bg-slate-900 border border-slate-800 rounded">
+                <!-- Validation + artifact body -->
+                <div class="flex-1 flex flex-col min-h-0 bg-[#04080f] border border-[#10192f] rounded p-3 overflow-hidden">
+
+                    <div id="validation-score-box" class="hidden mb-3 p-3 panel-soft">
                         <div class="flex items-center justify-between mb-2">
-                            <span class="text-xs text-slate-400 font-mono">Deterministic Checker Score:</span>
+                            <span class="text-[10px] text-slate-400 pixel">CHECK SCORE</span>
                             <div class="flex items-center gap-2">
                                 <span id="tier-badge" class="hidden text-[10px] px-2 py-0.5 rounded font-bold border"></span>
-                                <span id="checking-score" class="pixel-font-title text-sm text-yellow-400">80/100</span>
+                                <span id="checking-score" class="pixel text-sm text-amber-300">--/100</span>
                             </div>
                         </div>
-                        <div id="fails-list" class="space-y-1 text-[11px] font-mono">
-                            <!-- Populated with check fails/passes -->
-                        </div>
+                        <div id="fails-list" class="space-y-1 text-[11px] mono"></div>
                     </div>
 
-                    <!-- Inner Artifact Text Area -->
-                    <div class="flex-1 font-mono text-xs text-slate-300 select-all" id="artifact-content-area">
-                        <div class="h-full flex flex-col items-center justify-center text-slate-500">
-                            <span>No artifact drafted yet.</span>
-                            <span class="text-[10px] mt-1 text-slate-600">Run reasoning to spawn files.</span>
+                    <div id="artifact-content-area" class="flex-1 overflow-y-auto mono text-[12px] text-slate-300 select-text leading-relaxed">
+                        <div class="h-full flex flex-col items-center justify-center text-slate-500 text-center px-4">
+                            <span class="text-xs">No artifact drafted yet.</span>
+                            <span class="text-[10px] mt-1 text-slate-600">Run an agent turn to produce one.</span>
                         </div>
                     </div>
                 </div>
 
-                <!-- Verification Gate (Action panel) -->
-                <div id="gate-panel" class="hidden bg-slate-950 border border-yellow-500/30 rounded p-4">
-                    <span class="pixel-font-title text-[9px] text-yellow-400 block mb-2 tracking-widest">🛡️ VERIFICATION GATE</span>
-                    <p class="text-[11px] text-slate-300 font-mono mb-4 leading-relaxed">
+                <!-- Verification gate -->
+                <div id="gate-panel" class="hidden mt-3 p-3 panel-soft glow-amber">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="w-1.5 h-4 bg-amber-400 rounded"></span>
+                        <span class="pixel text-[10px] text-amber-300 tracking-widest">VERIFICATION GATE</span>
+                    </div>
+                    <p class="text-[11px] text-slate-300 mono leading-relaxed mb-3">
                         Review the artifact. It is grounded against Foundry IQ playbooks and checked by deterministic validators. Approve to award XP, or reject to request another pass.
                     </p>
-                    <div class="grid grid-cols-2 gap-3 font-mono text-xs font-bold">
-                        <button id="reject-btn" class="py-2.5 bg-rose-950 hover:bg-rose-900 border border-rose-500/40 rounded transition-colors text-rose-300">
-                            Reject
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="reject-btn"
+                                class="py-2 panel-soft text-xs text-rose-300 hover:text-rose-200 hover:border-rose-400/50 mono font-bold transition-colors">
+                            REJECT
                         </button>
-                        <button id="approve-btn" class="py-2.5 bg-emerald-600 hover:bg-emerald-500 border border-emerald-400 rounded transition-colors text-slate-950 text-center">
-                            Approve & XP
+                        <button id="approve-btn"
+                                class="py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded font-bold pixel text-[10px] tracking-widest transition-colors">
+                            APPROVE
                         </button>
                     </div>
                 </div>
             </div>
 
-            <!-- Quest logs/Typewriter terminal -->
-            <div class="bg-slate-900 border border-slate-800 rounded-lg p-5 flex flex-col h-[280px]">
-                <div class="border-b border-slate-800 pb-2 mb-3 flex items-center justify-between text-xs">
-                    <span class="pixel-font-title text-[10px] text-slate-400">REASONING EVENT LOGS</span>
-                    <span class="font-mono text-[10px] text-teal-500 animate-pulse">● ONLINE</span>
+            <!-- Reasoning console -->
+            <div class="panel p-4 flex flex-col h-[260px]">
+                <div class="flex items-center justify-between pb-2 mb-2 border-b border-[#1b2742]">
+                    <div class="flex items-center gap-2">
+                        <span class="w-1.5 h-4 bg-violet-400 rounded"></span>
+                        <span class="pixel text-[10px] text-violet-200">REASONING TRACE</span>
+                    </div>
+                    <span class="text-[10px] text-teal-400 mono flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse"></span> ONLINE
+                    </span>
                 </div>
-                <div id="terminal-logs" class="flex-1 bg-slate-950 rounded border border-slate-800 p-3 overflow-y-auto font-mono text-[11px] text-slate-400 space-y-2 select-text">
-                    <!-- Logs are spawned here -->
-                    <div class="text-teal-500/80">[system] Connection initialized. Welcome to the Corporate Dungeon.</div>
+                <div id="terminal-logs"
+                     class="flex-1 bg-[#04080f] border border-[#10192f] rounded p-3 overflow-y-auto mono text-[11px] text-slate-400 leading-relaxed">
+                    <div class="text-teal-500/80">[system] Connection initialized. Waiting for a pitch...</div>
                 </div>
             </div>
-
-        </div>
-
+        </aside>
     </main>
 
-    <!-- Footer -->
-    <footer class="border-t border-slate-900 py-4 px-6 text-center text-[10px] font-mono text-slate-500 mt-auto">
-        Agents League 2026 • Powered by Microsoft Foundry Reasoning Core & Phaser 3 Arcade Engine
+    <!-- ============================== FOOTER ============================== -->
+    <footer class="border-t border-[#10182b] py-3 px-5 text-center text-[10px] text-slate-500 mono mt-auto">
+        Agents League 2026 - Foundry reasoning core, Phaser 3 stage, FastAPI runtime. MIT-licensed and forkable.
     </footer>
 
-    <!-- Core Game & Client Logic Links -->
-    <script src="/game/game.js?v=7"></script>
+    <!-- ============================== SCRIPTS ============================== -->
+    <script src="/game/game/mechanics.js?v=2"></script>
+    <script src="/game/game.js?v=9"></script>
 </body>
 </html>

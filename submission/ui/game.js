@@ -7,13 +7,37 @@ let isReasoningBusy = false;
 
 // Core API endpoints
 const API_BASE = "/api";
-const AGENT_DISPLAY = {
+const GAME_MECHANICS = window.DUNGEON_GAME_MECHANICS || {};
+const ROOM_SEQUENCE = GAME_MECHANICS.roomSequence || [
+    {
+        agent: 'strategist', name: 'Soren', role: 'Strategist', roomName: 'Blueprint Room', roomLabel: 'BLUEPRINT ROOM',
+        roomX: 80, roomY: 50, roomW: 200, roomH: 260, roomColor: 0x0284c7,
+        deskX: 120, deskY: 100, deskColor: 0x0284c7,
+        npcX: 180, npcY: 130, statusY: 175, approachX: 144, approachY: 148, accentColor: 0x38bdf8,
+        dialogue: "I have the positioning room primed. Press E to run the strategy turn."
+    },
+    {
+        agent: 'designer', name: 'Dahlia', role: 'Designer', roomName: 'UX Lab', roomLabel: 'UX LAB',
+        roomX: 300, roomY: 50, roomW: 200, roomH: 260, roomColor: 0x8b5cf6,
+        deskX: 340, deskY: 100, deskColor: 0x8b5cf6,
+        npcX: 400, npcY: 130, statusY: 175, approachX: 364, approachY: 148, accentColor: 0xc084fc,
+        dialogue: "The layout board is ready. Press E to turn positioning into a page."
+    },
+    {
+        agent: 'marketer', name: 'Maddox', role: 'Marketer', roomName: 'Outreach Core', roomLabel: 'OUTREACH CORE',
+        roomX: 520, roomY: 50, roomW: 200, roomH: 260, roomColor: 0xeab308,
+        deskX: 560, deskY: 100, deskColor: 0xeab308,
+        npcX: 620, npcY: 130, statusY: 175, approachX: 584, approachY: 148, accentColor: 0xfde047,
+        dialogue: "Campaign channels are open. Press E to draft the launch copy."
+    },
+];
+const AGENT_DISPLAY = GAME_MECHANICS.agents || {
     strategist: { name: "Soren", room: "Blueprint Room" },
     designer: { name: "Dahlia", room: "UX Lab" },
     marketer: { name: "Maddox", room: "Outreach Core" }
 };
 
-const AGENT_DIALOGUE = {
+const AGENT_DIALOGUE = GAME_MECHANICS.dialogue || {
     strategist: "I have the positioning room primed. Press E to run the strategy turn.",
     designer: "The layout board is ready. Press E to turn positioning into a page.",
     marketer: "Campaign channels are open. Press E to draft the launch copy."
@@ -57,11 +81,33 @@ const autoplayBtn = document.getElementById("autoplay-btn");
 
 let isAutoplayActive = false;
 const AUTOPLAY_DELAY_MS = 700;
-const TIER_STYLES = {
+const TIER_STYLES = GAME_MECHANICS.tierStyles || {
     gold:   { color: "#fde047", border: "border-yellow-400/60", text: "text-yellow-300", label: "GOLD x2.0" },
     silver: { color: "#cbd5f5", border: "border-slate-300/60", text: "text-slate-100", label: "SILVER x1.5" },
     bronze: { color: "#fb923c", border: "border-orange-500/60", text: "text-orange-300", label: "BRONZE x1.0" }
 };
+
+function chooseWalkDirection(dx, dy, deadZone = 0) {
+    if (GAME_MECHANICS.getWalkDirection) {
+        return GAME_MECHANICS.getWalkDirection(dx, dy, deadZone);
+    }
+    if (Math.abs(dx) <= deadZone && Math.abs(dy) <= deadZone) return null;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+        if (dx < -deadZone) return 'left';
+        if (dx > deadZone) return 'right';
+    }
+    if (dy < -deadZone) return 'up';
+    if (dy > deadZone) return 'down';
+    return null;
+}
+
+function getAutoplayApproachPoint(agentKey, npc) {
+    if (GAME_MECHANICS.getApproachPoint) {
+        const point = GAME_MECHANICS.getApproachPoint(agentKey);
+        if (point) return point;
+    }
+    return { x: npc.x - 36, y: npc.y + 18 };
+}
 
 // Launch the Game
 async function initClient() {
@@ -120,6 +166,11 @@ function updateUIWithState() {
     
     pitchBanner.innerText = `"${currentGameState.pitch}"`;
     levelBadge.innerText = currentGameState.level;
+
+    const stageBadge = document.getElementById("stage-badge");
+    if (stageBadge && currentGameState.stage) {
+        stageBadge.innerText = currentGameState.stage;
+    }
     
     // Update XP Bar (limit 50 XP per level in design)
     const baseXP = currentGameState.xp;
@@ -230,9 +281,9 @@ function updateUIWithState() {
 
                 // Tier preview: derived from score even before approval.
                 if (tierBadge) {
-                    let previewTier = "bronze";
-                    if (score >= 95) previewTier = "gold";
-                    else if (score >= 80) previewTier = "silver";
+                    const previewTier = GAME_MECHANICS.getTierForScore
+                        ? GAME_MECHANICS.getTierForScore(score)
+                        : score >= 95 ? "gold" : score >= 80 ? "silver" : "bronze";
                     const approvedTier = currentActiveStep.validation_results?.tier;
                     const tierKey = approvedTier || previewTier;
                     const style = TIER_STYLES[tierKey] || TIER_STYLES.bronze;
@@ -293,6 +344,7 @@ function updateUIWithState() {
     refreshActiveAgentProximity();
     syncPhaserQuestState();
     syncRunButtonState();
+    syncInteractionMarker();
 }
 
 function getCurrentActiveStep() {
@@ -519,14 +571,7 @@ function tweenPlayerTo(targetX, targetY) {
         const distance = Math.hypot(dx, dy);
         const duration = Math.max(250, Math.min(1400, distance * 6));
         // Pick walk direction by dominant axis so the right animation plays.
-        let dir = null;
-        if (Math.abs(dx) >= Math.abs(dy)) {
-            if (dx < -2) dir = 'left';
-            else if (dx > 2) dir = 'right';
-        } else {
-            if (dy < -2) dir = 'up';
-            else if (dy > 2) dir = 'down';
-        }
+        const dir = chooseWalkDirection(dx, dy, 2);
         if (dir && typeof player.face === 'function') {
             player.face(dir, true);
             player.setData('facing', dir);
@@ -561,7 +606,8 @@ async function runAutoplayLoop() {
         // 1. Walk to the active NPC.
         const npc = getCurrentNpc();
         if (npc) {
-            await tweenPlayerTo(npc.x - 36, npc.y + 18);
+            const approachPoint = getAutoplayApproachPoint(step.assigned_to, npc);
+            await tweenPlayerTo(approachPoint.x, approachPoint.y);
             refreshActiveAgentProximity();
             await sleep(AUTOPLAY_DELAY_MS / 2);
         }
@@ -629,7 +675,7 @@ function initPhaser() {
 // Optional pixel-art sprite keys. Files live under submission/ui/assets/local/characters/
 // and are gitignored. When missing (default after `git clone`), the procedural drawings
 // below take over - the game still runs without the Polyverse pack.
-const SPRITE_KEYS = {
+const SPRITE_KEYS = GAME_MECHANICS.spriteKeys || {
     player: 'player_sheet',
     strategist: 'npc_strategist',
     designer: 'npc_designer',
@@ -658,7 +704,7 @@ function phaserPreload() {
 //   Row 1 walk cycles (6 frames each):
 //     56-61=walk-left, 62-67=walk-up, 68-73=walk-right, 74-79=walk-down
 // We expose these as 8 named anims per spritesheet key, plus a `face()` helper.
-const DIR_FRAMES = {
+const DIR_FRAMES = GAME_MECHANICS.dirFrames || {
     idle: { left: 0, up: 1, right: 2, down: 3 },
     walk: {
         left:  [56, 57, 58, 59, 60, 61],
@@ -718,6 +764,7 @@ let wasdKeys = null;
 let activeNpcBubble = null;
 let bubbleTimer = null;
 let activeRoomBeacon = null;
+let interactionMarker = null;
 let lastNearAgentKey = null;
 
 function phaserCreate() {
@@ -733,13 +780,18 @@ function phaserCreate() {
         gridGraphics.lineBetween(0, y, 800, y);
     }
     
-    // Draw 3 customized corporate rooms/mats
-    // Soren's Room (Strategy Warroom) - Blue
-    drawRoomMat(this, 80, 50, 200, 260, 0x0284c7, "Soren (Strategist)", "BLUEPRINT ROOM");
-    // Dahlia's Room (Design Lab) - Magenta
-    drawRoomMat(this, 300, 50, 200, 260, 0x8b5cf6, "Dahlia (Designer)", "UX LAB");
-    // Maddox's Room (Marketing Hive) - Orange
-    drawRoomMat(this, 520, 50, 200, 260, 0xeab308, "Maddox (Marketer)", "OUTREACH CORE");
+    ROOM_SEQUENCE.forEach((room) => {
+        drawRoomMat(
+            this,
+            room.roomX,
+            room.roomY,
+            room.roomW,
+            room.roomH,
+            room.roomColor,
+            `${room.name} (${room.role})`,
+            room.roomLabel
+        );
+    });
 
     // Connect them with a hallway
     const hallway = this.add.graphics();
@@ -749,21 +801,16 @@ function phaserCreate() {
     hallway.strokeRect(40, 180, 720, 48);
 
     // 2. Draw desks and office accessories
-    drawOfficeDesk(this, 120, 100, 0x0284c7);
-    drawOfficeDesk(this, 340, 100, 0x8b5cf6);
-    drawOfficeDesk(this, 560, 100, 0xeab308);
+    ROOM_SEQUENCE.forEach((room) => {
+        drawOfficeDesk(this, room.deskX, room.deskY, room.deskColor);
+    });
 
-    // 3. Create NPCs
-    npcs.strategist = createProceduralNPC(this, 180, 130, "Soren", 0x38bdf8, SPRITE_KEYS.strategist);
-    npcs.designer = createProceduralNPC(this, 400, 130, "Dahlia", 0xc084fc, SPRITE_KEYS.designer);
-    npcs.marketer = createProceduralNPC(this, 620, 130, "Maddox", 0xfde047, SPRITE_KEYS.marketer);
-    npcs.strategist.setDepth(5);
-    npcs.designer.setDepth(5);
-    npcs.marketer.setDepth(5);
-
-    npcStatusBadges.strategist = createStatusBadge(this, 180, 175, "LOCKED", "#94a3b8");
-    npcStatusBadges.designer = createStatusBadge(this, 400, 175, "LOCKED", "#94a3b8");
-    npcStatusBadges.marketer = createStatusBadge(this, 620, 175, "LOCKED", "#94a3b8");
+    // 3. Create NPCs from the room mechanics registry.
+    ROOM_SEQUENCE.forEach((room) => {
+        npcs[room.agent] = createProceduralNPC(this, room.npcX, room.npcY, room.name, room.accentColor, SPRITE_KEYS[room.agent]);
+        npcs[room.agent].setDepth(5);
+        npcStatusBadges[room.agent] = createStatusBadge(this, room.npcX, room.statusY, "LOCKED", "#94a3b8");
+    });
 
     // 4. Create Player
     player = createProceduralPlayer(this, 100, 210, SPRITE_KEYS.player);
@@ -819,9 +866,7 @@ function phaserUpdate() {
     // Directional animation: prefer horizontal when both axes are pressed.
     const moving = dx !== 0 || dy !== 0;
     if (moving) {
-        const dir = dx !== 0
-            ? (dx < 0 ? 'left' : 'right')
-            : (dy < 0 ? 'up' : 'down');
+        const dir = chooseWalkDirection(dx, dy);
         player.setData('facing', dir);
         if (typeof player.face === 'function') player.face(dir, true);
     } else {
@@ -845,6 +890,49 @@ function phaserUpdate() {
     // Proximity dialogues
     checkProximityDialogues(this);
     syncRunButtonState();
+    syncInteractionMarker();
+}
+
+function syncInteractionMarker() {
+    const step = getCurrentActiveStep();
+    const npc = getCurrentNpc();
+    const shouldShow = Boolean(
+        phaserSceneRef &&
+        step &&
+        npc &&
+        !step.artifact_data &&
+        !isReasoningBusy &&
+        isPlayerNearActiveAgent
+    );
+
+    if (!shouldShow) {
+        if (interactionMarker) {
+            interactionMarker.destroy();
+            interactionMarker = null;
+        }
+        return;
+    }
+
+    if (!interactionMarker) {
+        interactionMarker = phaserSceneRef.add.text(npc.x, npc.y - 82, "E", {
+            fontFamily: 'Press Start 2P, Arial',
+            fontSize: '12px',
+            color: '#0f172a',
+            backgroundColor: '#fbbf24',
+            padding: { x: 7, y: 5 }
+        }).setOrigin(0.5).setDepth(20);
+
+        phaserSceneRef.tweens.add({
+            targets: interactionMarker,
+            y: interactionMarker.y - 6,
+            duration: 500,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut'
+        });
+    }
+
+    interactionMarker.setPosition(npc.x, npc.y - 82);
 }
 
 // Draw a beautiful tech carpet under each department

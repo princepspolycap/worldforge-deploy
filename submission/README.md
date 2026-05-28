@@ -11,6 +11,7 @@ This project turns the live battle RPG prompt into a business-building quest gam
 - This `submission/` folder is reserved for our build, docs, agent code, tools, state, knowledge, quests, UI, and replay logs.
 - The current playable shell uses FastAPI plus Phaser: pitch entry, quest state, three NPC rooms, room-gated agent turns, verification gates, XP, streak bonuses, autoplay, and sprite/procedural rendering fallback.
 - The next design step is mapped in [docs/game_loop.md](docs/game_loop.md): split the prototype UI code into smaller browser modules, move room metadata into data, and grow the experience into a proper game foundation.
+- Sprite-game mechanics are mapped in [docs/sprite_game_mechanics.md](docs/sprite_game_mechanics.md): reusable movement, room, animation, reward, and automation patterns for the next game-feel pass.
 
 ## Phase 1 Demo Scope
 

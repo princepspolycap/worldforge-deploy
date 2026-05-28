@@ -54,6 +54,8 @@ Main issue: `submission/ui/game.js` currently owns too much at once. It contains
 
 The next design pass should split responsibilities without adding a heavy build system.
 
+The sprite-game-specific mechanics plan lives in [sprite_game_mechanics.md](sprite_game_mechanics.md). Treat that document as the guide for what we should copy from proven sprite games: spatial verbs, room state, readable animation states, reward beats, and automation hooks. Do not copy protected assets, maps, names, or story content.
+
 ## Target Frontend Shape
 
 Keep the current no-bundler setup for forkability, but split the browser code into small script files loaded by `index.html`:
