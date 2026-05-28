@@ -649,13 +649,20 @@ if (autoplayBtn) {
 // PHASER CANVAS WORLD INTEGRATION
 let phaserSceneRef = null;
 
+const WORLD_W = 960;
+const WORLD_H = 540;
+const CORRIDOR_Y = 460;
+const PLAYER_BOUNDS = { minX: 24, maxX: WORLD_W - 24, minY: 60, maxY: WORLD_H - 24 };
+
 function initPhaser() {
     const config = {
         type: Phaser.AUTO,
         parent: 'canvas-container',
-        width: 800,
-        height: 360,
-        backgroundColor: '#0a0f1d',
+        width: WORLD_W,
+        height: WORLD_H,
+        backgroundColor: '#04070f',
+        pixelArt: true,
+        roundPixels: true,
         physics: {
             default: 'arcade',
             arcade: {
@@ -759,6 +766,9 @@ let player = null;
 let nameplates = {};
 let npcs = {};
 let npcStatusBadges = {};
+let roomDoors = {};
+let roomFloors = {};
+let roomFurniture = {};
 let cursors = null;
 let wasdKeys = null;
 let activeNpcBubble = null;
@@ -766,55 +776,34 @@ let bubbleTimer = null;
 let activeRoomBeacon = null;
 let interactionMarker = null;
 let lastNearAgentKey = null;
+let footstepCooldown = 0;
 
 function phaserCreate() {
     phaserSceneRef = this;
-    
-    // 1. Draw a retro-chic modular isometric/grid layout
-    const gridGraphics = this.add.graphics();
-    gridGraphics.lineStyle(1, 0x14b8a6, 0.08);
-    for (let x = 0; x < 800; x += 32) {
-        gridGraphics.lineBetween(x, 0, x, 360);
-    }
-    for (let y = 0; y < 360; y += 32) {
-        gridGraphics.lineBetween(0, y, 800, y);
-    }
-    
+
+    // 1. Layered background: deep stone, hatched ground, corridor carpet.
+    drawDungeonBackground(this);
+
+    // 2. Each room: tile floor, walls with a doorway, themed furniture.
     ROOM_SEQUENCE.forEach((room) => {
-        drawRoomMat(
-            this,
-            room.roomX,
-            room.roomY,
-            room.roomW,
-            room.roomH,
-            room.roomColor,
-            `${room.name} (${room.role})`,
-            room.roomLabel
-        );
+        drawDungeonRoom(this, room);
     });
 
-    // Connect them with a hallway
-    const hallway = this.add.graphics();
-    hallway.fillStyle(0x0f172a, 1);
-    hallway.fillRect(40, 180, 720, 48);
-    hallway.lineStyle(2, 0x334155, 1);
-    hallway.strokeRect(40, 180, 720, 48);
-
-    // 2. Draw desks and office accessories
+    // 3. NPCs in the back of each room.
     ROOM_SEQUENCE.forEach((room) => {
-        drawOfficeDesk(this, room.deskX, room.deskY, room.deskColor);
-    });
-
-    // 3. Create NPCs from the room mechanics registry.
-    ROOM_SEQUENCE.forEach((room) => {
-        npcs[room.agent] = createProceduralNPC(this, room.npcX, room.npcY, room.name, room.accentColor, SPRITE_KEYS[room.agent]);
-        npcs[room.agent].setDepth(5);
+        const npc = createProceduralNPC(this, room.npcX, room.npcY, room.name, room.accentColor, SPRITE_KEYS[room.agent]);
+        npc.setDepth(5);
+        addNpcIdleBob(this, npc, room);
+        npcs[room.agent] = npc;
         npcStatusBadges[room.agent] = createStatusBadge(this, room.npcX, room.statusY, "LOCKED", "#94a3b8");
     });
 
-    // 4. Create Player
-    player = createProceduralPlayer(this, 100, 210, SPRITE_KEYS.player);
+    // 4. Player starts in the corridor in front of the first room.
+    player = createProceduralPlayer(this, ROOM_SEQUENCE[0].doorX, CORRIDOR_Y + 30, SPRITE_KEYS.player);
     if (player.setDepth) player.setDepth(6);
+
+    // 5. Soft edge vignette so the canvas reads as a lit stage.
+    drawVignette(this);
 
     // Controls setup
     cursors = this.input.keyboard.createCursorKeys();
@@ -828,8 +817,8 @@ function phaserCreate() {
     });
     this.input.keyboard.on("keydown-E", attemptRunCurrentStep);
     this.input.keyboard.on("keydown-SPACE", attemptRunCurrentStep);
-    
-    // Create floating tech particle generators for a high-intelligence feel!
+
+    // Floating ambient particles.
     createDungeonParticles(this);
     syncPhaserQuestState();
     syncRunButtonState();
@@ -860,8 +849,14 @@ function phaserUpdate() {
     }
     
     // Collide edges
-    player.x = Phaser.Math.Clamp(player.x, 30, 770);
-    player.y = Phaser.Math.Clamp(player.y, 30, 330);
+    player.x = Phaser.Math.Clamp(player.x, PLAYER_BOUNDS.minX, PLAYER_BOUNDS.maxX);
+    player.y = Phaser.Math.Clamp(player.y, PLAYER_BOUNDS.minY, PLAYER_BOUNDS.maxY);
+
+    // Footstep dust puffs while moving.
+    if ((dx !== 0 || dy !== 0) && this.time.now > footstepCooldown) {
+        spawnFootstepDust(this, player.x, player.y + 18);
+        footstepCooldown = this.time.now + 180;
+    }
     
     // Directional animation: prefer horizontal when both axes are pressed.
     const moving = dx !== 0 || dy !== 0;
@@ -935,50 +930,249 @@ function syncInteractionMarker() {
     interactionMarker.setPosition(npc.x, npc.y - 82);
 }
 
-// Draw a beautiful tech carpet under each department
-function drawRoomMat(scene, x, y, w, h, color, title, label) {
-    const carpet = scene.add.graphics();
-    carpet.fillStyle(color, 0.1);
-    carpet.fillRect(x, y, w, h);
-    carpet.lineStyle(2, color, 0.4);
-    carpet.strokeRect(x, y, w, h);
-    
-    // Add cool glowing room title
-    scene.add.text(x + 10, y + 10, title, {
+// ============================================================
+//  DUNGEON DRAWING - tiled floors, walls with doorways, furniture
+// ============================================================
+
+function drawDungeonBackground(scene) {
+    // Base stone fill.
+    const g = scene.add.graphics();
+    g.fillStyle(0x07101e, 1);
+    g.fillRect(0, 0, WORLD_W, WORLD_H);
+
+    // Subtle diagonal hatch for stone feel.
+    g.lineStyle(1, 0x0e1a30, 0.5);
+    for (let i = -WORLD_H; i < WORLD_W; i += 24) {
+        g.lineBetween(i, 0, i + WORLD_H, WORLD_H);
+    }
+
+    // Corridor carpet runner.
+    const corridor = scene.add.graphics();
+    corridor.fillStyle(0x0c1a30, 1);
+    corridor.fillRect(20, CORRIDOR_Y, WORLD_W - 40, WORLD_H - CORRIDOR_Y - 20);
+    corridor.lineStyle(2, 0x1a2a48, 1);
+    corridor.strokeRect(20, CORRIDOR_Y, WORLD_W - 40, WORLD_H - CORRIDOR_Y - 20);
+
+    // Carpet stripes - JRPG corridor cue.
+    corridor.fillStyle(0x122742, 0.6);
+    for (let x = 30; x < WORLD_W - 30; x += 40) {
+        corridor.fillRect(x, CORRIDOR_Y + 18, 24, 4);
+        corridor.fillRect(x, WORLD_H - 46, 24, 4);
+    }
+
+    // Cabinet label across the top stone band.
+    scene.add.text(WORLD_W / 2, 18, 'OFFICE LEVEL  -  STAGE 01', {
         fontFamily: 'Press Start 2P, Arial',
-        fontSize: '8px',
-        color: '#ffffff'
-    }).setAlpha(0.7);
-    
-    scene.add.text(x + 10, y + h - 18, label, {
-        fontFamily: 'Share Tech Mono, Arial',
-        fontSize: '9px',
+        fontSize: '10px',
         color: '#14b8a6'
-    }).setAlpha(0.5);
+    }).setOrigin(0.5, 0.5).setAlpha(0.6);
 }
 
-// Procedural visual components (No PNG weights necessary!)
-function drawOfficeDesk(scene, x, y, themeColor) {
-    const table = scene.add.graphics();
-    table.fillStyle(0x1e293b, 1);
-    table.fillRect(x, y, 54, 32);
-    table.lineStyle(1.5, themeColor, 0.8);
-    table.strokeRect(x, y, 54, 32);
-    
-    // Monitor screen
-    table.fillStyle(0x0f172a, 1);
-    table.fillRect(x + 12, y + 4, 30, 10);
-    table.lineStyle(1, 0x14b8a6, 0.6);
-    table.strokeRect(x + 12, y + 4, 30, 10);
-    
-    // Green code glowing on monitors
+function drawDungeonRoom(scene, room) {
+    const { roomX, roomY, roomW, roomH, roomColor, floorTint, accentColor, doorX, theme, name, role, roomLabel } = room;
+
+    // --- Tiled floor ---
+    const floor = scene.add.graphics();
+    floor.fillStyle(floorTint, 1);
+    floor.fillRect(roomX + 4, roomY + 4, roomW - 8, roomH - 8);
+    // Tile grid.
+    floor.lineStyle(1, 0x000000, 0.35);
+    const tile = 32;
+    for (let x = roomX + 4; x <= roomX + roomW - 4; x += tile) {
+        floor.lineBetween(x, roomY + 4, x, roomY + roomH - 4);
+    }
+    for (let y = roomY + 4; y <= roomY + roomH - 4; y += tile) {
+        floor.lineBetween(roomX + 4, y, roomX + roomW - 4, y);
+    }
+    // Checker accent on alternating tiles.
+    floor.fillStyle(roomColor, 0.06);
+    for (let x = roomX + 4; x < roomX + roomW - 4; x += tile) {
+        for (let y = roomY + 4; y < roomY + roomH - 4; y += tile) {
+            const ix = Math.floor((x - roomX) / tile);
+            const iy = Math.floor((y - roomY) / tile);
+            if ((ix + iy) % 2 === 0) floor.fillRect(x, y, tile, tile);
+        }
+    }
+    roomFloors[room.agent] = floor;
+
+    // --- Walls with doorway at the bottom ---
+    const wall = scene.add.graphics();
+    wall.fillStyle(0x182742, 1);
+    const wallTh = 6;
+    // Top wall.
+    wall.fillRect(roomX, roomY, roomW, wallTh);
+    // Left wall.
+    wall.fillRect(roomX, roomY, wallTh, roomH);
+    // Right wall.
+    wall.fillRect(roomX + roomW - wallTh, roomY, wallTh, roomH);
+    // Bottom wall split by doorway.
+    const doorGap = 64;
+    const doorLeft = doorX - doorGap / 2;
+    const doorRight = doorX + doorGap / 2;
+    wall.fillRect(roomX, roomY + roomH - wallTh, doorLeft - roomX, wallTh);
+    wall.fillRect(doorRight, roomY + roomH - wallTh, roomX + roomW - doorRight, wallTh);
+
+    // Wall highlight.
+    wall.lineStyle(1, accentColor, 0.4);
+    wall.strokeRect(roomX + 1, roomY + 1, roomW - 2, roomH - 2);
+
+    // --- Door panels (will slide open when room unlocks) ---
+    const doorLeftPanel = scene.add.rectangle(doorLeft + (doorGap / 4), roomY + roomH - 4, doorGap / 2 - 4, 14, accentColor, 1).setOrigin(0.5);
+    const doorRightPanel = scene.add.rectangle(doorRight - (doorGap / 4), roomY + roomH - 4, doorGap / 2 - 4, 14, accentColor, 1).setOrigin(0.5);
+    doorLeftPanel.setStrokeStyle(1, 0x000000, 0.6);
+    doorRightPanel.setStrokeStyle(1, 0x000000, 0.6);
+    roomDoors[room.agent] = { left: doorLeftPanel, right: doorRightPanel, baseX: { left: doorLeftPanel.x, right: doorRightPanel.x }, gap: doorGap };
+
+    // --- Corner torches ---
+    drawCornerTorch(scene, roomX + 14, roomY + 14, accentColor);
+    drawCornerTorch(scene, roomX + roomW - 14, roomY + 14, accentColor);
+
+    // --- Themed furniture ---
+    roomFurniture[room.agent] = drawThemedFurniture(scene, room);
+
+    // --- Room title plaque ---
+    scene.add.text(roomX + roomW / 2, roomY + 18, roomLabel, {
+        fontFamily: 'Press Start 2P, Arial',
+        fontSize: '9px',
+        color: '#e2e8f0'
+    }).setOrigin(0.5).setAlpha(0.85);
+    scene.add.text(roomX + roomW / 2, roomY + 36, `${name} - ${role}`, {
+        fontFamily: 'Share Tech Mono, monospace',
+        fontSize: '10px',
+        color: '#94a3b8'
+    }).setOrigin(0.5);
+}
+
+function drawCornerTorch(scene, x, y, color) {
+    const sconce = scene.add.graphics();
+    sconce.fillStyle(0x1e293b, 1);
+    sconce.fillRect(x - 3, y - 2, 6, 8);
+    const flame = scene.add.circle(x, y - 6, 4, color, 0.9);
+    scene.tweens.add({
+        targets: flame,
+        scale: { from: 0.85, to: 1.15 },
+        alpha: { from: 0.65, to: 1 },
+        duration: 480,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut'
+    });
+}
+
+function drawThemedFurniture(scene, room) {
+    const { deskX, deskY, accentColor, theme, roomX, roomW, roomY, roomH } = room;
+    const g = scene.add.container(0, 0);
+
+    // Common desk.
+    const desk = scene.add.graphics();
+    desk.fillStyle(0x1e293b, 1);
+    desk.fillRect(deskX, deskY, 80, 32);
+    desk.lineStyle(2, accentColor, 0.85);
+    desk.strokeRect(deskX, deskY, 80, 32);
+    // Monitor.
+    desk.fillStyle(0x020617, 1);
+    desk.fillRect(deskX + 20, deskY + 6, 40, 14);
+    desk.lineStyle(1, accentColor, 0.6);
+    desk.strokeRect(deskX + 20, deskY + 6, 40, 14);
+    // Keyboard.
+    desk.fillStyle(0x334155, 1);
+    desk.fillRect(deskX + 26, deskY + 24, 28, 5);
+    g.add(desk);
+
+    // Code glow on monitor.
     const code = scene.add.graphics();
-    code.fillStyle(0x10b981, 0.6);
-    code.fillRect(x + 15, y + 7, 24, 4);
-    
-    // Keyboard
-    table.fillStyle(0x334155, 1);
-    table.fillRect(x + 18, y + 20, 18, 6);
+    code.fillStyle(accentColor, 0.7);
+    code.fillRect(deskX + 24, deskY + 10, 32, 2);
+    code.fillRect(deskX + 24, deskY + 14, 22, 2);
+    g.add(code);
+
+    if (theme === 'strategy') {
+        // Whiteboard with trajectory chart, back-left wall.
+        const board = scene.add.graphics();
+        board.fillStyle(0xf8fafc, 1);
+        board.fillRect(roomX + 18, roomY + 60, 70, 50);
+        board.lineStyle(2, accentColor, 0.9);
+        board.strokeRect(roomX + 18, roomY + 60, 70, 50);
+        // Trend line.
+        board.lineStyle(2, accentColor, 1);
+        board.beginPath();
+        board.moveTo(roomX + 24, roomY + 100);
+        board.lineTo(roomX + 40, roomY + 88);
+        board.lineTo(roomX + 58, roomY + 92);
+        board.lineTo(roomX + 82, roomY + 70);
+        board.strokePath();
+        g.add(board);
+    } else if (theme === 'design') {
+        // Easel with mockup, back-left wall.
+        const easel = scene.add.graphics();
+        easel.fillStyle(0x4c1d95, 1);
+        easel.fillRect(roomX + 22, roomY + 60, 60, 50);
+        easel.lineStyle(2, accentColor, 0.9);
+        easel.strokeRect(roomX + 22, roomY + 60, 60, 50);
+        // Hero block.
+        easel.fillStyle(0xf5d0fe, 0.8);
+        easel.fillRect(roomX + 28, roomY + 68, 48, 14);
+        // Lines.
+        easel.fillStyle(accentColor, 0.7);
+        easel.fillRect(roomX + 28, roomY + 88, 38, 3);
+        easel.fillRect(roomX + 28, roomY + 94, 30, 3);
+        easel.fillRect(roomX + 28, roomY + 100, 22, 3);
+        g.add(easel);
+    } else if (theme === 'marketing') {
+        // Megaphone + send-stack on back-left wall.
+        const stack = scene.add.graphics();
+        stack.fillStyle(0x713f12, 1);
+        stack.fillRect(roomX + 18, roomY + 60, 70, 50);
+        stack.lineStyle(2, accentColor, 0.9);
+        stack.strokeRect(roomX + 18, roomY + 60, 70, 50);
+        // Envelope.
+        stack.fillStyle(0xfef9c3, 1);
+        stack.fillRect(roomX + 26, roomY + 68, 54, 28);
+        stack.lineStyle(1, 0x422006, 1);
+        stack.strokeRect(roomX + 26, roomY + 68, 54, 28);
+        stack.beginPath();
+        stack.moveTo(roomX + 26, roomY + 68);
+        stack.lineTo(roomX + 53, roomY + 84);
+        stack.lineTo(roomX + 80, roomY + 68);
+        stack.strokePath();
+        g.add(stack);
+    }
+
+    return g;
+}
+
+function drawVignette(scene) {
+    // Dark vignette frame to focus the eye on the playable area.
+    const v = scene.add.graphics();
+    v.fillStyle(0x000000, 0.5);
+    v.fillRect(0, 0, WORLD_W, 28);
+    v.fillRect(0, WORLD_H - 18, WORLD_W, 18);
+    v.fillRect(0, 0, 18, WORLD_H);
+    v.fillRect(WORLD_W - 18, 0, 18, WORLD_H);
+    v.setDepth(50);
+}
+
+function addNpcIdleBob(scene, npc, room) {
+    scene.tweens.add({
+        targets: npc,
+        y: room.npcY - 3,
+        duration: 1100,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut'
+    });
+}
+
+function spawnFootstepDust(scene, x, y) {
+    const dust = scene.add.circle(x, y, 3, 0x94a3b8, 0.45);
+    dust.setDepth(2);
+    scene.tweens.add({
+        targets: dust,
+        alpha: 0,
+        scale: 1.8,
+        duration: 380,
+        onComplete: () => dust.destroy()
+    });
 }
 
 function createProceduralNPC(scene, x, y, name, colorVal, spriteKey) {
@@ -1097,20 +1291,18 @@ function createProceduralPlayer(scene, x, y, spriteKey) {
 }
 
 function createDungeonParticles(scene) {
-    // Generate lovely floating coding particles
-    const emitter = scene.add.graphics();
+    // Generate lovely floating coding particles across the whole world.
     scene.time.addEvent({
-        delay: 50,
+        delay: 70,
         callback: () => {
-            const px = Phaser.Math.Between(50, 750);
-            const py = Phaser.Math.Between(50, 310);
-            
-            const dot = scene.add.circle(px, py, Phaser.Math.Between(1, 3), 0x14b8a6, 0.15);
+            const px = Phaser.Math.Between(40, WORLD_W - 40);
+            const py = Phaser.Math.Between(40, WORLD_H - 40);
+            const dot = scene.add.circle(px, py, Phaser.Math.Between(1, 2), 0x14b8a6, 0.18);
             scene.tweens.add({
                 targets: dot,
-                y: py - 40,
+                y: py - 50,
                 alpha: 0,
-                duration: 1200,
+                duration: 1400,
                 onComplete: () => dot.destroy()
             });
         },
@@ -1171,25 +1363,44 @@ function notifyPhaserAgentReject() {
 
 function spawnPhaserXPEffect(xpAmount = 0) {
     if (!player || !phaserSceneRef) return;
-    
-    // Level Up / XP golden text
-    const text = phaserSceneRef.add.text(player.x, player.y - 45, `+${xpAmount} XP`, {
+
+    // Camera shake for impact.
+    phaserSceneRef.cameras.main.shake(220, 0.004);
+
+    // Big XP text rising.
+    const text = phaserSceneRef.add.text(player.x, player.y - 50, `+${xpAmount} XP`, {
         fontFamily: 'Press Start 2P, Arial',
-        fontSize: '12px',
+        fontSize: '14px',
         color: '#fbbf24',
         stroke: '#000000',
-        strokeThickness: 3
-    }).setOrigin(0.5);
-    
-    // Float upwards
+        strokeThickness: 4
+    }).setOrigin(0.5).setDepth(40);
+
     phaserSceneRef.tweens.add({
         targets: text,
-        y: player.y - 95,
+        y: player.y - 110,
         alpha: 0,
-        scale: 1.4,
-        duration: 2000,
+        scale: 1.5,
+        duration: 1800,
         onComplete: () => text.destroy()
     });
+
+    // Gold spark burst.
+    for (let i = 0; i < 14; i++) {
+        const ang = (Math.PI * 2 * i) / 14;
+        const dist = Phaser.Math.Between(30, 60);
+        const spark = phaserSceneRef.add.circle(player.x, player.y - 10, 3, 0xfde047, 1).setDepth(39);
+        phaserSceneRef.tweens.add({
+            targets: spark,
+            x: player.x + Math.cos(ang) * dist,
+            y: player.y - 10 + Math.sin(ang) * dist,
+            alpha: 0,
+            scale: 0.2,
+            duration: 700 + Math.random() * 300,
+            ease: 'Cubic.easeOut',
+            onComplete: () => spark.destroy()
+        });
+    }
 }
 
 function syncPhaserQuestState() {
@@ -1212,6 +1423,29 @@ function syncPhaserQuestState() {
         badge.setColor(status.color);
         badge.setAlpha(status.alpha);
         if (npcs[agentKey]) npcs[agentKey].setAlpha(status.alpha === 0.45 ? 0.55 : 1);
+
+        // Doors slide open for active or cleared rooms; closed when locked.
+        const door = roomDoors[agentKey];
+        if (door) {
+            const open = status.text !== 'LOCKED';
+            const offset = open ? door.gap / 2 - 4 : 0;
+            phaserSceneRef.tweens.add({
+                targets: door.left,
+                x: door.baseX.left - offset,
+                duration: 350,
+                ease: 'Cubic.easeOut'
+            });
+            phaserSceneRef.tweens.add({
+                targets: door.right,
+                x: door.baseX.right + offset,
+                duration: 350,
+                ease: 'Cubic.easeOut'
+            });
+        }
+
+        // Floor brightens for the active room.
+        const floor = roomFloors[agentKey];
+        if (floor) floor.setAlpha(status.text === 'ACTIVE' ? 1 : 0.7);
     });
 
     if (activeRoomBeacon) activeRoomBeacon.destroy();
