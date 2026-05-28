@@ -228,18 +228,14 @@ function updateUIWithState() {
             }
             
             const card = document.createElement("div");
-            card.className = `p-4 rounded border transition-all ${borderClass}`;
+            card.className = `px-2 py-2 rounded border text-center transition-all ${borderClass}`;
             card.innerHTML = `
-                <div class="flex items-center justify-between mb-2">
-                    <span class="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${tagClass}">${step.assigned_to}</span>
-                    <span class="text-[10px] text-slate-400">${statusText}</span>
+                <div class="flex items-center justify-center gap-1 mb-1">
+                    <span class="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${tagClass}">${idx + 1}</span>
+                    <span class="text-[9px] text-slate-400 uppercase truncate">${step.assigned_to}</span>
                 </div>
-                <h4 class="text-xs font-bold text-slate-200 mb-1">${step.title}</h4>
-                <p class="text-[10px] text-slate-400 leading-tight">${step.description}</p>
-                <div class="mt-3 flex items-center justify-between text-[10px]">
-                    <span class="text-yellow-400">💎 Reward: ${step.xp_reward} XP</span>
-                    <span class="text-slate-500">${step.artifact_type.toUpperCase()}</span>
-                </div>
+                <div class="text-[10px] text-slate-300 truncate">${statusText}</div>
+                <div class="text-[9px] text-yellow-400 mt-0.5">+${step.xp_reward} XP</div>
             `;
             questBoard.appendChild(card);
         });
@@ -769,6 +765,11 @@ let npcStatusBadges = {};
 let roomDoors = {};
 let roomFloors = {};
 let roomFurniture = {};
+let roomPedestals = {};
+let pedestalArtifacts = {};
+let pedestalProgress = {};
+let corridorCheckpoints = {};
+let roomGates = {};
 let cursors = null;
 let wasdKeys = null;
 let activeNpcBubble = null;
@@ -777,6 +778,8 @@ let activeRoomBeacon = null;
 let interactionMarker = null;
 let lastNearAgentKey = null;
 let footstepCooldown = 0;
+let reasoningGlyphCooldown = 0;
+let pedestalInspectPrompt = null;
 
 function phaserCreate() {
     phaserSceneRef = this;
@@ -789,7 +792,27 @@ function phaserCreate() {
         drawDungeonRoom(this, room);
     });
 
-    // 3. NPCs in the back of each room.
+    // 3. Corridor quest path: a checkpoint stone in front of each door.
+    ROOM_SEQUENCE.forEach((room, idx) => {
+        corridorCheckpoints[room.agent] = drawCheckpoint(this, room.doorX, CORRIDOR_Y + 30, idx + 1, room.accentColor);
+    });
+
+    // 4. Chain gates between consecutive rooms.
+    for (let i = 0; i < ROOM_SEQUENCE.length - 1; i++) {
+        const a = ROOM_SEQUENCE[i];
+        const b = ROOM_SEQUENCE[i + 1];
+        const gateX = (a.doorX + b.doorX) / 2;
+        roomGates[b.agent] = drawCorridorGate(this, gateX, CORRIDOR_Y + 30);
+    }
+
+    // 5. Pedestal inside each room (mounts artifact / trophy).
+    ROOM_SEQUENCE.forEach((room) => {
+        const pedX = room.roomX + room.roomW / 2;
+        const pedY = room.roomY + room.roomH - 70;
+        roomPedestals[room.agent] = drawPedestal(this, pedX, pedY, room.accentColor);
+    });
+
+    // 6. NPCs in the back of each room.
     ROOM_SEQUENCE.forEach((room) => {
         const npc = createProceduralNPC(this, room.npcX, room.npcY, room.name, room.accentColor, SPRITE_KEYS[room.agent]);
         npc.setDepth(5);
@@ -798,11 +821,11 @@ function phaserCreate() {
         npcStatusBadges[room.agent] = createStatusBadge(this, room.npcX, room.statusY, "LOCKED", "#94a3b8");
     });
 
-    // 4. Player starts in the corridor in front of the first room.
+    // 7. Player starts in the corridor in front of the first room.
     player = createProceduralPlayer(this, ROOM_SEQUENCE[0].doorX, CORRIDOR_Y + 30, SPRITE_KEYS.player);
     if (player.setDepth) player.setDepth(6);
 
-    // 5. Soft edge vignette so the canvas reads as a lit stage.
+    // 8. Soft edge vignette so the canvas reads as a lit stage.
     drawVignette(this);
 
     // Controls setup
@@ -815,8 +838,8 @@ function phaserCreate() {
         interact: Phaser.Input.Keyboard.KeyCodes.E,
         space: Phaser.Input.Keyboard.KeyCodes.SPACE
     });
-    this.input.keyboard.on("keydown-E", attemptRunCurrentStep);
-    this.input.keyboard.on("keydown-SPACE", attemptRunCurrentStep);
+    this.input.keyboard.on("keydown-E", onInteractKey);
+    this.input.keyboard.on("keydown-SPACE", onInteractKey);
 
     // Floating ambient particles.
     createDungeonParticles(this);
@@ -857,6 +880,16 @@ function phaserUpdate() {
         spawnFootstepDust(this, player.x, player.y + 18);
         footstepCooldown = this.time.now + 180;
     }
+
+    // Stream reasoning glyphs from the active NPC while the LLM is thinking.
+    if (isReasoningBusy && this.time.now > reasoningGlyphCooldown) {
+        const activeNpc = getCurrentNpc();
+        if (activeNpc) spawnReasoningGlyph(this, activeNpc.x, activeNpc.y - 30);
+        reasoningGlyphCooldown = this.time.now + 140;
+    }
+
+    // Pedestal inspect prompt while standing next to a ready artifact.
+    syncPedestalInspectPrompt(this);
     
     // Directional animation: prefer horizontal when both axes are pressed.
     const moving = dx !== 0 || dy !== 0;
@@ -1175,6 +1208,318 @@ function spawnFootstepDust(scene, x, y) {
     });
 }
 
+// ============================================================
+//  DIEGETIC UI - checkpoints, gates, pedestals, reasoning glyphs
+// ============================================================
+
+function drawCheckpoint(scene, x, y, index, accentColor) {
+    const container = scene.add.container(x, y);
+    container.setDepth(3);
+
+    const base = scene.add.graphics();
+    base.fillStyle(0x0a1530, 1);
+    base.fillCircle(0, 0, 16);
+    base.lineStyle(2, 0x334155, 1);
+    base.strokeCircle(0, 0, 16);
+    container.add(base);
+
+    const ring = scene.add.graphics();
+    container.add(ring);
+
+    const label = scene.add.text(0, 0, String(index), {
+        fontFamily: 'Press Start 2P, Arial',
+        fontSize: '9px',
+        color: '#94a3b8'
+    }).setOrigin(0.5);
+    container.add(label);
+
+    container.ring = ring;
+    container.label = label;
+    container.base = base;
+    container.accentColor = accentColor;
+    return container;
+}
+
+function setCheckpointState(checkpoint, state) {
+    if (!checkpoint || !phaserSceneRef) return;
+    const { ring, label, base, accentColor } = checkpoint;
+    ring.clear();
+    base.clear();
+    base.fillStyle(0x0a1530, 1);
+    base.fillCircle(0, 0, 16);
+
+    if (state === 'active') {
+        base.lineStyle(2, 0xfbbf24, 1);
+        base.strokeCircle(0, 0, 16);
+        ring.lineStyle(2, 0xfbbf24, 0.7);
+        ring.strokeCircle(0, 0, 22);
+        label.setText('!');
+        label.setColor('#fbbf24');
+        // Pulsing aura
+        if (!checkpoint.pulseTween) {
+            checkpoint.pulseTween = phaserSceneRef.tweens.add({
+                targets: ring,
+                alpha: { from: 0.2, to: 1 },
+                duration: 700,
+                yoyo: true,
+                repeat: -1
+            });
+        }
+    } else if (state === 'cleared') {
+        if (checkpoint.pulseTween) { checkpoint.pulseTween.stop(); checkpoint.pulseTween = null; }
+        base.lineStyle(2, 0x34d399, 1);
+        base.strokeCircle(0, 0, 16);
+        ring.setAlpha(1);
+        ring.lineStyle(2, 0x34d399, 0.6);
+        ring.beginPath();
+        // Check mark.
+        ring.moveTo(-6, 0);
+        ring.lineTo(-1, 6);
+        ring.lineTo(7, -5);
+        ring.strokePath();
+        label.setText('');
+    } else {
+        if (checkpoint.pulseTween) { checkpoint.pulseTween.stop(); checkpoint.pulseTween = null; }
+        ring.setAlpha(1);
+        base.lineStyle(2, 0x334155, 1);
+        base.strokeCircle(0, 0, 16);
+        label.setText(label.text === '' ? String(label.getData('index') || '?') : label.text);
+        label.setColor('#475569');
+    }
+}
+
+function drawCorridorGate(scene, x, y) {
+    const container = scene.add.container(x, y);
+    container.setDepth(4);
+
+    // Two posts.
+    const left = scene.add.rectangle(-10, 0, 4, 36, 0x475569).setOrigin(0.5);
+    const right = scene.add.rectangle(10, 0, 4, 36, 0x475569).setOrigin(0.5);
+    // Three chain bars.
+    const bars = [];
+    for (let i = -1; i <= 1; i++) {
+        const bar = scene.add.rectangle(0, i * 9, 24, 3, 0x94a3b8).setOrigin(0.5);
+        bars.push(bar);
+    }
+    // Glowing seal.
+    const seal = scene.add.circle(0, 0, 6, 0xfbbf24, 1).setStrokeStyle(1, 0x422006, 1);
+    container.add([left, right, ...bars, seal]);
+    container.posts = [left, right];
+    container.bars = bars;
+    container.seal = seal;
+    return container;
+}
+
+function breakCorridorGate(gate) {
+    if (!gate || !phaserSceneRef || gate.broken) return;
+    gate.broken = true;
+    // Seal flashes and pops.
+    phaserSceneRef.tweens.add({
+        targets: gate.seal,
+        scale: 2,
+        alpha: 0,
+        duration: 280,
+        onComplete: () => gate.seal.destroy()
+    });
+    // Bars fly out.
+    gate.bars.forEach((bar, i) => {
+        phaserSceneRef.tweens.add({
+            targets: bar,
+            y: bar.y + (i - 1) * 6 + 8,
+            angle: Phaser.Math.Between(-60, 60),
+            alpha: 0,
+            duration: 500,
+            ease: 'Cubic.easeOut',
+            onComplete: () => bar.destroy()
+        });
+    });
+    // Posts fade.
+    gate.posts.forEach((post) => {
+        phaserSceneRef.tweens.add({
+            targets: post,
+            alpha: 0.25,
+            duration: 500
+        });
+    });
+}
+
+function drawPedestal(scene, x, y, accentColor) {
+    const container = scene.add.container(x, y);
+    container.setDepth(3);
+
+    // Base block.
+    const base = scene.add.graphics();
+    base.fillStyle(0x1e293b, 1);
+    base.fillRect(-16, -4, 32, 14);
+    base.lineStyle(2, accentColor, 0.8);
+    base.strokeRect(-16, -4, 32, 14);
+    // Top slab.
+    base.fillStyle(0x334155, 1);
+    base.fillRect(-18, -8, 36, 6);
+    base.lineStyle(2, accentColor, 0.6);
+    base.strokeRect(-18, -8, 36, 6);
+    container.add(base);
+
+    // Glow ring underneath (visible only when something is on the pedestal).
+    const glow = scene.add.circle(0, -2, 22, accentColor, 0.0);
+    container.addAt(glow, 0);
+    container.glow = glow;
+
+    // Slot for the artifact / trophy sprite.
+    const slot = scene.add.container(0, -20);
+    container.add(slot);
+    container.slot = slot;
+    container.accentColor = accentColor;
+    return container;
+}
+
+function setPedestalArtifact(pedestal, kind) {
+    if (!pedestal || !phaserSceneRef) return;
+    pedestal.slot.removeAll(true);
+    if (pedestal.floatTween) { pedestal.floatTween.stop(); pedestal.floatTween = null; }
+
+    if (kind === 'scroll') {
+        // Glowing scroll.
+        const scrollBody = phaserSceneRef.add.graphics();
+        scrollBody.fillStyle(0xfef3c7, 1);
+        scrollBody.fillRect(-9, -10, 18, 20);
+        scrollBody.lineStyle(1, 0x78350f, 1);
+        scrollBody.strokeRect(-9, -10, 18, 20);
+        // Ink lines.
+        scrollBody.lineStyle(1, 0x78350f, 0.7);
+        scrollBody.lineBetween(-6, -5, 6, -5);
+        scrollBody.lineBetween(-6, -1, 6, -1);
+        scrollBody.lineBetween(-6, 3, 4, 3);
+        // Ribbon.
+        scrollBody.fillStyle(0xdc2626, 1);
+        scrollBody.fillRect(-9, 4, 18, 3);
+        pedestal.slot.add(scrollBody);
+        pedestal.glow.setFillStyle(pedestal.accentColor, 0.35);
+        pedestal.floatTween = phaserSceneRef.tweens.add({
+            targets: pedestal.slot,
+            y: -26,
+            duration: 900,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut'
+        });
+    } else if (kind === 'trophy') {
+        const trophy = phaserSceneRef.add.graphics();
+        trophy.fillStyle(0xfde047, 1);
+        // Cup.
+        trophy.fillRect(-7, -10, 14, 10);
+        trophy.fillRect(-9, -10, 18, 3);
+        // Stem + base.
+        trophy.fillRect(-2, 0, 4, 4);
+        trophy.fillRect(-6, 4, 12, 3);
+        trophy.lineStyle(1, 0x854d0e, 1);
+        trophy.strokeRect(-7, -10, 14, 10);
+        pedestal.slot.add(trophy);
+        pedestal.glow.setFillStyle(0xfde047, 0.45);
+        pedestal.floatTween = phaserSceneRef.tweens.add({
+            targets: pedestal.glow,
+            alpha: { from: 0.25, to: 0.6 },
+            duration: 1000,
+            yoyo: true,
+            repeat: -1
+        });
+    } else {
+        pedestal.glow.setFillStyle(pedestal.accentColor, 0.0);
+    }
+}
+
+function spawnReasoningGlyph(scene, x, y) {
+    const glyphs = ['0', '1', '{}', '<>', '*', '+', '~'];
+    const glyph = scene.add.text(
+        x + Phaser.Math.Between(-10, 10),
+        y + Phaser.Math.Between(-4, 4),
+        Phaser.Utils.Array.GetRandom(glyphs),
+        {
+            fontFamily: 'Share Tech Mono, monospace',
+            fontSize: '12px',
+            color: '#2dd4bf'
+        }
+    ).setOrigin(0.5).setDepth(8);
+    scene.tweens.add({
+        targets: glyph,
+        y: glyph.y - 36,
+        alpha: 0,
+        duration: 900,
+        ease: 'Cubic.easeOut',
+        onComplete: () => glyph.destroy()
+    });
+}
+
+function getActivePedestal() {
+    const agentKey = getCurrentAgentKey();
+    return agentKey ? roomPedestals[agentKey] : null;
+}
+
+function isPlayerNearActivePedestal() {
+    const ped = getActivePedestal();
+    if (!ped || !player) return false;
+    const dist = Phaser.Math.Distance.Between(player.x, player.y, ped.x, ped.y);
+    return dist < 56;
+}
+
+function syncPedestalInspectPrompt(scene) {
+    const step = getCurrentActiveStep();
+    const ped = getActivePedestal();
+    const shouldShow = Boolean(
+        ped &&
+        step &&
+        step.artifact_data &&
+        isPlayerNearActivePedestal()
+    );
+
+    if (!shouldShow) {
+        if (pedestalInspectPrompt) {
+            pedestalInspectPrompt.destroy();
+            pedestalInspectPrompt = null;
+        }
+        return;
+    }
+
+    if (!pedestalInspectPrompt) {
+        pedestalInspectPrompt = scene.add.text(ped.x, ped.y - 50, 'E to INSPECT', {
+            fontFamily: 'Press Start 2P, Arial',
+            fontSize: '8px',
+            color: '#fef3c7',
+            backgroundColor: '#0f172acc',
+            padding: { x: 6, y: 4 }
+        }).setOrigin(0.5).setDepth(25);
+        scene.tweens.add({
+            targets: pedestalInspectPrompt,
+            y: pedestalInspectPrompt.y - 4,
+            duration: 500,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut'
+        });
+    }
+    pedestalInspectPrompt.setPosition(ped.x, ped.y - 50);
+}
+
+function onInteractKey() {
+    // Route the E / Space key to either "run agent" or "inspect artifact".
+    const step = getCurrentActiveStep();
+    if (!step) return;
+    if (step.artifact_data) {
+        if (isPlayerNearActivePedestal()) flashInspector();
+        return;
+    }
+    attemptRunCurrentStep();
+}
+
+function flashInspector() {
+    if (!artifactContentArea) return;
+    artifactContentArea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    artifactContentArea.classList.add('ring-2', 'ring-amber-400', 'transition-all');
+    setTimeout(() => {
+        artifactContentArea.classList.remove('ring-2', 'ring-amber-400');
+    }, 1200);
+}
+
 function createProceduralNPC(scene, x, y, name, colorVal, spriteKey) {
     const container = scene.add.container(x, y);
 
@@ -1446,6 +1791,46 @@ function syncPhaserQuestState() {
         // Floor brightens for the active room.
         const floor = roomFloors[agentKey];
         if (floor) floor.setAlpha(status.text === 'ACTIVE' ? 1 : 0.7);
+
+        // Corridor checkpoint reflects state.
+        const cp = corridorCheckpoints[agentKey];
+        if (cp) {
+            const s = status.text === 'CLEARED' ? 'cleared' : status.text === 'ACTIVE' ? 'active' : 'locked';
+            setCheckpointState(cp, s);
+        }
+
+        // Corridor gate to THIS room breaks once the previous room is cleared.
+        // i.e. roomGates[agent] is the gate just before this room.
+        const gate = roomGates[agentKey];
+        if (gate) {
+            const myIdx = ROOM_SEQUENCE.findIndex((r) => r.agent === agentKey);
+            const prev = ROOM_SEQUENCE[myIdx - 1];
+            const prevStatus = prev ? statusByAgent[prev.agent] : null;
+            const prevCleared = prevStatus && prevStatus.text === 'CLEARED';
+            if (prevCleared) breakCorridorGate(gate);
+        }
+
+        // Pedestal artifact mirrors quest state.
+        const ped = roomPedestals[agentKey];
+        if (ped) {
+            const step = (quest.steps || []).find((s) => s.assigned_to === agentKey);
+            if (status.text === 'CLEARED') {
+                if (pedestalProgress[agentKey] !== 'trophy') {
+                    setPedestalArtifact(ped, 'trophy');
+                    pedestalProgress[agentKey] = 'trophy';
+                }
+            } else if (status.text === 'ACTIVE' && step && step.artifact_data) {
+                if (pedestalProgress[agentKey] !== 'scroll') {
+                    setPedestalArtifact(ped, 'scroll');
+                    pedestalProgress[agentKey] = 'scroll';
+                }
+            } else {
+                if (pedestalProgress[agentKey] !== 'empty') {
+                    setPedestalArtifact(ped, 'empty');
+                    pedestalProgress[agentKey] = 'empty';
+                }
+            }
+        }
     });
 
     if (activeRoomBeacon) activeRoomBeacon.destroy();

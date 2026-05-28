@@ -201,7 +201,7 @@
         </section>
 
         <!-- ====== GAME COLUMN (canvas + quest path) ====== -->
-        <section id="game-view" class="hidden xl:col-span-8 col-span-12 flex flex-col gap-5">
+        <section id="game-view" class="hidden xl:col-span-9 col-span-12 flex flex-col gap-5">
 
             <!-- Stage shell with canvas -->
             <div class="panel p-2 relative overflow-hidden scanlines">
@@ -237,27 +237,27 @@
                 </div>
             </div>
 
-            <!-- Quest path -->
-            <div class="panel p-4">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="pixel text-[11px] text-teal-300">QUEST PATH</h3>
-                    <span class="text-[10px] text-slate-500">FORGE YOUR FIRST LANDING PAGE</span>
+            <!-- Quest path (compact strip - the canvas rooms ARE the quest path) -->
+            <div class="panel px-4 py-3">
+                <div class="flex items-center justify-between mb-1">
+                    <h3 class="pixel text-[10px] text-teal-300">QUEST PATH</h3>
+                    <span class="text-[9px] text-slate-500">CHECKPOINTS LIT IN THE CORRIDOR</span>
                 </div>
-                <div id="quest-board" class="grid grid-cols-1 md:grid-cols-3 gap-5 pl-4">
-                    <!-- Quest cards injected here -->
+                <div id="quest-board" class="grid grid-cols-3 gap-2">
+                    <!-- Quest pills injected here -->
                 </div>
             </div>
         </section>
 
         <!-- ====== SIDEBAR: ARTIFACT + REASONING ====== -->
-        <aside id="sidebar-view" class="hidden xl:col-span-4 col-span-12 flex flex-col gap-5">
+        <aside id="sidebar-view" class="hidden xl:col-span-3 col-span-12 flex flex-col gap-5">
 
             <!-- Artifact card -->
             <div class="panel p-4 flex flex-col min-h-[500px]">
                 <div class="flex items-center justify-between pb-3 border-b border-[#1b2742] mb-3">
                     <div class="flex items-center gap-2">
                         <span class="w-1.5 h-5 bg-teal-400 rounded"></span>
-                        <h3 class="pixel text-[11px] text-teal-300">ARTIFACT VAULT</h3>
+                        <h3 class="pixel text-[11px] text-teal-300">ARTIFACT READER</h3>
                     </div>
                     <span id="active-agent-badge" class="px-2 py-0.5 panel-soft text-[10px] text-teal-200 mono">No active room</span>
                 </div>
@@ -347,7 +347,7 @@
     </footer>
 
     <!-- ============================== SCRIPTS ============================== -->
-    <script src="/game/game/mechanics.js?v=3"></script>
-    <script src="/game/game.js?v=10"></script>
+    <script src="/game/game/mechanics.js?v=4"></script>
+    <script src="/game/game.js?v=11"></script>
 </body>
 </html>
