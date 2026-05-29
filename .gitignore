@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.*.local
+submission/docs/llm_smoke_test_results*.json
 
 # API keys and secrets
 **/secrets/

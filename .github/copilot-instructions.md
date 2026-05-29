@@ -63,7 +63,7 @@ These exist on the maintainer's machine. Reference them when wiring features but
 ### Azure / Foundry models — reuse Poly env
 
 - **Source**: `/Users/princeps/Projects/Poly186/Poly/.env`
-- Contains live keys for Foundry base URL, GPT-5 family deployments, embedding deployments, image gen, plus a dedicated `POLY_FOUNDRY_KEY` / `POLY_FOUNDRY_BASE_URL`.
+- Contains private Foundry credentials, deployment names, embedding deployments, and image generation settings. Copy only the values needed into a gitignored `submission/.env`.
 - **Usage**: Copy the keys you need into `submission/.env` (gitignored). Map them onto our `AZURE_AI_PROJECT_ENDPOINT` / `AZURE_AI_MODEL_DEPLOYMENT` variables in [`.env.example`](../submission/.env.example).
 - **Recommended models for this build**:
   - Master Narrator + character reasoning: `gpt-5` family deployment (use whatever is current in Poly env)

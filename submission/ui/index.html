@@ -214,6 +214,10 @@
                             class="w-full py-3 bg-gradient-to-r from-teal-500 to-emerald-400 text-slate-950 rounded font-bold pixel text-xs glow-teal hover:brightness-110 transition-all">
                         ENTER THE DUNGEON
                     </button>
+                    <button id="world-autoplay-btn"
+                            class="w-full py-3 panel-soft text-indigo-100 rounded font-bold pixel text-xs hover:text-white hover:border-indigo-400/60 transition-all">
+                        AUTOPLAY FULL COMPANY
+                    </button>
                     <div class="grid grid-cols-3 gap-3 pt-3 text-[10px] text-slate-500">
                         <div class="panel-soft px-2 py-2 text-center">
                             <div class="pixel text-teal-300 text-[9px] mb-1">FOUNDRY</div>
@@ -233,7 +237,7 @@
         </section>
 
         <!-- ====== GAME COLUMN (canvas + quest path) ====== -->
-        <section id="game-view" class="hidden xl:col-span-9 col-span-12 flex flex-col gap-5">
+        <section id="game-view" class="hidden col-span-12 flex flex-col gap-5">
 
             <!-- Stage shell with canvas -->
             <div class="panel p-2 relative overflow-hidden scanlines">
@@ -249,7 +253,7 @@
                 </div>
 
                 <!-- Canvas mount -->
-                <div id="canvas-container" class="w-full h-[540px] bg-[#02040a] rounded border border-[#0e1830] relative overflow-hidden">
+                <div id="canvas-container" class="w-full h-[640px] bg-[#02040a] rounded border border-[#0e1830] relative overflow-hidden">
                     <!-- Phaser inserts the canvas here -->
                 </div>
 
@@ -264,24 +268,14 @@
                     </div>
                     <div class="flex items-center gap-1.5 text-teal-400">
                         <span class="w-1.5 h-1.5 rounded-full bg-teal-400 blink"></span>
-                        Approach the active agent to run their turn
+                        Click agents for dossiers, artifacts, and reasoning traces
                     </div>
                 </div>
             </div>
 
-            <!-- Quest path (compact strip - the canvas rooms ARE the quest path) -->
-            <div class="panel px-4 py-3">
-                <div class="flex items-center justify-between mb-1">
-                    <h3 class="pixel text-[10px] text-teal-300">QUEST PATH</h3>
-                    <span class="text-[9px] text-slate-500">CHECKPOINTS LIT IN THE CORRIDOR</span>
-                </div>
-                <div id="quest-board" class="grid grid-cols-3 gap-2">
-                    <!-- Quest pills injected here -->
-                </div>
-            </div>
         </section>
 
-        <!-- ====== SIDEBAR: ARTIFACT + REASONING ====== -->
+        <!-- ====== SIDEBAR: ARTIFACT + REASONING (HIDDEN - shown in overlay) ====== -->
         <aside id="sidebar-view" class="hidden xl:col-span-3 col-span-12 flex flex-col gap-5">
 
             <!-- Artifact card -->
@@ -373,6 +367,56 @@
         </aside>
     </main>
 
+    <!-- ============================== CHARACTER INFO OVERLAY ============================== -->
+    <div id="character-info-overlay" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div class="max-w-3xl w-full max-h-[90vh] flex flex-col panel p-5 overflow-hidden">
+            <!-- Header with character name and close -->
+            <div class="flex items-center justify-between pb-3 mb-4 border-b border-[#1b2742]">
+                <div class="flex items-center gap-3">
+                    <span class="w-2 h-5 bg-teal-400 rounded"></span>
+                    <h3 id="char-name-header" class="pixel text-[12px] text-teal-300">CHARACTER</h3>
+                </div>
+                <button id="close-char-overlay" class="text-slate-400 hover:text-white text-xl leading-none" aria-label="Close">&times;</button>
+            </div>
+
+            <!-- Three-column layout: Quest Path | Artifact | Reasoning -->
+            <div class="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4 overflow-hidden">
+                <!-- Column 1: Quest Path -->
+                <div class="flex flex-col min-h-0 bg-[#04080f] border border-[#10192f] rounded p-3">
+                    <h4 class="text-[10px] text-teal-300 pixel mb-2 shrink-0">QUEST PATH</h4>
+                    <div id="overlay-quest-board" class="flex-1 overflow-y-auto space-y-2 text-[9px]">
+                    <!-- Main quest board (hidden, used by game.js for main UI) -->
+                    <div id="quest-board" class="hidden"></div>
+
+                        <!-- Injected quest pills -->
+                    </div>
+                </div>
+
+                <!-- Column 2: Artifact Reader -->
+                <div class="flex flex-col min-h-0 bg-[#04080f] border border-[#10192f] rounded p-3">
+                    <h4 class="text-[10px] text-teal-300 pixel mb-2 shrink-0">ARTIFACT</h4>
+                    <div id="overlay-artifact-content" class="flex-1 overflow-y-auto mono text-[11px] text-slate-300">
+                        <div class="text-slate-500 text-center">No artifact yet</div>
+                    </div>
+                    <div id="overlay-validation-score" class="mt-2 p-2 panel-soft text-[9px] hidden">
+                        <div class="flex items-center justify-between">
+                            <span class="text-slate-400">SCORE</span>
+                            <span id="overlay-score" class="text-yellow-400 pixel">--/100</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Column 3: Reasoning Trace -->
+                <div class="flex flex-col min-h-0 bg-[#04080f] border border-[#10192f] rounded p-3">
+                    <h4 class="text-[10px] text-violet-300 pixel mb-2 shrink-0">REASONING</h4>
+                    <div id="overlay-reasoning-logs" class="flex-1 overflow-y-auto mono text-[10px] text-slate-400 space-y-1">
+                        <div class="text-slate-500">Waiting for input...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- ============================== FOOTER ============================== -->
     <footer class="border-t border-[#10182b] py-3 px-5 text-center text-[10px] text-slate-500 mono mt-auto">
         Agents League 2026 - Foundry reasoning core, Phaser 3 stage, FastAPI runtime. MIT-licensed and forkable.
@@ -380,6 +424,7 @@
 
     <!-- ============================== SCRIPTS ============================== -->
     <script src="/game/game/mechanics.js?v=4"></script>
-    <script src="/game/game.js?v=11"></script>
+    <script src="/game/game.js?v=13"></script>
+    <script src="/game/overlay.js?v=1"></script>
 </body>
 </html>

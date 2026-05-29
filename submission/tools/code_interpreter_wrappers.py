@@ -118,3 +118,132 @@ def validate_marketing_email(data: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]
 
     success = results["score"] >= 70
     return success, results
+
+
+def validate_financial_plan(data: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Validates a financial/GTM plan artifact. Checks:
+    - gtm_channels exist with weekly_hours and expected_cac
+    - financial_plan with MRR ramp monotonicity and breakeven sanity
+    """
+    results = {
+        "checks": {},
+        "score": 0,
+        "feedback": []
+    }
+
+    # GTM channels check
+    channels = data.get("gtm_channels", [])
+    if isinstance(channels, list) and len(channels) >= 3:
+        results["checks"]["has_channels"] = True
+        results["score"] += 20
+        valid_channels = sum(
+            1 for ch in channels
+            if isinstance(ch, dict) and "weekly_hours" in ch and "expected_cac_usd" in ch
+        )
+        if valid_channels >= 3:
+            results["checks"]["channels_well_formed"] = True
+            results["score"] += 15
+        else:
+            results["checks"]["channels_well_formed"] = False
+            results["feedback"].append("Some channels missing weekly_hours or expected_cac_usd.")
+    else:
+        results["checks"]["has_channels"] = False
+        results["feedback"].append("Need at least 3 GTM channels.")
+
+    # Financial plan check
+    fp = data.get("financial_plan", {})
+    if not isinstance(fp, dict):
+        results["checks"]["has_financial_plan"] = False
+        results["feedback"].append("Missing financial_plan object.")
+    else:
+        results["checks"]["has_financial_plan"] = True
+        results["score"] += 15
+
+        # MRR ramp: look for any list of numbers
+        mrr_values = None
+        for k, v in fp.items():
+            if "mrr" in k.lower() and isinstance(v, list) and len(v) >= 4:
+                mrr_values = v
+                break
+
+        if mrr_values:
+            nums = [x for x in mrr_values if isinstance(x, (int, float))]
+            if len(nums) >= 4:
+                is_monotonic = all(nums[i] <= nums[i + 1] for i in range(len(nums) - 1))
+                if is_monotonic:
+                    results["checks"]["mrr_monotonic"] = True
+                    results["score"] += 20
+                else:
+                    results["checks"]["mrr_monotonic"] = False
+                    results["feedback"].append("MRR ramp should be monotonically increasing.")
+            else:
+                results["checks"]["mrr_monotonic"] = False
+                results["feedback"].append(f"MRR ramp has too few numeric entries ({len(nums)}).")
+        else:
+            results["checks"]["mrr_monotonic"] = False
+            results["feedback"].append("Missing MRR ramp array in financial_plan.")
+
+        be = fp.get("breakeven_month")
+        if isinstance(be, (int, float)) and 1 <= be <= 24:
+            results["checks"]["breakeven_sane"] = True
+            results["score"] += 15
+        elif be is not None:
+            results["checks"]["breakeven_sane"] = False
+            results["feedback"].append(f"Breakeven month ({be}) outside sane range 1-24.")
+
+        burn = fp.get("burn_usd_per_month")
+        if isinstance(burn, (int, float)) and burn >= 0:
+            results["checks"]["burn_present"] = True
+            results["score"] += 15
+        else:
+            results["checks"]["burn_present"] = False
+            results["feedback"].append("Missing or invalid burn_usd_per_month.")
+
+    success = results["score"] >= 70
+    return success, results
+
+
+def validate_org_chart(data: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+    """Validates an org chart / OKR artifact."""
+    results = {
+        "checks": {},
+        "score": 0,
+        "feedback": []
+    }
+
+    org = data.get("org_chart", [])
+    if isinstance(org, list) and len(org) >= 1:
+        results["checks"]["has_org_chart"] = True
+        results["score"] += 30
+        roles = [r.get("role", "").lower() for r in org if isinstance(r, dict)]
+        if any("founder" in r for r in roles):
+            results["checks"]["has_founder"] = True
+            results["score"] += 20
+        else:
+            results["checks"]["has_founder"] = False
+            results["feedback"].append("Org chart should include a Founder role.")
+    else:
+        results["checks"]["has_org_chart"] = False
+        results["feedback"].append("Missing org_chart array.")
+
+    okrs = data.get("okrs_q1", data.get("okrs", []))
+    if isinstance(okrs, list) and len(okrs) >= 1:
+        results["checks"]["has_okrs"] = True
+        results["score"] += 30
+        has_krs = any(
+            isinstance(o, dict) and isinstance(o.get("key_results"), list) and len(o["key_results"]) >= 2
+            for o in okrs
+        )
+        if has_krs:
+            results["checks"]["okrs_have_key_results"] = True
+            results["score"] += 20
+        else:
+            results["checks"]["okrs_have_key_results"] = False
+            results["feedback"].append("OKRs should have at least 2 key results each.")
+    else:
+        results["checks"]["has_okrs"] = False
+        results["feedback"].append("Missing OKRs.")
+
+    success = results["score"] >= 70
+    return success, results
