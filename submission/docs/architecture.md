@@ -14,7 +14,9 @@ flowchart TD
     Tools --> Narrator
     Narrator --> State[Shared Company State]
     State --> Narrator
-    Narrator --> UI[Side-scroller UI and Verification Gate]
+    Narrator --> UI[Phaser Game UI and Verification Gate]
+    UI --> Geometry[Geometric World Renderer]
+    UI --> Artifacts[Artifact Renderers]
     UI --> Player
 ```
 
@@ -33,6 +35,12 @@ flowchart TD
 - Code tools perform deterministic checks and scoring.
 - External deployment tools are optional and must support simulation mode.
 - Human verification gates protect every artifact before XP is awarded.
+
+## Presentation Boundaries
+
+- Phaser is the live interactive runtime for movement, proximity gates, room state, geometry, camera, particles, and autoplay.
+- The visual style is geometric-first only for this demo pass so the public repo remains forkable without private sprite or audio assets.
+- Mermaid and Chart.js render agent artifacts such as org charts, workflows, KPI dashboards, and financial plans.
 
 ## Shared State Shape
 

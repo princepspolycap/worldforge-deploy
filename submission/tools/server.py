@@ -11,8 +11,10 @@ from pydantic import BaseModel
 # Ensure submission path is in Python path for local modular references
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from state.schema import StateStore, QuestState, QuestStep, CompanyState
+from state.schema import StateStore, QuestState, QuestStep, CompanyState, WorldGraph, Chapter
 from agents.foundry_agents import MasterNarrator, StrategistAgent, DesignerAgent, MarketerAgent
+from agents.world_designer import design_world
+from agents.worker_factory import run_world, execute_chapter
 from tools.code_interpreter_wrappers import validate_positioning, validate_landing_page, validate_marketing_email
 
 app = FastAPI(
@@ -265,6 +267,132 @@ def reject_current_step(feedback: Optional[str] = Body(default=None, embed=True)
     
     store.save()
     return {"state": state.model_dump()}
+
+
+# ---------------------------------------------------------------------------
+# World Designer + Worker Factory autoplay
+# ---------------------------------------------------------------------------
+
+class AutoplayRequest(BaseModel):
+    pitch: str
+    company_name: Optional[str] = "QuestForge Ltd."
+    auto_approve_threshold: int = 80  # score >= this auto-approves
+
+
+@app.post("/api/world/design")
+def design_world_endpoint(payload: AutoplayRequest):
+    """Uses the WorldDesigner to produce a full venture graph."""
+    brief = payload.pitch
+    company_name = payload.company_name or "QuestForge Ltd."
+
+    state = store.initialize_new_company(
+        name=company_name, pitch=brief, description="A venture forged in QuestForge."
+    )
+    store.log_event("SESSION_START", "system", f"New world session for: {company_name}")
+
+    chapters_data = design_world(brief)
+    world = WorldGraph(
+        brief=brief,
+        chapters=[Chapter(**ch) if isinstance(ch, dict) else ch for ch in chapters_data],
+        status="active",
+    )
+    state.world = world
+    store.log_event("WORLD_DESIGNED", "world_designer", f"Produced {len(world.chapters)} chapters.", {
+        "chapters": [{"id": ch.id, "title": ch.title, "owner_role": ch.owner_role} for ch in world.chapters]
+    })
+    store.save()
+    return {"state": state.model_dump()}
+
+
+@app.post("/api/world/run-next")
+def run_next_chapter():
+    """Execute the next pending chapter via the Worker Factory."""
+    state = store.load()
+    if not state or not state.world:
+        raise HTTPException(status_code=400, detail="No world graph. Call /api/world/design first.")
+
+    world = state.world
+    pending = [ch for ch in world.chapters if ch.status not in ("completed", "needs-review")]
+    if not pending:
+        raise HTTPException(status_code=400, detail="All chapters completed or awaiting review.")
+
+    chapter = pending[0]
+    idx = world.chapters.index(chapter)
+    world.current_chapter_index = idx
+
+    previous_artifacts = [ch.artifact for ch in world.chapters[:idx] if ch.artifact]
+    invocation, artifact, score = execute_chapter(chapter, world.brief, previous_artifacts)
+    world.invocations.append(invocation)
+
+    if artifact:
+        chapter.artifact = artifact
+        chapter.validation_score = score
+    chapter.status = "completed" if score >= 80 else "needs-review"
+
+    xp_earned = 10 + (score // 10)
+    state.xp += xp_earned
+    if state.xp >= 50 and state.level < 2:
+        state.level = 2
+    elif state.xp >= 100 and state.level < 3:
+        state.level = 3
+
+    store.log_event("CHAPTER_EXECUTED", invocation.role,
+        f"Chapter '{chapter.title}' -> score {score}, +{xp_earned} XP ({invocation.deployment}, {invocation.latency_s}s)",
+        {"chapter_id": chapter.id, "score": score, "xp_earned": xp_earned, "latency_s": invocation.latency_s}
+    )
+
+    if all(ch.status == "completed" for ch in world.chapters):
+        world.status = "completed"
+        state.stage = "launched"
+        store.log_event("WORLD_COMPLETED", "system", "All chapters completed! Venture stage: launched.")
+
+    store.save()
+    return {"state": state.model_dump(), "chapter": chapter.model_dump(), "invocation": invocation.model_dump()}
+
+
+@app.post("/api/world/autoplay")
+def autoplay_world(payload: AutoplayRequest):
+    """Full autoplay: design world + execute all chapters sequentially."""
+    brief = payload.pitch
+    company_name = payload.company_name or "QuestForge Ltd."
+    threshold = payload.auto_approve_threshold
+
+    state = store.initialize_new_company(
+        name=company_name, pitch=brief, description="A venture forged in QuestForge."
+    )
+    store.log_event("SESSION_START", "system", f"Autoplay session for: {company_name}")
+
+    chapters_data = design_world(brief)
+    world = WorldGraph(
+        brief=brief,
+        chapters=[Chapter(**ch) if isinstance(ch, dict) else ch for ch in chapters_data],
+        status="active",
+    )
+    state.world = world
+    store.log_event("WORLD_DESIGNED", "world_designer", f"Produced {len(world.chapters)} chapters.")
+
+    results = []
+    for chapter, invocation, artifact, score in run_world(world, brief, auto_approve_threshold=threshold):
+        xp_earned = 10 + (score // 10)
+        state.xp += xp_earned
+        if state.xp >= 50 and state.level < 2:
+            state.level = 2
+        elif state.xp >= 100 and state.level < 3:
+            state.level = 3
+
+        store.log_event("CHAPTER_EXECUTED", invocation.role,
+            f"Chapter '{chapter.title}' -> score {score}, +{xp_earned} XP",
+            {"chapter_id": chapter.id, "score": score, "latency_s": invocation.latency_s}
+        )
+        results.append({"chapter_id": chapter.id, "title": chapter.title, "score": score, "status": chapter.status})
+
+    if world.status == "completed":
+        state.stage = "launched"
+        store.log_event("WORLD_COMPLETED", "system", "Autoplay complete! All chapters done.")
+
+    store.save()
+    return {"state": state.model_dump(), "results": results}
+
 
 @app.post("/api/reset")
 def reset_game():

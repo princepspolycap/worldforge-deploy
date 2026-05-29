@@ -7,13 +7,37 @@ let isReasoningBusy = false;
 
 // Core API endpoints
 const API_BASE = "/api";
-const AGENT_DISPLAY = {
+const GAME_MECHANICS = window.DUNGEON_GAME_MECHANICS || {};
+const ROOM_SEQUENCE = GAME_MECHANICS.roomSequence || [
+    {
+        agent: 'strategist', name: 'Soren', role: 'Strategist', roomName: 'Blueprint Room', roomLabel: 'BLUEPRINT ROOM',
+        roomX: 80, roomY: 50, roomW: 200, roomH: 260, roomColor: 0x0284c7,
+        deskX: 120, deskY: 100, deskColor: 0x0284c7,
+        npcX: 180, npcY: 130, statusY: 175, approachX: 144, approachY: 148, accentColor: 0x38bdf8,
+        dialogue: "I have the positioning room primed. Press E to run the strategy turn."
+    },
+    {
+        agent: 'designer', name: 'Dahlia', role: 'Designer', roomName: 'UX Lab', roomLabel: 'UX LAB',
+        roomX: 300, roomY: 50, roomW: 200, roomH: 260, roomColor: 0x8b5cf6,
+        deskX: 340, deskY: 100, deskColor: 0x8b5cf6,
+        npcX: 400, npcY: 130, statusY: 175, approachX: 364, approachY: 148, accentColor: 0xc084fc,
+        dialogue: "The layout board is ready. Press E to turn positioning into a page."
+    },
+    {
+        agent: 'marketer', name: 'Maddox', role: 'Marketer', roomName: 'Outreach Core', roomLabel: 'OUTREACH CORE',
+        roomX: 520, roomY: 50, roomW: 200, roomH: 260, roomColor: 0xeab308,
+        deskX: 560, deskY: 100, deskColor: 0xeab308,
+        npcX: 620, npcY: 130, statusY: 175, approachX: 584, approachY: 148, accentColor: 0xfde047,
+        dialogue: "Campaign channels are open. Press E to draft the launch copy."
+    },
+];
+const AGENT_DISPLAY = GAME_MECHANICS.agents || {
     strategist: { name: "Soren", room: "Blueprint Room" },
     designer: { name: "Dahlia", room: "UX Lab" },
     marketer: { name: "Maddox", room: "Outreach Core" }
 };
 
-const AGENT_DIALOGUE = {
+const AGENT_DIALOGUE = GAME_MECHANICS.dialogue || {
     strategist: "I have the positioning room primed. Press E to run the strategy turn.",
     designer: "The layout board is ready. Press E to turn positioning into a page.",
     marketer: "Campaign channels are open. Press E to draft the launch copy."
@@ -29,6 +53,7 @@ const resetBtn = document.getElementById("reset-btn");
 const companyInput = document.getElementById("company-input");
 const pitchInput = document.getElementById("pitch-input");
 const launchBtn = document.getElementById("launch-btn");
+const worldAutoplayBtn = document.getElementById("world-autoplay-btn");
 const pitchBanner = document.getElementById("pitch-banner");
 
 const levelBadge = document.getElementById("level-badge");
@@ -55,13 +80,45 @@ const streakBadge = document.getElementById("streak-badge");
 const tierBadge = document.getElementById("tier-badge");
 const autoplayBtn = document.getElementById("autoplay-btn");
 
+// Character info overlay elements
+const characterInfoOverlay = document.getElementById("character-info-overlay");
+const closeCharOverlay = document.getElementById("close-char-overlay");
+const charNameHeader = document.getElementById("char-name-header");
+const overlayQuestBoard = document.getElementById("overlay-quest-board");
+const overlayArtifactContent = document.getElementById("overlay-artifact-content");
+const overlayValidationScore = document.getElementById("overlay-validation-score");
+const overlayScore = document.getElementById("overlay-score");
+const overlayReasoningLogs = document.getElementById("overlay-reasoning-logs");
+
 let isAutoplayActive = false;
 const AUTOPLAY_DELAY_MS = 700;
-const TIER_STYLES = {
+const TIER_STYLES = GAME_MECHANICS.tierStyles || {
     gold:   { color: "#fde047", border: "border-yellow-400/60", text: "text-yellow-300", label: "GOLD x2.0" },
     silver: { color: "#cbd5f5", border: "border-slate-300/60", text: "text-slate-100", label: "SILVER x1.5" },
     bronze: { color: "#fb923c", border: "border-orange-500/60", text: "text-orange-300", label: "BRONZE x1.0" }
 };
+
+function chooseWalkDirection(dx, dy, deadZone = 0) {
+    if (GAME_MECHANICS.getWalkDirection) {
+        return GAME_MECHANICS.getWalkDirection(dx, dy, deadZone);
+    }
+    if (Math.abs(dx) <= deadZone && Math.abs(dy) <= deadZone) return null;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+        if (dx < -deadZone) return 'left';
+        if (dx > deadZone) return 'right';
+    }
+    if (dy < -deadZone) return 'up';
+    if (dy > deadZone) return 'down';
+    return null;
+}
+
+function getAutoplayApproachPoint(agentKey, npc) {
+    if (GAME_MECHANICS.getApproachPoint) {
+        const point = GAME_MECHANICS.getApproachPoint(agentKey);
+        if (point) return point;
+    }
+    return { x: npc.x - 36, y: npc.y + 18 };
+}
 
 // Launch the Game
 async function initClient() {
@@ -93,7 +150,7 @@ function showLauncherScreen() {
 function showGameScreen() {
     launcherView.classList.add("hidden");
     gameView.classList.remove("hidden");
-    sidebarView.classList.remove("hidden");
+    sidebarView.classList.add("hidden");
     statusPanel.classList.remove("hidden");
     resetBtn.classList.remove("hidden");
     if (autoplayBtn) autoplayBtn.classList.remove("hidden");
@@ -114,12 +171,147 @@ function logTerminal(message, textColorClass = "text-slate-400") {
     terminalLogs.scrollTop = terminalLogs.scrollHeight;
 }
 
+function escapeHTML(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+    }[char]));
+}
+
+function formatArtifactValue(value) {
+    if (typeof value === "string") return value;
+    return JSON.stringify(value, null, 2);
+}
+
+function renderArtifactObject(artifact) {
+    if (!artifact || Object.keys(artifact).length === 0) {
+        return `
+            <div class="h-full flex flex-col items-center justify-center text-slate-500 text-center px-4">
+                <span class="text-xs">No artifact drafted yet.</span>
+                <span class="text-[10px] mt-1 text-slate-600">Run an agent turn to produce one.</span>
+            </div>
+        `;
+    }
+    let artHTML = `<div class="space-y-4">`;
+    for (const [key, value] of Object.entries(artifact)) {
+        artHTML += `
+            <div>
+                <span class="text-yellow-400 font-bold block mb-1 text-[10px] uppercase tracking-wider">${escapeHTML(key.replaceAll("_", " "))}:</span>
+                <pre class="text-slate-100 bg-slate-900 border border-slate-800 rounded p-2 block font-mono text-xs whitespace-pre-wrap select-all leading-normal overflow-x-auto">${escapeHTML(formatArtifactValue(value))}</pre>
+            </div>
+        `;
+    }
+    return `${artHTML}</div>`;
+}
+
+function getLatestWorldChapter(world) {
+    if (!world?.chapters?.length) return null;
+    const needsReview = world.chapters.find(ch => ch.status === "needs-review");
+    if (needsReview) return needsReview;
+    const active = getActiveWorldChapter();
+    if (active) return active;
+    const withArtifact = [...world.chapters].reverse().find(ch => ch.artifact);
+    if (withArtifact) return withArtifact;
+    return world.chapters[world.current_chapter_index] || world.chapters[0];
+}
+
+function renderWorldState(world) {
+    const chapters = world?.chapters || [];
+    const activeChapter = getActiveWorldChapter();
+    activeAgentBadge.innerText = world?.status === "completed" ? "WORLD COMPLETE" : "WORKER FACTORY";
+    triggerPanel.classList.add("hidden");
+    gatePanel.classList.add("hidden");
+
+    questBoard.innerHTML = "";
+    chapters.forEach((chapter, idx) => {
+        const isActive = activeChapter
+            ? chapter.id === activeChapter.id
+            : idx === (world.current_chapter_index || 0) && chapter.status !== "completed";
+        const isDone = chapter.status === "completed";
+        const borderClass = isDone
+            ? "border-emerald-500/50 bg-emerald-950/10"
+            : isActive
+                ? "border-teal-500 bg-teal-950/20 shadow-md ring-1 ring-teal-500/20"
+                : "border-slate-800 bg-slate-900";
+        const tagClass = isDone
+            ? "bg-emerald-950 text-emerald-400"
+            : isActive
+                ? "bg-teal-500 text-slate-950 font-bold"
+                : "bg-slate-800 text-slate-400";
+        const scoreText = chapter.validation_score == null ? "--" : `${chapter.validation_score}/100`;
+        const card = document.createElement("div");
+        card.className = `px-2 py-2 rounded border text-center transition-all ${borderClass}`;
+        card.innerHTML = `
+            <div class="flex items-center justify-center gap-1 mb-1">
+                <span class="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${tagClass}">${idx + 1}</span>
+                <span class="text-[9px] text-slate-400 uppercase truncate">${escapeHTML(chapter.owner_role)}</span>
+            </div>
+            <div class="text-[10px] text-slate-300 truncate">${escapeHTML(chapter.status || "pending")}</div>
+            <div class="text-[9px] text-yellow-400 mt-0.5">${scoreText}</div>
+        `;
+        questBoard.appendChild(card);
+    });
+
+    const latest = getLatestWorldChapter(world);
+    const latestInvocation = (world.invocations || []).find(inv => inv.chapter_id === latest?.id);
+    if (latest) {
+        valScoreBox.classList.remove("hidden");
+        const score = latest.validation_score || 0;
+        checkingScore.innerText = `${score}/100`;
+        checkingScore.className = score >= 90
+            ? "pixel-font-title text-sm text-emerald-400"
+            : score >= 70
+                ? "pixel-font-title text-sm text-yellow-400"
+                : "pixel-font-title text-sm text-rose-400";
+
+        if (tierBadge) {
+            const tierKey = score >= 95 ? "gold" : score >= 80 ? "silver" : "bronze";
+            const style = TIER_STYLES[tierKey] || TIER_STYLES.bronze;
+            tierBadge.classList.remove("hidden");
+            tierBadge.innerText = style.label;
+            tierBadge.className = `text-[10px] px-2 py-0.5 rounded font-bold border ${style.border} ${style.text} bg-slate-950`;
+        }
+
+        failsList.innerHTML = "";
+        const rows = [
+            ["chapter", latest.title],
+            ["worker", latest.owner_role],
+            ["deployment", latestInvocation?.deployment || "simulation"],
+            ["latency", latestInvocation ? `${latestInvocation.latency_s}s` : "--"],
+        ];
+        rows.forEach(([name, value]) => {
+            const row = document.createElement("div");
+            row.className = "flex items-center gap-1 text-teal-300";
+            row.innerHTML = `<span>*</span> <span class="truncate">${escapeHTML(name)}: ${escapeHTML(value)}</span>`;
+            failsList.appendChild(row);
+        });
+
+        artifactContentArea.innerHTML = renderArtifactObject(latest.artifact || {
+            status: world.status,
+            next_chapter: latest.title,
+            goal: latest.goal,
+        });
+    } else {
+        valScoreBox.classList.add("hidden");
+        if (tierBadge) tierBadge.classList.add("hidden");
+        artifactContentArea.innerHTML = renderArtifactObject(null);
+    }
+}
+
 // Render dynamic elements
 function updateUIWithState() {
     if (!currentGameState) return;
     
     pitchBanner.innerText = `"${currentGameState.pitch}"`;
     levelBadge.innerText = currentGameState.level;
+
+    const stageBadge = document.getElementById("stage-badge");
+    if (stageBadge && currentGameState.stage) {
+        stageBadge.innerText = currentGameState.stage;
+    }
     
     // Update XP Bar (limit 50 XP per level in design)
     const baseXP = currentGameState.xp;
@@ -177,18 +369,14 @@ function updateUIWithState() {
             }
             
             const card = document.createElement("div");
-            card.className = `p-4 rounded border transition-all ${borderClass}`;
+            card.className = `px-2 py-2 rounded border text-center transition-all ${borderClass}`;
             card.innerHTML = `
-                <div class="flex items-center justify-between mb-2">
-                    <span class="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${tagClass}">${step.assigned_to}</span>
-                    <span class="text-[10px] text-slate-400">${statusText}</span>
+                <div class="flex items-center justify-center gap-1 mb-1">
+                    <span class="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${tagClass}">${idx + 1}</span>
+                    <span class="text-[9px] text-slate-400 uppercase truncate">${step.assigned_to}</span>
                 </div>
-                <h4 class="text-xs font-bold text-slate-200 mb-1">${step.title}</h4>
-                <p class="text-[10px] text-slate-400 leading-tight">${step.description}</p>
-                <div class="mt-3 flex items-center justify-between text-[10px]">
-                    <span class="text-yellow-400">💎 Reward: ${step.xp_reward} XP</span>
-                    <span class="text-slate-500">${step.artifact_type.toUpperCase()}</span>
-                </div>
+                <div class="text-[10px] text-slate-300 truncate">${statusText}</div>
+                <div class="text-[9px] text-yellow-400 mt-0.5">+${step.xp_reward} XP</div>
             `;
             questBoard.appendChild(card);
         });
@@ -205,17 +393,7 @@ function updateUIWithState() {
                 valScoreBox.classList.remove("hidden");
                 
                 // Set Artifact Viewer content
-                let artHTML = `<div class="space-y-4">`;
-                for (const [k, v] of Object.entries(currentActiveStep.artifact_data)) {
-                    artHTML += `
-                        <div>
-                            <span class="text-yellow-400 font-bold block mb-1 text-[10px] uppercase tracking-wider">${k.replace("_", " ")}:</span>
-                            <span class="text-slate-100 bg-slate-900 border border-slate-800 rounded p-2 block font-mono text-xs whitespace-pre-wrap select-all leading-normal">${v}</span>
-                        </div>
-                    `;
-                }
-                artHTML += `</div>`;
-                artifactContentArea.innerHTML = artHTML;
+                artifactContentArea.innerHTML = renderArtifactObject(currentActiveStep.artifact_data);
                 
                 // Show deterministic scoring
                 const score = currentActiveStep.validation_results?.score || 0;
@@ -230,9 +408,9 @@ function updateUIWithState() {
 
                 // Tier preview: derived from score even before approval.
                 if (tierBadge) {
-                    let previewTier = "bronze";
-                    if (score >= 95) previewTier = "gold";
-                    else if (score >= 80) previewTier = "silver";
+                    const previewTier = GAME_MECHANICS.getTierForScore
+                        ? GAME_MECHANICS.getTierForScore(score)
+                        : score >= 95 ? "gold" : score >= 80 ? "silver" : "bronze";
                     const approvedTier = currentActiveStep.validation_results?.tier;
                     const tierKey = approvedTier || previewTier;
                     const style = TIER_STYLES[tierKey] || TIER_STYLES.bronze;
@@ -288,11 +466,14 @@ function updateUIWithState() {
                 </div>
             `;
         }
+    } else if (currentGameState.world && currentGameState.world.chapters) {
+        renderWorldState(currentGameState.world);
     }
 
     refreshActiveAgentProximity();
     syncPhaserQuestState();
     syncRunButtonState();
+    syncInteractionMarker();
 }
 
 function getCurrentActiveStep() {
@@ -307,6 +488,36 @@ function getCurrentAgentKey() {
 
 function getCurrentNpc() {
     const agentKey = getCurrentAgentKey();
+    return agentKey ? npcs[agentKey] : null;
+}
+
+function getActiveWorldChapter() {
+    const world = currentGameState?.world;
+    if (!world?.chapters?.length || world.status === "completed") return null;
+    const review = world.chapters.find(ch => ch.status === "needs-review");
+    if (review) return review;
+    const running = world.chapters.find(ch => ch.status === "in-progress");
+    if (running) return running;
+    const pending = world.chapters.find(ch => ch.status !== "completed");
+    if (pending) return pending;
+    return world.chapters[world.current_chapter_index] || null;
+}
+
+function getVisualAgentKeyForRole(role) {
+    if (!role) return null;
+    if (npcs[role]) return role;
+    if (role === "ops") return "marketer";
+    return null;
+}
+
+function getVisualTargetAgentKey() {
+    const questAgent = getCurrentAgentKey();
+    if (questAgent) return questAgent;
+    return getVisualAgentKeyForRole(getActiveWorldChapter()?.owner_role);
+}
+
+function getVisualTargetNpc() {
+    const agentKey = getVisualTargetAgentKey();
     return agentKey ? npcs[agentKey] : null;
 }
 
@@ -331,6 +542,24 @@ function syncRunButtonState() {
     if (!runStepBtn || !roomAccessStatus) return;
 
     if (!currentStep) {
+        if (currentGameState?.world?.chapters?.length) {
+            const activeChapter = getActiveWorldChapter();
+            runStepBtn.disabled = true;
+            if (!activeChapter) {
+                runStepBtn.innerText = "WORLD COMPLETE";
+                roomAccessStatus.className = "w-full mb-3 rounded border border-emerald-500/30 bg-emerald-950/20 px-3 py-2 text-[11px] text-emerald-300 font-mono";
+                roomAccessStatus.innerText = "All company chapters cleared. The venture is ready for review.";
+            } else if (activeChapter.status === "needs-review") {
+                runStepBtn.innerText = "WORLD PAUSED";
+                roomAccessStatus.className = "w-full mb-3 rounded border border-yellow-500/30 bg-yellow-950/20 px-3 py-2 text-[11px] text-yellow-300 font-mono";
+                roomAccessStatus.innerText = `${activeChapter.title} needs human review before the world can launch.`;
+            } else {
+                runStepBtn.innerText = "WORKER FACTORY READY";
+                roomAccessStatus.className = "w-full mb-3 rounded border border-indigo-500/30 bg-indigo-950/20 px-3 py-2 text-[11px] text-indigo-200 font-mono";
+                roomAccessStatus.innerText = "Use Autoplay Demo to visibly walk and run the next company chapter.";
+            }
+            return;
+        }
         runStepBtn.disabled = true;
         runStepBtn.innerText = "QUEST COMPLETE";
         roomAccessStatus.className = "w-full mb-3 rounded border border-emerald-500/30 bg-emerald-950/20 px-3 py-2 text-[11px] text-emerald-300 font-mono";
@@ -392,9 +621,47 @@ launchBtn.addEventListener("click", async () => {
         alert("Failed to initialize adventure. Is the backend server running?");
     } finally {
         launchBtn.disabled = false;
-        launchBtn.innerText = "ENTER THE DUNGEON ⚔️";
+        launchBtn.innerText = "ENTER THE DUNGEON";
     }
 });
+
+if (worldAutoplayBtn) {
+    worldAutoplayBtn.addEventListener("click", async () => {
+        const pitch = pitchInput.value.trim();
+        const cName = companyInput.value.trim();
+        if (!pitch) return;
+
+        worldAutoplayBtn.disabled = true;
+        launchBtn.disabled = true;
+        worldCompleteCeremonyShown = false;
+        worldAutoplayBtn.innerText = "DESIGNING WORLD...";
+        try {
+            const res = await fetch(`${API_BASE}/world/design`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ pitch, company_name: cName, auto_approve_threshold: 80 })
+            });
+            if (!res.ok) throw new Error("World design failed");
+            const data = await res.json();
+            currentGameState = data.state;
+            showGameScreen();
+            logTerminal("[autoplay] World Designer mapped the company dungeon. Walking the chapters now.", "text-indigo-300");
+            isAutoplayActive = true;
+            setAutoplayButtonState(true);
+            await sleep(500);
+            await runWorldAutoplayLoop();
+        } catch (e) {
+            console.error(e);
+            alert("Failed to run company autoplay. Is the backend server running?");
+            isAutoplayActive = false;
+            setAutoplayButtonState(false);
+        } finally {
+            worldAutoplayBtn.disabled = false;
+            launchBtn.disabled = false;
+            worldAutoplayBtn.innerText = "AUTOPLAY FULL COMPANY";
+        }
+    });
+}
 
 // Run Step Reasoning loops
 runStepBtn.addEventListener("click", attemptRunCurrentStep);
@@ -518,36 +785,42 @@ function tweenPlayerTo(targetX, targetY) {
         const dy = targetY - player.y;
         const distance = Math.hypot(dx, dy);
         const duration = Math.max(250, Math.min(1400, distance * 6));
+        let settled = false;
         // Pick walk direction by dominant axis so the right animation plays.
-        let dir = null;
-        if (Math.abs(dx) >= Math.abs(dy)) {
-            if (dx < -2) dir = 'left';
-            else if (dx > 2) dir = 'right';
-        } else {
-            if (dy < -2) dir = 'up';
-            else if (dy > 2) dir = 'down';
-        }
+        const dir = chooseWalkDirection(dx, dy, 2);
         if (dir && typeof player.face === 'function') {
             player.face(dir, true);
             player.setData('facing', dir);
         }
-        phaserSceneRef.tweens.add({
+        const finish = () => {
+            if (settled) return;
+            settled = true;
+            player.x = targetX;
+            player.y = targetY;
+            if (dir && typeof player.face === 'function') player.face(dir, false);
+            resolve();
+        };
+        const tween = phaserSceneRef.tweens.add({
             targets: player,
             x: targetX,
             y: targetY,
             duration,
             ease: "Sine.easeInOut",
-            onComplete: () => {
-                // Return to a held idle pose facing the same way.
-                if (dir && typeof player.face === 'function') player.face(dir, false);
-                resolve();
-            },
+            onComplete: finish,
         });
+        window.setTimeout(() => {
+            if (!settled && tween?.isPlaying?.()) tween.stop();
+            finish();
+        }, duration + 250);
     });
 }
 
 async function runAutoplayLoop() {
-    if (!currentGameState || !currentGameState.active_quest) return;
+    if (!currentGameState || !currentGameState.active_quest) {
+        isAutoplayActive = false;
+        setAutoplayButtonState(false);
+        return;
+    }
     logTerminal("[autoplay] Demo mode engaged. The party will run itself.", "text-indigo-300");
 
     let safety = 12;
@@ -561,7 +834,8 @@ async function runAutoplayLoop() {
         // 1. Walk to the active NPC.
         const npc = getCurrentNpc();
         if (npc) {
-            await tweenPlayerTo(npc.x - 36, npc.y + 18);
+            const approachPoint = getAutoplayApproachPoint(step.assigned_to, npc);
+            await tweenPlayerTo(approachPoint.x, approachPoint.y);
             refreshActiveAgentProximity();
             await sleep(AUTOPLAY_DELAY_MS / 2);
         }
@@ -586,6 +860,115 @@ async function runAutoplayLoop() {
     setAutoplayButtonState(false);
 }
 
+function getNextRunnableWorldChapter() {
+    const world = currentGameState?.world;
+    if (!world?.chapters?.length) return null;
+    return world.chapters.find(ch => ch.status !== "completed" && ch.status !== "needs-review") || null;
+}
+
+function getWorldChapterApproachPoint(chapter) {
+    const agentKey = getVisualAgentKeyForRole(chapter?.owner_role);
+    const npc = agentKey ? npcs[agentKey] : null;
+    if (!agentKey || !npc) return null;
+    return getAutoplayApproachPoint(agentKey, npc);
+}
+
+function setWorldChapterFocus(chapter, enabled) {
+    const agentKey = getVisualAgentKeyForRole(chapter?.owner_role);
+    if (!agentKey) return;
+    setAgentFocusRing(agentKey, enabled);
+}
+
+function showWorldChapterBubble(chapter, message) {
+    const agentKey = getVisualAgentKeyForRole(chapter?.owner_role);
+    const npc = agentKey ? npcs[agentKey] : null;
+    if (npc && phaserSceneRef) showSpeechBubble(npc.x, npc.y - 65, message);
+}
+
+async function runWorldAutoplayLoop() {
+    if (!currentGameState?.world) {
+        isAutoplayActive = false;
+        setAutoplayButtonState(false);
+        return;
+    }
+
+    logTerminal("[autoplay] Worker Factory is now running one visible chapter at a time.", "text-indigo-300");
+    let safety = 8;
+
+    while (isAutoplayActive && safety-- > 0) {
+        const chapter = getNextRunnableWorldChapter();
+        const world = currentGameState.world;
+
+        if (!chapter) {
+            const reviewChapter = world.chapters.find(ch => ch.status === "needs-review");
+            if (reviewChapter) {
+                logTerminal(`[autoplay] Paused at verification gate: ${reviewChapter.title}.`, "text-yellow-300");
+            } else {
+                logTerminal("[autoplay] Company run complete. All chapters cleared.", "text-emerald-400");
+            }
+            break;
+        }
+
+        const chapterIndex = world.chapters.findIndex(ch => ch.id === chapter.id);
+        if (chapterIndex >= 0) world.current_chapter_index = chapterIndex;
+        updateUIWithState();
+        await sleep(AUTOPLAY_DELAY_MS / 2);
+
+        const approachPoint = getWorldChapterApproachPoint(chapter);
+        if (approachPoint) {
+            await tweenPlayerTo(approachPoint.x, approachPoint.y);
+            await sleep(AUTOPLAY_DELAY_MS / 2);
+        }
+        if (!isAutoplayActive) break;
+
+        setWorldChapterFocus(chapter, true);
+        showWorldChapterBubble(chapter, `${chapter.owner_role} worker is building this artifact.`);
+        reasoningLoader.classList.remove("hidden");
+        logTerminal(`[autoplay] Running ${chapter.owner_role}: ${chapter.title}`, "text-teal-300");
+
+        const previousXp = currentGameState.xp || 0;
+        try {
+            const res = await fetch(`${API_BASE}/world/run-next`, { method: "POST" });
+            if (!res.ok) {
+                const detail = await res.text();
+                throw new Error(detail || "World step failed");
+            }
+            const data = await res.json();
+            currentGameState = data.state;
+            updateUIWithState();
+
+            const earnedXp = Math.max(0, (currentGameState.xp || 0) - previousXp);
+            if (earnedXp > 0) spawnPhaserXPEffect(earnedXp);
+
+            const status = data.chapter?.status || "completed";
+            const score = data.chapter?.validation_score ?? 0;
+            if (status === "needs-review") {
+                showWorldChapterBubble(data.chapter, `Artifact needs review: ${score}/100.`);
+                logTerminal(`[autoplay] ${data.chapter.title} needs review at ${score}/100.`, "text-yellow-300");
+                break;
+            }
+            showWorldChapterBubble(data.chapter, `Artifact approved by validator: ${score}/100.`);
+        } catch (e) {
+            console.error(e);
+            logTerminal(`[autoplay] Worker Factory step failed: ${e.message || e}`, "text-rose-400");
+            break;
+        } finally {
+            setWorldChapterFocus(chapter, false);
+            reasoningLoader.classList.add("hidden");
+            syncRunButtonState();
+        }
+
+        await sleep(AUTOPLAY_DELAY_MS * 1.25);
+    }
+
+    if (currentGameState?.world?.status === "completed") {
+        spawnWorldCompleteCeremony();
+        logTerminal("[system] Autoplay complete! All chapters done.", "text-emerald-400");
+    }
+    isAutoplayActive = false;
+    setAutoplayButtonState(false);
+}
+
 if (autoplayBtn) {
     autoplayBtn.addEventListener("click", () => {
         if (isAutoplayActive) {
@@ -596,20 +979,35 @@ if (autoplayBtn) {
         }
         isAutoplayActive = true;
         setAutoplayButtonState(true);
-        runAutoplayLoop();
+        if (currentGameState?.active_quest) {
+            runAutoplayLoop();
+        } else if (currentGameState?.world) {
+            runWorldAutoplayLoop();
+        } else {
+            isAutoplayActive = false;
+            setAutoplayButtonState(false);
+            logTerminal("[autoplay] Start a quest or full company run first.", "text-yellow-300");
+        }
     });
 }
 
 // PHASER CANVAS WORLD INTEGRATION
 let phaserSceneRef = null;
 
+const WORLD_W = 960;
+const WORLD_H = 620;
+const CORRIDOR_Y = 515;
+const PLAYER_BOUNDS = { minX: 24, maxX: WORLD_W - 24, minY: 60, maxY: WORLD_H - 24 };
+
 function initPhaser() {
     const config = {
         type: Phaser.AUTO,
         parent: 'canvas-container',
-        width: 800,
-        height: 360,
-        backgroundColor: '#0a0f1d',
+        width: WORLD_W,
+        height: WORLD_H,
+        backgroundColor: '#04070f',
+        pixelArt: true,
+        roundPixels: true,
         physics: {
             default: 'arcade',
             arcade: {
@@ -629,7 +1027,7 @@ function initPhaser() {
 // Optional pixel-art sprite keys. Files live under submission/ui/assets/local/characters/
 // and are gitignored. When missing (default after `git clone`), the procedural drawings
 // below take over - the game still runs without the Polyverse pack.
-const SPRITE_KEYS = {
+const SPRITE_KEYS = GAME_MECHANICS.spriteKeys || {
     player: 'player_sheet',
     strategist: 'npc_strategist',
     designer: 'npc_designer',
@@ -653,17 +1051,18 @@ function phaserPreload() {
     });
 }
 
-// Limezu Modern Interiors Revamped premade atlas layout (per character PNG):
-//   Row 0 (frames 0-3): 4-direction idle  - 0=left, 1=up, 2=right, 3=down
+// Limezu Modern Interiors Revamped premade atlas layout (per character PNG).
+// Verified against local sprites: frame 0 faces right, frame 2 faces left.
+//   Row 0 (frames 0-3): 4-direction idle  - 0=right, 1=up, 2=left, 3=down
 //   Row 1 walk cycles (6 frames each):
-//     56-61=walk-left, 62-67=walk-up, 68-73=walk-right, 74-79=walk-down
+//     56-61=walk-right, 62-67=walk-up, 68-73=walk-left, 74-79=walk-down
 // We expose these as 8 named anims per spritesheet key, plus a `face()` helper.
-const DIR_FRAMES = {
-    idle: { left: 0, up: 1, right: 2, down: 3 },
+const DIR_FRAMES = GAME_MECHANICS.dirFrames || {
+    idle: { left: 2, up: 1, right: 0, down: 3 },
     walk: {
-        left:  [56, 57, 58, 59, 60, 61],
+        left:  [68, 69, 70, 71, 72, 73],
         up:    [62, 63, 64, 65, 66, 67],
-        right: [68, 69, 70, 71, 72, 73],
+        right: [56, 57, 58, 59, 60, 61],
         down:  [74, 75, 76, 77, 78, 79],
     },
 };
@@ -713,61 +1112,88 @@ let player = null;
 let nameplates = {};
 let npcs = {};
 let npcStatusBadges = {};
+let roomDoors = {};
+let roomFloors = {};
+let roomFurniture = {};
+let roomPedestals = {};
+let pedestalArtifacts = {};
+let pedestalProgress = {};
+let corridorCheckpoints = {};
+let roomGates = {};
 let cursors = null;
 let wasdKeys = null;
 let activeNpcBubble = null;
 let bubbleTimer = null;
 let activeRoomBeacon = null;
+let activeRoomPulse = null;
+let activeRouteLine = null;
+let activeRouteMarker = null;
+let agentFocusRings = {};
+let interactionMarker = null;
 let lastNearAgentKey = null;
+let footstepCooldown = 0;
+let reasoningGlyphCooldown = 0;
+let pedestalInspectPrompt = null;
+let missionHud = null;
+let missionHudNodes = [];
+let missionHudText = null;
+let sideQuestTerminals = {};
+let worldCompleteCeremonyShown = false;
 
 function phaserCreate() {
     phaserSceneRef = this;
-    
-    // 1. Draw a retro-chic modular isometric/grid layout
-    const gridGraphics = this.add.graphics();
-    gridGraphics.lineStyle(1, 0x14b8a6, 0.08);
-    for (let x = 0; x < 800; x += 32) {
-        gridGraphics.lineBetween(x, 0, x, 360);
+
+    // 1. Layered background: deep stone, hatched ground, corridor carpet.
+    drawDungeonBackground(this);
+
+    // 2. Each room: tile floor, walls with a doorway, themed furniture.
+    ROOM_SEQUENCE.forEach((room) => {
+        drawDungeonRoom(this, room);
+    });
+
+    // 3. Corridor quest path: a checkpoint stone in front of each door.
+    ROOM_SEQUENCE.forEach((room, idx) => {
+        corridorCheckpoints[room.agent] = drawCheckpoint(this, room.doorX, CORRIDOR_Y + 30, idx + 1, room.accentColor);
+    });
+
+    // 4. Chain gates between consecutive rooms.
+    for (let i = 0; i < ROOM_SEQUENCE.length - 1; i++) {
+        const a = ROOM_SEQUENCE[i];
+        const b = ROOM_SEQUENCE[i + 1];
+        const gateX = (a.doorX + b.doorX) / 2;
+        roomGates[b.agent] = drawCorridorGate(this, gateX, CORRIDOR_Y + 30);
     }
-    for (let y = 0; y < 360; y += 32) {
-        gridGraphics.lineBetween(0, y, 800, y);
-    }
-    
-    // Draw 3 customized corporate rooms/mats
-    // Soren's Room (Strategy Warroom) - Blue
-    drawRoomMat(this, 80, 50, 200, 260, 0x0284c7, "Soren (Strategist)", "BLUEPRINT ROOM");
-    // Dahlia's Room (Design Lab) - Magenta
-    drawRoomMat(this, 300, 50, 200, 260, 0x8b5cf6, "Dahlia (Designer)", "UX LAB");
-    // Maddox's Room (Marketing Hive) - Orange
-    drawRoomMat(this, 520, 50, 200, 260, 0xeab308, "Maddox (Marketer)", "OUTREACH CORE");
 
-    // Connect them with a hallway
-    const hallway = this.add.graphics();
-    hallway.fillStyle(0x0f172a, 1);
-    hallway.fillRect(40, 180, 720, 48);
-    hallway.lineStyle(2, 0x334155, 1);
-    hallway.strokeRect(40, 180, 720, 48);
+    // 5. Pedestal inside each room (mounts artifact / trophy).
+    ROOM_SEQUENCE.forEach((room) => {
+        const pedX = room.roomX + room.roomW / 2;
+        const pedY = room.roomY + room.roomH - 70;
+        roomPedestals[room.agent] = drawPedestal(this, pedX, pedY, room.accentColor);
+    });
 
-    // 2. Draw desks and office accessories
-    drawOfficeDesk(this, 120, 100, 0x0284c7);
-    drawOfficeDesk(this, 340, 100, 0x8b5cf6);
-    drawOfficeDesk(this, 560, 100, 0xeab308);
+    // 6. NPCs in the back of each room.
+    ROOM_SEQUENCE.forEach((room) => {
+        const npc = createProceduralNPC(this, room.npcX, room.npcY, room.name, room.accentColor, SPRITE_KEYS[room.agent]);
+        npc.setDepth(5);
+        addNpcIdleBob(this, npc, room);
+        npcs[room.agent] = npc;
 
-    // 3. Create NPCs
-    npcs.strategist = createProceduralNPC(this, 180, 130, "Soren", 0x38bdf8, SPRITE_KEYS.strategist);
-    npcs.designer = createProceduralNPC(this, 400, 130, "Dahlia", 0xc084fc, SPRITE_KEYS.designer);
-    npcs.marketer = createProceduralNPC(this, 620, 130, "Maddox", 0xfde047, SPRITE_KEYS.marketer);
-    npcs.strategist.setDepth(5);
-    npcs.designer.setDepth(5);
-    npcs.marketer.setDepth(5);
+        // Make NPC clickable to open character info overlay.
+        npc.setSize(50, 50).setInteractive();
+        npc.on("pointerdown", () => {
+            if (typeof openCharacterOverlay === "function") {
+                openCharacterOverlay(room.agent);
+            }
+        });
+        npcStatusBadges[room.agent] = createStatusBadge(this, room.npcX, room.statusY, "LOCKED", "#94a3b8");
+    });
 
-    npcStatusBadges.strategist = createStatusBadge(this, 180, 175, "LOCKED", "#94a3b8");
-    npcStatusBadges.designer = createStatusBadge(this, 400, 175, "LOCKED", "#94a3b8");
-    npcStatusBadges.marketer = createStatusBadge(this, 620, 175, "LOCKED", "#94a3b8");
-
-    // 4. Create Player
-    player = createProceduralPlayer(this, 100, 210, SPRITE_KEYS.player);
+    // 7. Player starts in the corridor in front of the first room.
+    player = createProceduralPlayer(this, ROOM_SEQUENCE[0].doorX, CORRIDOR_Y + 30, SPRITE_KEYS.player);
     if (player.setDepth) player.setDepth(6);
+
+    // 8. Soft edge vignette so the canvas reads as a lit stage.
+    drawVignette(this);
 
     // Controls setup
     cursors = this.input.keyboard.createCursorKeys();
@@ -779,11 +1205,13 @@ function phaserCreate() {
         interact: Phaser.Input.Keyboard.KeyCodes.E,
         space: Phaser.Input.Keyboard.KeyCodes.SPACE
     });
-    this.input.keyboard.on("keydown-E", attemptRunCurrentStep);
-    this.input.keyboard.on("keydown-SPACE", attemptRunCurrentStep);
-    
-    // Create floating tech particle generators for a high-intelligence feel!
+    this.input.keyboard.on("keydown-E", onInteractKey);
+    this.input.keyboard.on("keydown-SPACE", onInteractKey);
+
+    // Floating ambient particles.
     createDungeonParticles(this);
+    createMissionHud(this);
+    createSideQuestTerminals(this);
     syncPhaserQuestState();
     syncRunButtonState();
 }
@@ -813,15 +1241,29 @@ function phaserUpdate() {
     }
     
     // Collide edges
-    player.x = Phaser.Math.Clamp(player.x, 30, 770);
-    player.y = Phaser.Math.Clamp(player.y, 30, 330);
+    player.x = Phaser.Math.Clamp(player.x, PLAYER_BOUNDS.minX, PLAYER_BOUNDS.maxX);
+    player.y = Phaser.Math.Clamp(player.y, PLAYER_BOUNDS.minY, PLAYER_BOUNDS.maxY);
+
+    // Footstep dust puffs while moving.
+    if ((dx !== 0 || dy !== 0) && this.time.now > footstepCooldown) {
+        spawnFootstepDust(this, player.x, player.y + 18);
+        footstepCooldown = this.time.now + 180;
+    }
+
+    // Stream reasoning glyphs from the active NPC while the LLM is thinking.
+    if (isReasoningBusy && this.time.now > reasoningGlyphCooldown) {
+        const activeNpc = getCurrentNpc();
+        if (activeNpc) spawnReasoningGlyph(this, activeNpc.x, activeNpc.y - 30);
+        reasoningGlyphCooldown = this.time.now + 140;
+    }
+
+    // Pedestal inspect prompt while standing next to a ready artifact.
+    syncPedestalInspectPrompt(this);
     
     // Directional animation: prefer horizontal when both axes are pressed.
     const moving = dx !== 0 || dy !== 0;
     if (moving) {
-        const dir = dx !== 0
-            ? (dx < 0 ? 'left' : 'right')
-            : (dy < 0 ? 'up' : 'down');
+        const dir = chooseWalkDirection(dx, dy);
         player.setData('facing', dir);
         if (typeof player.face === 'function') player.face(dir, true);
     } else {
@@ -845,52 +1287,671 @@ function phaserUpdate() {
     // Proximity dialogues
     checkProximityDialogues(this);
     syncRunButtonState();
+    syncInteractionMarker();
+    syncActiveRouteLine(this);
 }
 
-// Draw a beautiful tech carpet under each department
-function drawRoomMat(scene, x, y, w, h, color, title, label) {
-    const carpet = scene.add.graphics();
-    carpet.fillStyle(color, 0.1);
-    carpet.fillRect(x, y, w, h);
-    carpet.lineStyle(2, color, 0.4);
-    carpet.strokeRect(x, y, w, h);
-    
-    // Add cool glowing room title
-    scene.add.text(x + 10, y + 10, title, {
+function syncInteractionMarker() {
+    const step = getCurrentActiveStep();
+    const npc = getCurrentNpc();
+    const shouldShow = Boolean(
+        phaserSceneRef &&
+        step &&
+        npc &&
+        !step.artifact_data &&
+        !isReasoningBusy &&
+        isPlayerNearActiveAgent
+    );
+
+    if (!shouldShow) {
+        if (interactionMarker) {
+            interactionMarker.destroy();
+            interactionMarker = null;
+        }
+        return;
+    }
+
+    if (!interactionMarker) {
+        interactionMarker = phaserSceneRef.add.text(npc.x, npc.y - 82, "E", {
+            fontFamily: 'Press Start 2P, Arial',
+            fontSize: '12px',
+            color: '#0f172a',
+            backgroundColor: '#fbbf24',
+            padding: { x: 7, y: 5 }
+        }).setOrigin(0.5).setDepth(20);
+
+        phaserSceneRef.tweens.add({
+            targets: interactionMarker,
+            y: interactionMarker.y - 6,
+            duration: 500,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut'
+        });
+    }
+
+    interactionMarker.setPosition(npc.x, npc.y - 82);
+}
+
+function getVisualTargetRoom() {
+    const agentKey = getVisualTargetAgentKey();
+    return agentKey ? ROOM_SEQUENCE.find(room => room.agent === agentKey) : null;
+}
+
+function syncActiveRouteLine(scene) {
+    if (!scene || !player) return;
+
+    const room = getVisualTargetRoom();
+    const shouldShow = Boolean(room && currentGameState && currentGameState.stage !== "launched");
+    if (!shouldShow) {
+        if (activeRouteLine) activeRouteLine.clear();
+        if (activeRouteMarker) {
+            activeRouteMarker.destroy();
+            activeRouteMarker = null;
+        }
+        return;
+    }
+
+    if (!activeRouteLine) {
+        activeRouteLine = scene.add.graphics().setDepth(41);
+    }
+
+    const targetX = room.approachX;
+    const targetY = room.approachY;
+    const color = room.accentColor || 0x2dd4bf;
+    activeRouteLine.clear();
+    activeRouteLine.lineStyle(2, color, 0.65);
+
+    const dx = targetX - player.x;
+    const dy = targetY - player.y;
+    const distance = Math.max(1, Math.hypot(dx, dy));
+    const segmentCount = Math.max(1, Math.floor(distance / 28));
+    for (let i = 0; i < segmentCount; i += 2) {
+        const start = i / segmentCount;
+        const end = Math.min((i + 1) / segmentCount, 1);
+        activeRouteLine.lineBetween(
+            player.x + dx * start,
+            player.y + dy * start,
+            player.x + dx * end,
+            player.y + dy * end
+        );
+    }
+
+    if (!activeRouteMarker) {
+        activeRouteMarker = scene.add.circle(targetX, targetY, 8, color, 0.18)
+            .setStrokeStyle(2, color, 0.9)
+            .setDepth(42);
+        scene.tweens.add({
+            targets: activeRouteMarker,
+            scale: { from: 0.85, to: 1.45 },
+            alpha: { from: 0.45, to: 0.9 },
+            duration: 720,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut'
+        });
+    }
+    activeRouteMarker.setPosition(targetX, targetY);
+    activeRouteMarker.setFillStyle(color, 0.18);
+    activeRouteMarker.setStrokeStyle(2, color, 0.9);
+}
+
+// ============================================================
+//  DUNGEON DRAWING - tiled floors, walls with doorways, furniture
+// ============================================================
+
+function drawDungeonBackground(scene) {
+    // Base stone fill.
+    const g = scene.add.graphics();
+    g.fillStyle(0x07101e, 1);
+    g.fillRect(0, 0, WORLD_W, WORLD_H);
+
+    // Subtle diagonal hatch for stone feel.
+    g.lineStyle(1, 0x0e1a30, 0.5);
+    for (let i = -WORLD_H; i < WORLD_W; i += 24) {
+        g.lineBetween(i, 0, i + WORLD_H, WORLD_H);
+    }
+
+    // Corridor carpet runner.
+    const corridor = scene.add.graphics();
+    corridor.fillStyle(0x0c1a30, 1);
+    corridor.fillRect(20, CORRIDOR_Y, WORLD_W - 40, WORLD_H - CORRIDOR_Y - 20);
+    corridor.lineStyle(2, 0x1a2a48, 1);
+    corridor.strokeRect(20, CORRIDOR_Y, WORLD_W - 40, WORLD_H - CORRIDOR_Y - 20);
+
+    // Carpet stripes - JRPG corridor cue.
+    corridor.fillStyle(0x122742, 0.6);
+    for (let x = 30; x < WORLD_W - 30; x += 40) {
+        corridor.fillRect(x, CORRIDOR_Y + 18, 24, 4);
+        corridor.fillRect(x, WORLD_H - 46, 24, 4);
+    }
+
+    // Cabinet label across the top stone band.
+    scene.add.text(WORLD_W / 2, 18, 'OFFICE LEVEL  -  STAGE 01', {
         fontFamily: 'Press Start 2P, Arial',
-        fontSize: '8px',
-        color: '#ffffff'
-    }).setAlpha(0.7);
-    
-    scene.add.text(x + 10, y + h - 18, label, {
-        fontFamily: 'Share Tech Mono, Arial',
-        fontSize: '9px',
+        fontSize: '10px',
         color: '#14b8a6'
-    }).setAlpha(0.5);
+    }).setOrigin(0.5, 0.5).setAlpha(0.6);
 }
 
-// Procedural visual components (No PNG weights necessary!)
-function drawOfficeDesk(scene, x, y, themeColor) {
-    const table = scene.add.graphics();
-    table.fillStyle(0x1e293b, 1);
-    table.fillRect(x, y, 54, 32);
-    table.lineStyle(1.5, themeColor, 0.8);
-    table.strokeRect(x, y, 54, 32);
-    
-    // Monitor screen
-    table.fillStyle(0x0f172a, 1);
-    table.fillRect(x + 12, y + 4, 30, 10);
-    table.lineStyle(1, 0x14b8a6, 0.6);
-    table.strokeRect(x + 12, y + 4, 30, 10);
-    
-    // Green code glowing on monitors
+function drawDungeonRoom(scene, room) {
+    const { roomX, roomY, roomW, roomH, roomColor, floorTint, accentColor, doorX, theme, name, role, roomLabel } = room;
+
+    // --- Tiled floor ---
+    const floor = scene.add.graphics();
+    floor.fillStyle(floorTint, 1);
+    floor.fillRect(roomX + 4, roomY + 4, roomW - 8, roomH - 8);
+    // Tile grid.
+    floor.lineStyle(1, 0x000000, 0.35);
+    const tile = 32;
+    for (let x = roomX + 4; x <= roomX + roomW - 4; x += tile) {
+        floor.lineBetween(x, roomY + 4, x, roomY + roomH - 4);
+    }
+    for (let y = roomY + 4; y <= roomY + roomH - 4; y += tile) {
+        floor.lineBetween(roomX + 4, y, roomX + roomW - 4, y);
+    }
+    // Checker accent on alternating tiles.
+    floor.fillStyle(roomColor, 0.06);
+    for (let x = roomX + 4; x < roomX + roomW - 4; x += tile) {
+        for (let y = roomY + 4; y < roomY + roomH - 4; y += tile) {
+            const ix = Math.floor((x - roomX) / tile);
+            const iy = Math.floor((y - roomY) / tile);
+            if ((ix + iy) % 2 === 0) floor.fillRect(x, y, tile, tile);
+        }
+    }
+    roomFloors[room.agent] = floor;
+
+    // --- Walls with doorway at the bottom ---
+    const wall = scene.add.graphics();
+    wall.fillStyle(0x182742, 1);
+    const wallTh = 6;
+    // Top wall.
+    wall.fillRect(roomX, roomY, roomW, wallTh);
+    // Left wall.
+    wall.fillRect(roomX, roomY, wallTh, roomH);
+    // Right wall.
+    wall.fillRect(roomX + roomW - wallTh, roomY, wallTh, roomH);
+    // Bottom wall split by doorway.
+    const doorGap = 64;
+    const doorLeft = doorX - doorGap / 2;
+    const doorRight = doorX + doorGap / 2;
+    wall.fillRect(roomX, roomY + roomH - wallTh, doorLeft - roomX, wallTh);
+    wall.fillRect(doorRight, roomY + roomH - wallTh, roomX + roomW - doorRight, wallTh);
+
+    // Wall highlight.
+    wall.lineStyle(1, accentColor, 0.4);
+    wall.strokeRect(roomX + 1, roomY + 1, roomW - 2, roomH - 2);
+
+    // --- Door panels (will slide open when room unlocks) ---
+    const doorLeftPanel = scene.add.rectangle(doorLeft + (doorGap / 4), roomY + roomH - 4, doorGap / 2 - 4, 14, accentColor, 1).setOrigin(0.5);
+    const doorRightPanel = scene.add.rectangle(doorRight - (doorGap / 4), roomY + roomH - 4, doorGap / 2 - 4, 14, accentColor, 1).setOrigin(0.5);
+    doorLeftPanel.setStrokeStyle(1, 0x000000, 0.6);
+    doorRightPanel.setStrokeStyle(1, 0x000000, 0.6);
+    roomDoors[room.agent] = { left: doorLeftPanel, right: doorRightPanel, baseX: { left: doorLeftPanel.x, right: doorRightPanel.x }, gap: doorGap };
+
+    // --- Corner torches ---
+    drawCornerTorch(scene, roomX + 14, roomY + 14, accentColor);
+    drawCornerTorch(scene, roomX + roomW - 14, roomY + 14, accentColor);
+
+    // --- Themed furniture ---
+    roomFurniture[room.agent] = drawThemedFurniture(scene, room);
+
+    // --- Room title plaque ---
+    scene.add.text(roomX + roomW / 2, roomY + 18, roomLabel, {
+        fontFamily: 'Press Start 2P, Arial',
+        fontSize: '9px',
+        color: '#e2e8f0'
+    }).setOrigin(0.5).setAlpha(0.85);
+    scene.add.text(roomX + roomW / 2, roomY + 36, `${name} - ${role}`, {
+        fontFamily: 'Share Tech Mono, monospace',
+        fontSize: '10px',
+        color: '#94a3b8'
+    }).setOrigin(0.5);
+}
+
+function drawCornerTorch(scene, x, y, color) {
+    const sconce = scene.add.graphics();
+    sconce.fillStyle(0x1e293b, 1);
+    sconce.fillRect(x - 3, y - 2, 6, 8);
+    const flame = scene.add.circle(x, y - 6, 4, color, 0.9);
+    scene.tweens.add({
+        targets: flame,
+        scale: { from: 0.85, to: 1.15 },
+        alpha: { from: 0.65, to: 1 },
+        duration: 480,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut'
+    });
+}
+
+function drawThemedFurniture(scene, room) {
+    const { deskX, deskY, accentColor, theme, roomX, roomW, roomY, roomH } = room;
+    const g = scene.add.container(0, 0);
+
+    // Common desk.
+    const desk = scene.add.graphics();
+    desk.fillStyle(0x1e293b, 1);
+    desk.fillRect(deskX, deskY, 80, 32);
+    desk.lineStyle(2, accentColor, 0.85);
+    desk.strokeRect(deskX, deskY, 80, 32);
+    // Monitor.
+    desk.fillStyle(0x020617, 1);
+    desk.fillRect(deskX + 20, deskY + 6, 40, 14);
+    desk.lineStyle(1, accentColor, 0.6);
+    desk.strokeRect(deskX + 20, deskY + 6, 40, 14);
+    // Keyboard.
+    desk.fillStyle(0x334155, 1);
+    desk.fillRect(deskX + 26, deskY + 24, 28, 5);
+    g.add(desk);
+
+    // Code glow on monitor.
     const code = scene.add.graphics();
-    code.fillStyle(0x10b981, 0.6);
-    code.fillRect(x + 15, y + 7, 24, 4);
-    
-    // Keyboard
-    table.fillStyle(0x334155, 1);
-    table.fillRect(x + 18, y + 20, 18, 6);
+    code.fillStyle(accentColor, 0.7);
+    code.fillRect(deskX + 24, deskY + 10, 32, 2);
+    code.fillRect(deskX + 24, deskY + 14, 22, 2);
+    g.add(code);
+
+    if (theme === 'strategy') {
+        // Whiteboard with trajectory chart, back-left wall.
+        const board = scene.add.graphics();
+        board.fillStyle(0xf8fafc, 1);
+        board.fillRect(roomX + 18, roomY + 60, 70, 50);
+        board.lineStyle(2, accentColor, 0.9);
+        board.strokeRect(roomX + 18, roomY + 60, 70, 50);
+        // Trend line.
+        board.lineStyle(2, accentColor, 1);
+        board.beginPath();
+        board.moveTo(roomX + 24, roomY + 100);
+        board.lineTo(roomX + 40, roomY + 88);
+        board.lineTo(roomX + 58, roomY + 92);
+        board.lineTo(roomX + 82, roomY + 70);
+        board.strokePath();
+        g.add(board);
+    } else if (theme === 'design') {
+        // Easel with mockup, back-left wall.
+        const easel = scene.add.graphics();
+        easel.fillStyle(0x4c1d95, 1);
+        easel.fillRect(roomX + 22, roomY + 60, 60, 50);
+        easel.lineStyle(2, accentColor, 0.9);
+        easel.strokeRect(roomX + 22, roomY + 60, 60, 50);
+        // Hero block.
+        easel.fillStyle(0xf5d0fe, 0.8);
+        easel.fillRect(roomX + 28, roomY + 68, 48, 14);
+        // Lines.
+        easel.fillStyle(accentColor, 0.7);
+        easel.fillRect(roomX + 28, roomY + 88, 38, 3);
+        easel.fillRect(roomX + 28, roomY + 94, 30, 3);
+        easel.fillRect(roomX + 28, roomY + 100, 22, 3);
+        g.add(easel);
+    } else if (theme === 'marketing') {
+        // Megaphone + send-stack on back-left wall.
+        const stack = scene.add.graphics();
+        stack.fillStyle(0x713f12, 1);
+        stack.fillRect(roomX + 18, roomY + 60, 70, 50);
+        stack.lineStyle(2, accentColor, 0.9);
+        stack.strokeRect(roomX + 18, roomY + 60, 70, 50);
+        // Envelope.
+        stack.fillStyle(0xfef9c3, 1);
+        stack.fillRect(roomX + 26, roomY + 68, 54, 28);
+        stack.lineStyle(1, 0x422006, 1);
+        stack.strokeRect(roomX + 26, roomY + 68, 54, 28);
+        stack.beginPath();
+        stack.moveTo(roomX + 26, roomY + 68);
+        stack.lineTo(roomX + 53, roomY + 84);
+        stack.lineTo(roomX + 80, roomY + 68);
+        stack.strokePath();
+        g.add(stack);
+    }
+
+    return g;
+}
+
+function drawVignette(scene) {
+    // Dark vignette frame to focus the eye on the playable area.
+    const v = scene.add.graphics();
+    v.fillStyle(0x000000, 0.5);
+    v.fillRect(0, 0, WORLD_W, 28);
+    v.fillRect(0, WORLD_H - 18, WORLD_W, 18);
+    v.fillRect(0, 0, 18, WORLD_H);
+    v.fillRect(WORLD_W - 18, 0, 18, WORLD_H);
+    v.setDepth(50);
+}
+
+function addNpcIdleBob(scene, npc, room) {
+    scene.tweens.add({
+        targets: npc,
+        y: room.npcY - 3,
+        duration: 1100,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut'
+    });
+}
+
+function spawnFootstepDust(scene, x, y) {
+    const dust = scene.add.circle(x, y, 3, 0x94a3b8, 0.45);
+    dust.setDepth(2);
+    scene.tweens.add({
+        targets: dust,
+        alpha: 0,
+        scale: 1.8,
+        duration: 380,
+        onComplete: () => dust.destroy()
+    });
+}
+
+// ============================================================
+//  DIEGETIC UI - checkpoints, gates, pedestals, reasoning glyphs
+// ============================================================
+
+function drawCheckpoint(scene, x, y, index, accentColor) {
+    const container = scene.add.container(x, y);
+    container.setDepth(3);
+
+    const base = scene.add.graphics();
+    base.fillStyle(0x0a1530, 1);
+    base.fillCircle(0, 0, 16);
+    base.lineStyle(2, 0x334155, 1);
+    base.strokeCircle(0, 0, 16);
+    container.add(base);
+
+    const ring = scene.add.graphics();
+    container.add(ring);
+
+    const label = scene.add.text(0, 0, String(index), {
+        fontFamily: 'Press Start 2P, Arial',
+        fontSize: '9px',
+        color: '#94a3b8'
+    }).setOrigin(0.5);
+    container.add(label);
+
+    container.ring = ring;
+    container.label = label;
+    container.base = base;
+    container.accentColor = accentColor;
+    container.index = index;
+    return container;
+}
+
+function setCheckpointState(checkpoint, state) {
+    if (!checkpoint || !phaserSceneRef) return;
+    const { ring, label, base, accentColor } = checkpoint;
+    ring.clear();
+    base.clear();
+    base.fillStyle(0x0a1530, 1);
+    base.fillCircle(0, 0, 16);
+
+    if (state === 'active') {
+        base.lineStyle(2, 0xfbbf24, 1);
+        base.strokeCircle(0, 0, 16);
+        ring.lineStyle(2, 0xfbbf24, 0.7);
+        ring.strokeCircle(0, 0, 22);
+        label.setText('!');
+        label.setColor('#fbbf24');
+        // Pulsing aura
+        if (!checkpoint.pulseTween) {
+            checkpoint.pulseTween = phaserSceneRef.tweens.add({
+                targets: ring,
+                alpha: { from: 0.2, to: 1 },
+                duration: 700,
+                yoyo: true,
+                repeat: -1
+            });
+        }
+    } else if (state === 'cleared') {
+        if (checkpoint.pulseTween) { checkpoint.pulseTween.stop(); checkpoint.pulseTween = null; }
+        base.lineStyle(2, 0x34d399, 1);
+        base.strokeCircle(0, 0, 16);
+        ring.setAlpha(1);
+        ring.lineStyle(2, 0x34d399, 0.6);
+        ring.beginPath();
+        // Check mark.
+        ring.moveTo(-6, 0);
+        ring.lineTo(-1, 6);
+        ring.lineTo(7, -5);
+        ring.strokePath();
+        label.setText('');
+    } else {
+        if (checkpoint.pulseTween) { checkpoint.pulseTween.stop(); checkpoint.pulseTween = null; }
+        ring.setAlpha(1);
+        base.lineStyle(2, 0x334155, 1);
+        base.strokeCircle(0, 0, 16);
+        label.setText(String(checkpoint.index || '?'));
+        label.setColor('#475569');
+    }
+}
+
+function drawCorridorGate(scene, x, y) {
+    const container = scene.add.container(x, y);
+    container.setDepth(4);
+
+    // Two posts.
+    const left = scene.add.rectangle(-10, 0, 4, 36, 0x475569).setOrigin(0.5);
+    const right = scene.add.rectangle(10, 0, 4, 36, 0x475569).setOrigin(0.5);
+    // Three chain bars.
+    const bars = [];
+    for (let i = -1; i <= 1; i++) {
+        const bar = scene.add.rectangle(0, i * 9, 24, 3, 0x94a3b8).setOrigin(0.5);
+        bars.push(bar);
+    }
+    // Glowing seal.
+    const seal = scene.add.circle(0, 0, 6, 0xfbbf24, 1).setStrokeStyle(1, 0x422006, 1);
+    container.add([left, right, ...bars, seal]);
+    container.posts = [left, right];
+    container.bars = bars;
+    container.seal = seal;
+    return container;
+}
+
+function breakCorridorGate(gate) {
+    if (!gate || !phaserSceneRef || gate.broken) return;
+    gate.broken = true;
+    // Seal flashes and pops.
+    phaserSceneRef.tweens.add({
+        targets: gate.seal,
+        scale: 2,
+        alpha: 0,
+        duration: 280,
+        onComplete: () => gate.seal.destroy()
+    });
+    // Bars fly out.
+    gate.bars.forEach((bar, i) => {
+        phaserSceneRef.tweens.add({
+            targets: bar,
+            y: bar.y + (i - 1) * 6 + 8,
+            angle: Phaser.Math.Between(-60, 60),
+            alpha: 0,
+            duration: 500,
+            ease: 'Cubic.easeOut',
+            onComplete: () => bar.destroy()
+        });
+    });
+    // Posts fade.
+    gate.posts.forEach((post) => {
+        phaserSceneRef.tweens.add({
+            targets: post,
+            alpha: 0.25,
+            duration: 500
+        });
+    });
+}
+
+function drawPedestal(scene, x, y, accentColor) {
+    const container = scene.add.container(x, y);
+    container.setDepth(3);
+
+    // Base block.
+    const base = scene.add.graphics();
+    base.fillStyle(0x1e293b, 1);
+    base.fillRect(-16, -4, 32, 14);
+    base.lineStyle(2, accentColor, 0.8);
+    base.strokeRect(-16, -4, 32, 14);
+    // Top slab.
+    base.fillStyle(0x334155, 1);
+    base.fillRect(-18, -8, 36, 6);
+    base.lineStyle(2, accentColor, 0.6);
+    base.strokeRect(-18, -8, 36, 6);
+    container.add(base);
+
+    // Glow ring underneath (visible only when something is on the pedestal).
+    const glow = scene.add.circle(0, -2, 22, accentColor, 0.0);
+    container.addAt(glow, 0);
+    container.glow = glow;
+
+    // Slot for the artifact / trophy sprite.
+    const slot = scene.add.container(0, -20);
+    container.add(slot);
+    container.slot = slot;
+    container.accentColor = accentColor;
+    return container;
+}
+
+function setPedestalArtifact(pedestal, kind) {
+    if (!pedestal || !phaserSceneRef) return;
+    pedestal.slot.removeAll(true);
+    if (pedestal.floatTween) { pedestal.floatTween.stop(); pedestal.floatTween = null; }
+
+    if (kind === 'scroll') {
+        // Glowing scroll.
+        const scrollBody = phaserSceneRef.add.graphics();
+        scrollBody.fillStyle(0xfef3c7, 1);
+        scrollBody.fillRect(-9, -10, 18, 20);
+        scrollBody.lineStyle(1, 0x78350f, 1);
+        scrollBody.strokeRect(-9, -10, 18, 20);
+        // Ink lines.
+        scrollBody.lineStyle(1, 0x78350f, 0.7);
+        scrollBody.lineBetween(-6, -5, 6, -5);
+        scrollBody.lineBetween(-6, -1, 6, -1);
+        scrollBody.lineBetween(-6, 3, 4, 3);
+        // Ribbon.
+        scrollBody.fillStyle(0xdc2626, 1);
+        scrollBody.fillRect(-9, 4, 18, 3);
+        pedestal.slot.add(scrollBody);
+        pedestal.glow.setFillStyle(pedestal.accentColor, 0.35);
+        pedestal.floatTween = phaserSceneRef.tweens.add({
+            targets: pedestal.slot,
+            y: -26,
+            duration: 900,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut'
+        });
+    } else if (kind === 'trophy') {
+        const trophy = phaserSceneRef.add.graphics();
+        trophy.fillStyle(0xfde047, 1);
+        // Cup.
+        trophy.fillRect(-7, -10, 14, 10);
+        trophy.fillRect(-9, -10, 18, 3);
+        // Stem + base.
+        trophy.fillRect(-2, 0, 4, 4);
+        trophy.fillRect(-6, 4, 12, 3);
+        trophy.lineStyle(1, 0x854d0e, 1);
+        trophy.strokeRect(-7, -10, 14, 10);
+        pedestal.slot.add(trophy);
+        pedestal.glow.setFillStyle(0xfde047, 0.45);
+        pedestal.floatTween = phaserSceneRef.tweens.add({
+            targets: pedestal.glow,
+            alpha: { from: 0.25, to: 0.6 },
+            duration: 1000,
+            yoyo: true,
+            repeat: -1
+        });
+    } else {
+        pedestal.glow.setFillStyle(pedestal.accentColor, 0.0);
+    }
+}
+
+function spawnReasoningGlyph(scene, x, y) {
+    const glyphs = ['0', '1', '{}', '<>', '*', '+', '~'];
+    const glyph = scene.add.text(
+        x + Phaser.Math.Between(-10, 10),
+        y + Phaser.Math.Between(-4, 4),
+        Phaser.Utils.Array.GetRandom(glyphs),
+        {
+            fontFamily: 'Share Tech Mono, monospace',
+            fontSize: '12px',
+            color: '#2dd4bf'
+        }
+    ).setOrigin(0.5).setDepth(8);
+    scene.tweens.add({
+        targets: glyph,
+        y: glyph.y - 36,
+        alpha: 0,
+        duration: 900,
+        ease: 'Cubic.easeOut',
+        onComplete: () => glyph.destroy()
+    });
+}
+
+function getActivePedestal() {
+    const agentKey = getCurrentAgentKey();
+    return agentKey ? roomPedestals[agentKey] : null;
+}
+
+function isPlayerNearActivePedestal() {
+    const ped = getActivePedestal();
+    if (!ped || !player) return false;
+    const dist = Phaser.Math.Distance.Between(player.x, player.y, ped.x, ped.y);
+    return dist < 56;
+}
+
+function syncPedestalInspectPrompt(scene) {
+    const step = getCurrentActiveStep();
+    const ped = getActivePedestal();
+    const shouldShow = Boolean(
+        ped &&
+        step &&
+        step.artifact_data &&
+        isPlayerNearActivePedestal()
+    );
+
+    if (!shouldShow) {
+        if (pedestalInspectPrompt) {
+            pedestalInspectPrompt.destroy();
+            pedestalInspectPrompt = null;
+        }
+        return;
+    }
+
+    if (!pedestalInspectPrompt) {
+        pedestalInspectPrompt = scene.add.text(ped.x, ped.y - 50, 'E to INSPECT', {
+            fontFamily: 'Press Start 2P, Arial',
+            fontSize: '8px',
+            color: '#fef3c7',
+            backgroundColor: '#0f172acc',
+            padding: { x: 6, y: 4 }
+        }).setOrigin(0.5).setDepth(25);
+        scene.tweens.add({
+            targets: pedestalInspectPrompt,
+            y: pedestalInspectPrompt.y - 4,
+            duration: 500,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut'
+        });
+    }
+    pedestalInspectPrompt.setPosition(ped.x, ped.y - 50);
+}
+
+function onInteractKey() {
+    // Route the E / Space key to either "run agent" or "inspect artifact".
+    const step = getCurrentActiveStep();
+    if (!step) return;
+    if (step.artifact_data) {
+        if (isPlayerNearActivePedestal()) flashInspector();
+        return;
+    }
+    attemptRunCurrentStep();
+}
+
+function flashInspector() {
+    if (!artifactContentArea) return;
+    artifactContentArea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    artifactContentArea.classList.add('ring-2', 'ring-amber-400', 'transition-all');
+    setTimeout(() => {
+        artifactContentArea.classList.remove('ring-2', 'ring-amber-400');
+    }, 1200);
 }
 
 function createProceduralNPC(scene, x, y, name, colorVal, spriteKey) {
@@ -922,25 +1983,67 @@ function createProceduralNPC(scene, x, y, name, colorVal, spriteKey) {
 
     // Procedural fallback (default - works after `git clone`).
     container.face = () => {}; // no-op for graphics fallback
-    const body = scene.add.graphics();
-    body.fillStyle(0x1e293b, 1);
-    body.fillCircle(0, 0, 18);
-    body.lineStyle(2.5, colorVal, 1);
-    body.strokeCircle(0, 0, 18);
-    
-    const visor = scene.add.graphics();
-    visor.fillStyle(colorVal, 1);
-    visor.fillRect(-10, -5, 20, 6);
-    
-    const label = scene.add.text(0, -32, name, {
+
+    // Sophisticated procedural avatar: concentric rings for visual depth.
+    const outerRing = scene.add.circle(0, 0, 22, colorVal, 0.25);
+    outerRing.setStrokeStyle(2, colorVal, 1);
+    container.add(outerRing);
+
+    const midRing = scene.add.circle(0, 0, 16, colorVal, 0.1);
+    midRing.setStrokeStyle(1.5, colorVal, 0.6);
+    container.add(midRing);
+
+    const body = scene.add.circle(0, 0, 12, 0x1e293b, 1);
+    body.setStrokeStyle(2, colorVal, 0.9);
+    container.add(body);
+
+    // Eyes: expressive pair with pupils.
+    const eyeL = scene.add.circle(-5, -3, 2.5, 0xffffff, 0.85);
+    const pupilL = scene.add.circle(-5, -2.5, 1.2, colorVal, 1);
+    container.add([eyeL, pupilL]);
+
+    const eyeR = scene.add.circle(5, -3, 2.5, 0xffffff, 0.85);
+    const pupilR = scene.add.circle(5, -2.5, 1.2, colorVal, 1);
+    container.add([eyeR, pupilR]);
+
+    // Mouth - subtle smile.
+    const mouth = scene.add.graphics();
+    mouth.lineStyle(1.2, colorVal, 0.7);
+    mouth.beginPath();
+    mouth.moveTo(-2.5, 5);
+    mouth.quadraticCurveTo(0, 6.5, 2.5, 5);
+    mouth.strokePath();
+    container.add(mouth);
+
+    // Glow aura - always present, animates on state change.
+    const aura = scene.add.circle(0, 0, 26, colorVal, 0.08);
+    aura.setStrokeStyle(1.2, colorVal, 0.35);
+    container.add(aura);
+    container.sendToBack(aura);
+
+    // Slow rotation animation on outer ring (thinking effect).
+    scene.tweens.add({
+        targets: outerRing,
+        angle: 360,
+        duration: 7000,
+        repeat: -1,
+        ease: 'Linear'
+    });
+
+    const label = scene.add.text(0, -38, name, {
         fontFamily: 'Share Tech Mono, monospace',
-        fontSize: '11px',
+        fontSize: '10px',
         color: '#e2e8f0',
         backgroundColor: '#0a0f1daa',
         padding: { x: 4, y: 1 }
     }).setOrigin(0.5);
-    
-    container.add([body, visor, label]);
+    container.add(label);
+
+    // Store refs for state change effects.
+    container.setData('aura', aura);
+    container.setData('pupilL', pupilL);
+    container.setData('pupilR', pupilR);
+
     return container;
 }
 
@@ -1009,20 +2112,18 @@ function createProceduralPlayer(scene, x, y, spriteKey) {
 }
 
 function createDungeonParticles(scene) {
-    // Generate lovely floating coding particles
-    const emitter = scene.add.graphics();
+    // Generate lovely floating coding particles across the whole world.
     scene.time.addEvent({
-        delay: 50,
+        delay: 70,
         callback: () => {
-            const px = Phaser.Math.Between(50, 750);
-            const py = Phaser.Math.Between(50, 310);
-            
-            const dot = scene.add.circle(px, py, Phaser.Math.Between(1, 3), 0x14b8a6, 0.15);
+            const px = Phaser.Math.Between(40, WORLD_W - 40);
+            const py = Phaser.Math.Between(40, WORLD_H - 40);
+            const dot = scene.add.circle(px, py, Phaser.Math.Between(1, 2), 0x14b8a6, 0.18);
             scene.tweens.add({
                 targets: dot,
-                y: py - 40,
+                y: py - 50,
                 alpha: 0,
-                duration: 1200,
+                duration: 1400,
                 onComplete: () => dot.destroy()
             });
         },
@@ -1030,7 +2131,193 @@ function createDungeonParticles(scene) {
     });
 }
 
+function createMissionHud(scene) {
+    missionHud = scene.add.container(18, 18).setDepth(65);
+    updateMissionHud(null);
+}
+
+function getMissionProgressItems(visualState) {
+    const quest = currentGameState?.active_quest;
+    if (quest?.steps?.length) {
+        return quest.steps.map((step, idx) => {
+            const isActive = idx === quest.current_step_index;
+            const isCleared = idx < quest.current_step_index;
+            return {
+                index: idx + 1,
+                title: step.title,
+                agent: step.assigned_to,
+                state: isCleared ? 'cleared' : isActive ? 'active' : 'locked',
+            };
+        });
+    }
+
+    const world = currentGameState?.world;
+    if (world?.chapters?.length) {
+        const activeChapter = getActiveWorldChapter();
+        return world.chapters.map((chapter, idx) => {
+            const isActive = activeChapter?.id === chapter.id;
+            return {
+                index: idx + 1,
+                title: chapter.title,
+                agent: getVisualAgentKeyForRole(chapter.owner_role) || chapter.owner_role,
+                state: chapter.status === 'completed' ? 'cleared' : isActive ? 'active' : 'locked',
+            };
+        });
+    }
+
+    if (visualState?.statusByAgent) {
+        return ROOM_SEQUENCE.map((room, idx) => {
+            const status = visualState.statusByAgent[room.agent]?.text || 'LOCKED';
+            return {
+                index: idx + 1,
+                title: room.roomName,
+                agent: room.agent,
+                state: status === 'CLEARED' ? 'cleared' : isActiveVisualStatus(status) ? 'active' : 'locked',
+            };
+        });
+    }
+
+    return [];
+}
+
+function updateMissionHud(visualState) {
+    if (!missionHud || !phaserSceneRef) return;
+    missionHud.removeAll(true);
+    missionHudNodes = [];
+
+    const items = getMissionProgressItems(visualState);
+    const width = Math.max(250, Math.min(520, 94 + items.length * 68));
+    const bg = phaserSceneRef.add.rectangle(0, 0, width, 72, 0x050914, 0.82)
+        .setOrigin(0, 0)
+        .setStrokeStyle(1, 0x2dd4bf, 0.45);
+    missionHud.add(bg);
+
+    const title = phaserSceneRef.add.text(12, 10, 'RUN MAP', {
+        fontFamily: 'Press Start 2P, Arial',
+        fontSize: '8px',
+        color: '#5eead4'
+    });
+    missionHud.add(title);
+
+    missionHudText = phaserSceneRef.add.text(12, 54, 'Click an agent terminal to inspect artifacts and reasoning.', {
+        fontFamily: 'Share Tech Mono, monospace',
+        fontSize: '10px',
+        color: '#94a3b8'
+    });
+    missionHud.add(missionHudText);
+
+    items.forEach((item, idx) => {
+        const x = 94 + idx * 68;
+        const y = 25;
+        const active = item.state === 'active';
+        const cleared = item.state === 'cleared';
+        const color = cleared ? 0x34d399 : active ? 0xfbbf24 : 0x475569;
+        const fill = cleared ? 0x052e2b : active ? 0x422006 : 0x0f172a;
+
+        if (idx > 0) {
+            const line = phaserSceneRef.add.rectangle(x - 34, y, 38, 2, color, cleared ? 0.85 : 0.35).setOrigin(0.5);
+            missionHud.add(line);
+        }
+
+        const node = phaserSceneRef.add.circle(x, y, active ? 14 : 12, fill, 1).setStrokeStyle(2, color, 0.95);
+        const label = phaserSceneRef.add.text(x, y, cleared ? 'OK' : String(item.index), {
+            fontFamily: 'Press Start 2P, Arial',
+            fontSize: cleared ? '6px' : '8px',
+            color: cleared ? '#34d399' : active ? '#fbbf24' : '#94a3b8'
+        }).setOrigin(0.5);
+        missionHud.add([node, label]);
+        missionHudNodes.push(node);
+
+        if (active) {
+            phaserSceneRef.tweens.add({
+                targets: node,
+                scale: { from: 1, to: 1.18 },
+                alpha: { from: 0.85, to: 1 },
+                duration: 650,
+                yoyo: true,
+                repeat: 1,
+                ease: 'Sine.easeInOut'
+            });
+            missionHudText.setText(`${item.title} / ${String(item.agent).toUpperCase()}`.slice(0, 56));
+        }
+    });
+}
+
+function createSideQuestTerminals(scene) {
+    ROOM_SEQUENCE.forEach((room) => {
+        const terminal = scene.add.container(room.doorX + 54, CORRIDOR_Y - 34).setDepth(12);
+        const base = scene.add.rectangle(0, 8, 42, 26, 0x0f172a, 1).setStrokeStyle(2, room.accentColor, 0.65);
+        const screen = scene.add.rectangle(0, 0, 30, 12, room.accentColor, 0.24).setStrokeStyle(1, room.accentColor, 0.9);
+        const light = scene.add.circle(15, 14, 2, room.accentColor, 0.9);
+        const label = scene.add.text(0, 29, 'DOSSIER', {
+            fontFamily: 'Press Start 2P, Arial',
+            fontSize: '6px',
+            color: '#cbd5e1',
+            backgroundColor: '#020617aa',
+            padding: { x: 3, y: 2 }
+        }).setOrigin(0.5);
+        terminal.add([base, screen, light, label]);
+        terminal.setSize(58, 44).setInteractive({ cursor: 'pointer' });
+        terminal.on('pointerdown', () => {
+            if (typeof openCharacterOverlay === 'function') openCharacterOverlay(room.agent);
+            showSpeechBubble(room.npcX, room.npcY - 65, `${room.name}'s dossier is open.`);
+        });
+        scene.tweens.add({
+            targets: screen,
+            alpha: { from: 0.24, to: 0.55 },
+            duration: 900,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut'
+        });
+        sideQuestTerminals[room.agent] = { terminal, screen, light };
+    });
+}
+
+function updateSideQuestTerminals(visualState) {
+    if (!visualState?.statusByAgent) return;
+    Object.entries(sideQuestTerminals).forEach(([agentKey, parts]) => {
+        const status = visualState.statusByAgent[agentKey]?.text || 'LOCKED';
+        const room = ROOM_SEQUENCE.find(item => item.agent === agentKey);
+        const color = status === 'CLEARED' ? 0x34d399 : isActiveVisualStatus(status) ? 0xfbbf24 : room?.accentColor || 0x2dd4bf;
+        const alpha = status === 'LOCKED' ? 0.48 : 1;
+        parts.terminal.setAlpha(alpha);
+        parts.screen.setFillStyle(color, status === 'LOCKED' ? 0.12 : 0.34);
+        parts.screen.setStrokeStyle(1, color, status === 'LOCKED' ? 0.45 : 0.95);
+        parts.light.setFillStyle(color, status === 'LOCKED' ? 0.25 : 0.95);
+    });
+}
+
 // Pop up visual speech bubble over active character
+function setAgentFocusRing(agentKey, enabled) {
+    if (!phaserSceneRef || !agentKey) return;
+    const existing = agentFocusRings[agentKey];
+    if (existing) {
+        existing.destroy();
+        delete agentFocusRings[agentKey];
+    }
+    if (!enabled) return;
+
+    const npc = npcs[agentKey];
+    const room = ROOM_SEQUENCE.find(item => item.agent === agentKey);
+    if (!npc) return;
+
+    const color = room?.accentColor || 0x2dd4bf;
+    const ring = phaserSceneRef.add.circle(npc.x, npc.y, 34, color, 0.04)
+        .setStrokeStyle(2, color, 0.9)
+        .setDepth(4);
+    agentFocusRings[agentKey] = ring;
+    phaserSceneRef.tweens.add({
+        targets: ring,
+        scale: { from: 0.85, to: 1.55 },
+        alpha: { from: 0.95, to: 0.25 },
+        duration: 620,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut'
+    });
+}
+
 function notifyPhaserAgentActive() {
     if (!currentGameState || !phaserSceneRef) return;
     const activeIdx = currentGameState.active_quest?.current_step_index;
@@ -1040,6 +2327,8 @@ function notifyPhaserAgentActive() {
     const npcKey = step.assigned_to;
     const npc = npcs[npcKey];
     if (!npc) return;
+
+    setAgentFocusRing(npcKey, true);
     
     // Zoom camera on the active unit
     phaserSceneRef.cameras.main.zoomTo(1.15, 800, 'Sine.easeInOut', true);
@@ -1057,6 +2346,8 @@ function notifyPhaserAgentComplete(isSuccess) {
     const npcKey = step.assigned_to;
     const npc = npcs[npcKey];
     if (!npc) return;
+
+    setAgentFocusRing(npcKey, false);
     
     // Zoom back
     phaserSceneRef.cameras.main.zoomTo(1, 600, 'Sine.easeInOut', true);
@@ -1077,46 +2368,198 @@ function notifyPhaserAgentReject() {
     const npcKey = step.assigned_to;
     const npc = npcs[npcKey];
     if (!npc) return;
+
+    setAgentFocusRing(npcKey, false);
     
     showSpeechBubble(npc.x, npc.y - 65, "Feedback noted. I will rework the artifact.");
 }
 
 function spawnPhaserXPEffect(xpAmount = 0) {
     if (!player || !phaserSceneRef) return;
-    
-    // Level Up / XP golden text
-    const text = phaserSceneRef.add.text(player.x, player.y - 45, `+${xpAmount} XP`, {
+
+    // Camera shake for impact.
+    phaserSceneRef.cameras.main.shake(220, 0.004);
+
+    // Big XP text rising.
+    const text = phaserSceneRef.add.text(player.x, player.y - 50, `+${xpAmount} XP`, {
         fontFamily: 'Press Start 2P, Arial',
-        fontSize: '12px',
+        fontSize: '14px',
         color: '#fbbf24',
         stroke: '#000000',
-        strokeThickness: 3
-    }).setOrigin(0.5);
-    
-    // Float upwards
+        strokeThickness: 4
+    }).setOrigin(0.5).setDepth(40);
+
     phaserSceneRef.tweens.add({
         targets: text,
-        y: player.y - 95,
+        y: player.y - 110,
         alpha: 0,
-        scale: 1.4,
-        duration: 2000,
+        scale: 1.5,
+        duration: 1800,
         onComplete: () => text.destroy()
     });
+
+    // Gold spark burst.
+    for (let i = 0; i < 14; i++) {
+        const ang = (Math.PI * 2 * i) / 14;
+        const dist = Phaser.Math.Between(30, 60);
+        const spark = phaserSceneRef.add.circle(player.x, player.y - 10, 3, 0xfde047, 1).setDepth(39);
+        phaserSceneRef.tweens.add({
+            targets: spark,
+            x: player.x + Math.cos(ang) * dist,
+            y: player.y - 10 + Math.sin(ang) * dist,
+            alpha: 0,
+            scale: 0.2,
+            duration: 700 + Math.random() * 300,
+            ease: 'Cubic.easeOut',
+            onComplete: () => spark.destroy()
+        });
+    }
+}
+
+function spawnWorldCompleteCeremony() {
+    if (!phaserSceneRef || worldCompleteCeremonyShown) return;
+    worldCompleteCeremonyShown = true;
+
+    phaserSceneRef.cameras.main.flash(450, 45, 212, 191, false);
+    phaserSceneRef.cameras.main.shake(360, 0.0035);
+
+    const banner = phaserSceneRef.add.container(WORLD_W / 2, 112).setDepth(80);
+    const bg = phaserSceneRef.add.rectangle(0, 0, 520, 70, 0x020617, 0.9)
+        .setStrokeStyle(2, 0x34d399, 0.85);
+    const title = phaserSceneRef.add.text(0, -12, 'VENTURE LAUNCHED', {
+        fontFamily: 'Press Start 2P, Arial',
+        fontSize: '18px',
+        color: '#34d399',
+        stroke: '#000000',
+        strokeThickness: 4
+    }).setOrigin(0.5);
+    const subtitle = phaserSceneRef.add.text(0, 22, 'All agents cleared their rooms. Artifacts are ready for review.', {
+        fontFamily: 'Share Tech Mono, monospace',
+        fontSize: '13px',
+        color: '#cbd5e1'
+    }).setOrigin(0.5);
+    banner.add([bg, title, subtitle]);
+    banner.setScale(0.82);
+    banner.setAlpha(0);
+
+    phaserSceneRef.tweens.add({
+        targets: banner,
+        alpha: 1,
+        scale: 1,
+        duration: 420,
+        ease: 'Back.easeOut'
+    });
+    phaserSceneRef.tweens.add({
+        targets: banner,
+        alpha: 0,
+        y: banner.y - 28,
+        delay: 2400,
+        duration: 700,
+        ease: 'Cubic.easeIn',
+        onComplete: () => banner.destroy()
+    });
+
+    ROOM_SEQUENCE.forEach((room, roomIdx) => {
+        const beam = phaserSceneRef.add.rectangle(room.doorX, CORRIDOR_Y + 20, 24, 120, room.accentColor, 0.0)
+            .setDepth(2)
+            .setOrigin(0.5, 1);
+        phaserSceneRef.tweens.add({
+            targets: beam,
+            alpha: { from: 0.0, to: 0.38 },
+            scaleX: { from: 0.5, to: 1.4 },
+            duration: 320,
+            yoyo: true,
+            delay: roomIdx * 120,
+            repeat: 2,
+            onComplete: () => beam.destroy()
+        });
+
+        for (let i = 0; i < 12; i++) {
+            const spark = phaserSceneRef.add.circle(room.doorX, CORRIDOR_Y + 18, 3, room.accentColor, 0.95).setDepth(72);
+            phaserSceneRef.tweens.add({
+                targets: spark,
+                x: room.doorX + Phaser.Math.Between(-62, 62),
+                y: CORRIDOR_Y + Phaser.Math.Between(-95, 10),
+                alpha: 0,
+                scale: 0.2,
+                duration: 850 + Phaser.Math.Between(0, 350),
+                delay: roomIdx * 100 + i * 22,
+                ease: 'Cubic.easeOut',
+                onComplete: () => spark.destroy()
+            });
+        }
+    });
+}
+
+function isActiveVisualStatus(statusText) {
+    return statusText === 'ACTIVE' || statusText === 'REVIEW' || statusText === 'RUNNING';
+}
+
+function buildPhaserVisualState() {
+    const statusByAgent = {};
+    const stepByAgent = {};
+    ROOM_SEQUENCE.forEach((room) => {
+        statusByAgent[room.agent] = { text: "LOCKED", color: "#94a3b8", alpha: 0.45 };
+    });
+
+    const quest = currentGameState?.active_quest;
+    if (quest?.steps) {
+        const activeIdx = quest.current_step_index;
+        quest.steps.forEach((step, idx) => {
+            stepByAgent[step.assigned_to] = step;
+            if (idx < activeIdx) statusByAgent[step.assigned_to] = { text: "CLEARED", color: "#34d399", alpha: 0.85 };
+            else if (idx === activeIdx) statusByAgent[step.assigned_to] = { text: "ACTIVE", color: "#fbbf24", alpha: 1 };
+            else statusByAgent[step.assigned_to] = { text: "LOCKED", color: "#94a3b8", alpha: 0.45 };
+        });
+        return { statusByAgent, stepByAgent, activeAgentKey: getCurrentAgentKey() };
+    }
+
+    const world = currentGameState?.world;
+    if (!world?.chapters?.length) return null;
+
+    const activeChapter = getActiveWorldChapter();
+    world.chapters.forEach((chapter) => {
+        const agentKey = getVisualAgentKeyForRole(chapter.owner_role);
+        if (!agentKey) return;
+        stepByAgent[agentKey] = {
+            assigned_to: agentKey,
+            title: chapter.title,
+            artifact_data: chapter.artifact,
+        };
+
+        const isActiveChapter = activeChapter && chapter.id === activeChapter.id;
+        if (isActiveChapter) {
+            const text = chapter.status === 'needs-review' ? 'REVIEW' : 'ACTIVE';
+            statusByAgent[agentKey] = { text, color: "#fbbf24", alpha: 1 };
+        } else if (chapter.status === 'completed' && !isActiveVisualStatus(statusByAgent[agentKey]?.text)) {
+            statusByAgent[agentKey] = { text: "CLEARED", color: "#34d399", alpha: 0.9 };
+        }
+    });
+
+    if (world.status === "completed") {
+        ROOM_SEQUENCE.forEach((room) => {
+            if (statusByAgent[room.agent].text !== "LOCKED") {
+                statusByAgent[room.agent] = { text: "CLEARED", color: "#34d399", alpha: 0.9 };
+            }
+        });
+    }
+
+    return {
+        statusByAgent,
+        stepByAgent,
+        activeAgentKey: getVisualAgentKeyForRole(activeChapter?.owner_role),
+    };
 }
 
 function syncPhaserQuestState() {
     if (!currentGameState || !phaserSceneRef) return;
 
-    const quest = currentGameState.active_quest;
-    if (!quest || !quest.steps) return;
+    const visualState = buildPhaserVisualState();
+    if (!visualState) return;
 
-    const activeIdx = quest.current_step_index;
-    const statusByAgent = {};
-    quest.steps.forEach((step, idx) => {
-        if (idx < activeIdx) statusByAgent[step.assigned_to] = { text: "CLEARED", color: "#34d399", alpha: 0.85 };
-        else if (idx === activeIdx) statusByAgent[step.assigned_to] = { text: "ACTIVE", color: "#fbbf24", alpha: 1 };
-        else statusByAgent[step.assigned_to] = { text: "LOCKED", color: "#94a3b8", alpha: 0.45 };
-    });
+    const { statusByAgent, stepByAgent, activeAgentKey } = visualState;
+    updateMissionHud(visualState);
+    updateSideQuestTerminals(visualState);
 
     Object.entries(npcStatusBadges).forEach(([agentKey, badge]) => {
         const status = statusByAgent[agentKey] || { text: "LOCKED", color: "#94a3b8", alpha: 0.45 };
@@ -1124,10 +2567,74 @@ function syncPhaserQuestState() {
         badge.setColor(status.color);
         badge.setAlpha(status.alpha);
         if (npcs[agentKey]) npcs[agentKey].setAlpha(status.alpha === 0.45 ? 0.55 : 1);
+
+        // Doors slide open for active or cleared rooms; closed when locked.
+        const door = roomDoors[agentKey];
+        if (door) {
+            const open = status.text !== 'LOCKED';
+            const offset = open ? door.gap / 2 - 4 : 0;
+            phaserSceneRef.tweens.add({
+                targets: door.left,
+                x: door.baseX.left - offset,
+                duration: 350,
+                ease: 'Cubic.easeOut'
+            });
+            phaserSceneRef.tweens.add({
+                targets: door.right,
+                x: door.baseX.right + offset,
+                duration: 350,
+                ease: 'Cubic.easeOut'
+            });
+        }
+
+        // Floor brightens for the active room.
+        const floor = roomFloors[agentKey];
+        if (floor) floor.setAlpha(isActiveVisualStatus(status.text) ? 1 : status.text === 'CLEARED' ? 0.85 : 0.62);
+
+        // Corridor checkpoint reflects state.
+        const cp = corridorCheckpoints[agentKey];
+        if (cp) {
+            const s = status.text === 'CLEARED' ? 'cleared' : isActiveVisualStatus(status.text) ? 'active' : 'locked';
+            setCheckpointState(cp, s);
+        }
+
+        // Corridor gate to THIS room breaks once the previous room is cleared.
+        // i.e. roomGates[agent] is the gate just before this room.
+        const gate = roomGates[agentKey];
+        if (gate) {
+            const myIdx = ROOM_SEQUENCE.findIndex((r) => r.agent === agentKey);
+            const prev = ROOM_SEQUENCE[myIdx - 1];
+            const prevStatus = prev ? statusByAgent[prev.agent] : null;
+            const prevCleared = prevStatus && prevStatus.text === 'CLEARED';
+            if (prevCleared) breakCorridorGate(gate);
+        }
+
+        // Pedestal artifact mirrors quest state.
+        const ped = roomPedestals[agentKey];
+        if (ped) {
+            const step = stepByAgent[agentKey];
+            if (status.text === 'CLEARED') {
+                if (pedestalProgress[agentKey] !== 'trophy') {
+                    setPedestalArtifact(ped, 'trophy');
+                    pedestalProgress[agentKey] = 'trophy';
+                }
+            } else if (isActiveVisualStatus(status.text) && step && step.artifact_data) {
+                if (pedestalProgress[agentKey] !== 'scroll') {
+                    setPedestalArtifact(ped, 'scroll');
+                    pedestalProgress[agentKey] = 'scroll';
+                }
+            } else {
+                if (pedestalProgress[agentKey] !== 'empty') {
+                    setPedestalArtifact(ped, 'empty');
+                    pedestalProgress[agentKey] = 'empty';
+                }
+            }
+        }
     });
 
     if (activeRoomBeacon) activeRoomBeacon.destroy();
-    const activeNpc = getCurrentNpc();
+    if (activeRoomPulse) activeRoomPulse.destroy();
+    const activeNpc = activeAgentKey ? npcs[activeAgentKey] : getVisualTargetNpc();
     if (activeNpc) {
         activeRoomBeacon = phaserSceneRef.add.graphics();
         activeRoomBeacon.lineStyle(2, 0xfbbf24, 0.85);
@@ -1140,6 +2647,21 @@ function syncPhaserQuestState() {
             yoyo: true,
             repeat: -1
         });
+
+        const activeRoom = ROOM_SEQUENCE.find(room => room.agent === activeAgentKey);
+        if (activeRoom) {
+            activeRoomPulse = phaserSceneRef.add.graphics().setDepth(4);
+            activeRoomPulse.lineStyle(3, activeRoom.accentColor || 0xfbbf24, 0.85);
+            activeRoomPulse.strokeRect(activeRoom.roomX + 6, activeRoom.roomY + 6, activeRoom.roomW - 12, activeRoom.roomH - 12);
+            phaserSceneRef.tweens.add({
+                targets: activeRoomPulse,
+                alpha: 0.22,
+                duration: 820,
+                yoyo: true,
+                repeat: -1,
+                ease: 'Sine.easeInOut'
+            });
+        }
     }
 }
 
