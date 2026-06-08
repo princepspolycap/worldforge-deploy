@@ -1,4 +1,4 @@
-# What We Learned Building "Your Company Is the Dungeon"
+# Using LLMs to Build Any Business Org Chart: What We Learned and What to Set Up Next
 
 Author: Agents League build log  
 Published: May 2026
@@ -6,6 +6,8 @@ Published: May 2026
 This is the technical post we wish we had before starting this project.
 
 We built a playable, multi-agent startup simulator for Microsoft Agents League Battle #2. The user enters a startup pitch, a Master Narrator decomposes it into chapters, specialist agents generate artifacts, deterministic validators score output, and a human verification gate controls XP progression.
+
+Our next major focus is heavier LLM usage for one high-value output: generating a practical organization chart for almost any business, grounded in online research when available and reasoning-only fallback when it is not.
 
 The system works. But we learned the hard way that "works" is not enough. If you are building agent products for developers, reliability and visible reasoning matter as much as model quality.
 
@@ -44,6 +46,124 @@ Core layers:
 - Validation and scoring: deterministic code interpreter wrappers
 - State and API: FastAPI + Pydantic
 - Runtime UX: Phaser 3
+
+## New priority: LLM-first org chart generation for any business
+
+The most important extension from here is a reusable flow that can answer:
+
+- "Given this company idea, what org structure should we start with?"
+- "Given this existing business domain, what should the next-stage org look like?"
+- "If we can research competitors online, how should that change team design?"
+
+### Why this matters
+
+Org design is where many startup plans fail in practice. Teams either hire too early, hire the wrong roles, or miss critical ownership boundaries between product, growth, operations, and finance.
+
+If the system can reliably generate a role map with rationale, priorities, and hiring phases, it becomes immediately useful for founders and operators, not just demo viewers.
+
+### What we should set up next
+
+We can implement this in four layers.
+
+1. Intake and context normalization
+
+- Inputs: business idea, target customer, monetization model, stage, budget assumptions, region.
+- Optional inputs: website URL, competitor names, known constraints (team size, runway, regulated domain).
+- Output: normalized brief object that every downstream agent uses.
+
+2. Research layer (online-first, fallback-safe)
+
+- Primary mode: retrieve public signals from online sources (company pages, role pages, benchmark reports, market docs).
+- Fallback mode: if no online context is available, use Foundry IQ curated playbooks and internal templates.
+- Safety: attach source metadata for every external claim; mark assumptions clearly when no source is available.
+
+3. Org chart synthesis layer (LLM-heavy)
+
+- Planner prompt: generate role taxonomy by function (leadership, product, engineering, design, marketing, sales, ops, finance).
+- Constraint pass: enforce stage-aware limits (for example, pre-seed cannot output 30 roles with unrealistic salary burden).
+- Ownership pass: each role must map to measurable responsibilities and key interfaces with other roles.
+- Hiring phase pass: produce phase 0, phase 1, phase 2 hiring order with triggers.
+
+4. Validation and rendering layer
+
+- Deterministic checks: no duplicate responsibilities, no orphan functions, no impossible reporting loops.
+- Economic checks: total headcount and rough cost range by stage.
+- Render output as JSON and Mermaid so the UI can show both machine-readable and human-readable views.
+
+### Proposed data contract for org chart output
+
+This is the shape we should enforce so developers can build stable tooling around it.
+
+```json
+{
+    "company_stage": "pre-seed",
+    "org_principles": ["keep product and customer feedback loop tight"],
+    "roles": [
+        {
+            "id": "founder_ceo",
+            "title": "Founder and CEO",
+            "function": "leadership",
+            "reports_to": null,
+            "responsibilities": ["strategy", "fundraising", "hiring"],
+            "phase": "phase_0"
+        }
+    ],
+    "hiring_plan": {
+        "phase_0": ["founder_ceo", "founding_engineer"],
+        "phase_1": ["product_designer", "growth_marketer"],
+        "phase_2": ["ops_manager", "finance_lead"]
+    },
+    "assumptions": ["initial team budget under 800k USD per year"],
+    "sources": [
+        {
+            "title": "Example market benchmark",
+            "url": "https://example.com/report"
+        }
+    ]
+}
+```
+
+### Agent responsibilities for this feature
+
+To keep reasoning clean, we should split concerns:
+
+- Research Agent: gathers and summarizes external signals with citations.
+- Org Architect Agent: proposes structure, reporting lines, and role responsibilities.
+- Finance and Capacity Agent: stress-tests headcount realism against stage assumptions.
+- Validator Toolchain: applies deterministic schema, topology, and consistency checks.
+
+### UI and gameplay integration
+
+Inside the current game loop, the org chart can become a first-class chapter artifact:
+
+- Blueprint Room: generate first org draft.
+- Verification Gate: approve or request changes to role ownership.
+- Dossier Overlay: inspect role cards, dependencies, and hiring phases.
+- Replay Log: show each reasoning step and source-backed justification.
+
+### Risks we should address early
+
+1. Hallucinated role norms in niche industries.
+2. Overfitting to large-company org patterns for small-stage startups.
+3. Source quality drift when online retrieval is noisy.
+4. Output verbosity without decision usefulness.
+
+Mitigation:
+
+- strict schema + scorecard,
+- source confidence tagging,
+- stage-aware constraints,
+- explicit "unknown" and "assumption" fields.
+
+### Success criteria for developers
+
+We should treat this feature as done only when all are true:
+
+1. Same input yields structurally stable output under simulation and live modes.
+2. Every role has clear ownership, reporting line, and phase assignment.
+3. Org chart can be rendered directly as Mermaid without manual cleanup.
+4. Validators catch malformed structures before human review.
+5. Replay logs explain why each role exists.
 
 ## Lesson 1: Forkability is a feature, not a constraint
 
