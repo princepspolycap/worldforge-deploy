@@ -17,9 +17,10 @@ from state.schema import StateStore, QuestState, QuestStep, CompanyState, WorldG
 from agents.foundry_agents import MasterNarrator, StrategistAgent, DesignerAgent, MarketerAgent
 from agents.model_config import model_for, is_live
 from agents.world_designer import design_world
-from agents.worker_factory import run_world, execute_chapter
+from agents.worker_factory import run_world, execute_chapter, bind_world_to_org
 from agents.org_designer import design_org
 from agents.retrieval import retrieve, brief_from_url
+from agents.company_analyst import analyze_company as analyze_company_url
 from tools.code_interpreter_wrappers import validate_positioning, validate_landing_page, validate_marketing_email
 
 app = FastAPI(
@@ -459,21 +460,46 @@ def analyze_company(payload: AnalyzeRequest):
     if not url and not pitch:
         raise HTTPException(status_code=400, detail="Provide a pitch or a company url.")
 
-    if url:
-        brief = brief_from_url(url)
-        source, source_ref = "url", url
-    else:
-        brief, source, source_ref = pitch, "pitch", pitch
-
     company_name = payload.company_name or "QuestForge Ltd."
     # Analyze starts a fresh venture session - designing the org is the first
     # reasoning step, before any chapters exist.
     state = store.initialize_new_company(
-        name=company_name, pitch=pitch or brief, description="A venture forged in QuestForge."
+        name=company_name, pitch=pitch or url, description="A venture forged in QuestForge."
     )
     store.log_event("SESSION_START", "system", f"New analyze session for: {company_name}")
 
-    blueprint = design_org(brief, source=source, source_ref=source_ref)
+    # On the URL path, run a two-hop reasoning chain that is visible in the
+    # replay log: (1) scrape the homepage into structured signal, (2) a Company
+    # Analyst agent reasons about what the business is. The clean profile then
+    # seeds the Org Designer - so a URL becomes a coherent org, not raw text.
+    profile = None
+    summary_hint = ""
+    if url:
+        profile = analyze_company_url(url)
+        brief = profile["brief"]
+        summary_hint = profile.get("company_summary", "")
+        source, source_ref = "url", url
+        if profile.get("scraped"):
+            scrape_msg = f"Scraped {profile['host']} (read {profile.get('scraped_chars', 0)} chars)."
+        else:
+            scrape_msg = f"Scraped {profile['host']} (homepage unreachable, using domain default)."
+        store.log_event(
+            "URL_SCRAPED", "scraper", scrape_msg,
+            {"host": profile["host"], "scraped": profile.get("scraped", False),
+             "signals": profile.get("signals", [])},
+        )
+        store.log_event(
+            "COMPANY_PROFILED", "company_analyst",
+            f"Reasoned the business: {profile['company_summary']}",
+            {"what_they_sell": profile.get("what_they_sell"),
+             "target_customer": profile.get("target_customer"),
+             "business_model": profile.get("business_model"),
+             "mode": profile.get("mode")},
+        )
+    else:
+        brief, source, source_ref = pitch, "pitch", pitch
+
+    blueprint = design_org(brief, source=source, source_ref=source_ref, summary_hint=summary_hint)
     state.org = OrgBlueprint(**blueprint)
 
     # Simple game mechanic: chartering the org rewards XP scaled by how much
@@ -501,6 +527,7 @@ def analyze_company(payload: AnalyzeRequest):
     return {
         "state": state.model_dump(),
         "org": state.org.model_dump(),
+        "profile": profile,
         "source": source,
         "brief": brief[:600],
         "mode": "live" if is_live() else "simulation",
@@ -537,10 +564,23 @@ def design_world_endpoint(payload: AutoplayRequest):
         chapters=[Chapter(**ch) if isinstance(ch, dict) else ch for ch in chapters_data],
         status="active",
     )
+    # Close the seam: each chapter is owned by one of the digital workers the
+    # Org Designer created for this company (not a fixed cast).
+    bindings = bind_world_to_org(world, state.org) if state.org else {}
     state.world = world
     store.log_event("WORLD_DESIGNED", "world_designer", f"Produced {len(world.chapters)} chapters.", {
-        "chapters": [{"id": ch.id, "title": ch.title, "owner_role": ch.owner_role} for ch in world.chapters]
+        "chapters": [
+            {"id": ch.id, "title": ch.title, "owner_role": ch.owner_role,
+             "assigned_worker_title": ch.assigned_worker_title}
+            for ch in world.chapters
+        ]
     })
+    if bindings:
+        store.log_event(
+            "ORG_BOUND", "org_designer",
+            f"Bound {len(bindings)} chapters to dynamically designed digital workers.",
+            {"bindings": bindings},
+        )
     store.save()
     return {"state": state.model_dump()}
 
@@ -565,7 +605,7 @@ def run_next_chapter():
     memory = retrieve(f"{world.brief} {chapter.goal} {chapter.success_metric}", top_k=2)
 
     previous_artifacts = [ch.artifact for ch in world.chapters[:idx] if ch.artifact]
-    invocation, artifact, score = execute_chapter(chapter, world.brief, previous_artifacts)
+    invocation, artifact, score = execute_chapter(chapter, world.brief, previous_artifacts, org=state.org)
     world.invocations.append(invocation)
 
     if artifact:
@@ -611,17 +651,37 @@ def autoplay_world(payload: AutoplayRequest):
     )
     store.log_event("SESSION_START", "system", f"Autoplay session for: {company_name}")
 
+    # Design the dynamic org first so chapters are owned by designed digital
+    # workers - the same org->execution chain the Story flow shows. Cheap, and
+    # runs in simulation too.
+    org_blueprint = design_org(brief, source="pitch", source_ref=brief)
+    state.org = OrgBlueprint(**org_blueprint)
+    store.log_event(
+        "ORG_CHARTERED", "org_designer",
+        f"Chartered a {state.org.headcount}-seat org: 1 operator + "
+        f"{state.org.digital_worker_count} digital workers.",
+        {"digital_worker_count": state.org.digital_worker_count,
+         "leverage_ratio": state.org.leverage_ratio},
+    )
+
     chapters_data = design_world(brief)
     world = WorldGraph(
         brief=brief,
         chapters=[Chapter(**ch) if isinstance(ch, dict) else ch for ch in chapters_data],
         status="active",
     )
+    bindings = bind_world_to_org(world, state.org)
     state.world = world
     store.log_event("WORLD_DESIGNED", "world_designer", f"Produced {len(world.chapters)} chapters.")
+    if bindings:
+        store.log_event(
+            "ORG_BOUND", "org_designer",
+            f"Bound {len(bindings)} chapters to dynamically designed digital workers.",
+            {"bindings": bindings},
+        )
 
     results = []
-    for chapter, invocation, artifact, score in run_world(world, brief, auto_approve_threshold=threshold):
+    for chapter, invocation, artifact, score in run_world(world, brief, auto_approve_threshold=threshold, org=state.org):
         xp_earned = 10 + (score // 10)
         state.xp += xp_earned
         if state.xp >= 50 and state.level < 2:

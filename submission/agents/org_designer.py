@@ -274,7 +274,8 @@ def _normalize_role(raw: Dict[str, Any], idx: int) -> Dict[str, Any]:
     }
 
 
-def _finalize(blueprint: Dict[str, Any], brief: str, source: str, source_ref: str) -> Dict[str, Any]:
+def _finalize(blueprint: Dict[str, Any], brief: str, source: str, source_ref: str,
+              summary_hint: str = "") -> Dict[str, Any]:
     """Normalize roles, repair the reporting tree, and compute mechanic stats."""
     raw_roles = blueprint.get("roles") or []
     if not isinstance(raw_roles, list) or len(raw_roles) < 2:
@@ -320,7 +321,7 @@ def _finalize(blueprint: Dict[str, Any], brief: str, source: str, source_ref: st
     leverage = round(len(digital) / max(1, human_count), 1)
 
     return {
-        "company_summary": str(blueprint.get("company_summary") or f"A venture built around {_short_label(brief)}."),
+        "company_summary": summary_hint.strip() or str(blueprint.get("company_summary") or f"A venture built around {_short_label(brief)}."),
         "operating_model": str(blueprint.get("operating_model")
                                or "One human operator sets direction and approves; digital workers do the execution."),
         "roles": roles,
@@ -335,18 +336,21 @@ def _finalize(blueprint: Dict[str, Any], brief: str, source: str, source_ref: st
     }
 
 
-def design_org(brief: str, source: str = "pitch", source_ref: str = "") -> Dict[str, Any]:
+def design_org(brief: str, source: str = "pitch", source_ref: str = "",
+               summary_hint: str = "") -> Dict[str, Any]:
     """Design the dynamic org for a company brief.
 
     Returns a finalized OrgBlueprint dict (normalized + stats computed). Calls
     the configured Foundry deployment in live mode; otherwise returns a rich,
-    brief-adaptive simulation blueprint.
+    brief-adaptive simulation blueprint. `summary_hint`, when provided (e.g. the
+    company profile from the URL analyst), is used as the company summary so the
+    org reads coherently on the URL path even in simulation.
     """
     client = get_foundry_client()
     deployment = model_for("strategist") or model_for("narrator")
 
     if not (client and deployment and is_live()):
-        return _finalize(_fallback_blueprint(brief), brief, source, source_ref)
+        return _finalize(_fallback_blueprint(brief), brief, source, source_ref, summary_hint)
 
     user = USER_TEMPLATE.format(brief=brief)
     try:
@@ -361,7 +365,7 @@ def design_org(brief: str, source: str = "pitch", source_ref: str = "") -> Dict[
         content = resp.choices[0].message.content or ""
         parsed = _extract_json(content)
         if parsed and isinstance(parsed.get("roles"), list) and len(parsed["roles"]) >= 2:
-            return _finalize(parsed, brief, source, source_ref)
+            return _finalize(parsed, brief, source, source_ref, summary_hint)
     except Exception:
         pass
-    return _finalize(_fallback_blueprint(brief), brief, source, source_ref)
+    return _finalize(_fallback_blueprint(brief), brief, source, source_ref, summary_hint)

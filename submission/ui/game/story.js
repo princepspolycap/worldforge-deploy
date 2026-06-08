@@ -372,8 +372,8 @@ const state = {
     live: false,
 };
 
-function setWorker(role, deployLabel, stateText, thinking) {
-    $("worker-name").textContent = ROLE_NAME[role] || role;
+function setWorker(role, deployLabel, stateText, thinking, displayName) {
+    $("worker-name").textContent = displayName || ROLE_NAME[role] || role;
     const orb = document.querySelector(".role-orb");
     if (orb) orb.style.color = ROLE_COLOR[role] || "#94a3b8";
     $("worker-deploy").textContent = deployLabel || "";
@@ -495,20 +495,22 @@ async function beginStory() {
     $("begin").disabled = true;
     $("reset").disabled = false;
 
-    // ---- Beat 1: the Org Designer designs the dynamic digital workforce ----
+    // ---- Beat 1: scrape + reason (URL) -> design the digital workforce ----
     const fromUrl = !!state.url;
     $("hint").textContent = fromUrl ? "Reading the company URL..." : "Designing the org...";
-    setWorker("orgdesigner", "STRATEGIST_MODEL (Foundry)", fromUrl ? "Reading the company homepage" : "Designing the org", true);
+    setWorker(fromUrl ? "narrator" : "orgdesigner", fromUrl ? "scraper + STRATEGIST_MODEL (Foundry)" : "STRATEGIST_MODEL (Foundry)", fromUrl ? "Scraping the homepage" : "Designing the org", true, fromUrl ? "Company Analyst" : undefined);
     if (A.thinkingStart) A.thinkingStart();
-    setSceneHead("Beat 1", "The org this company needs");
+    setSceneHead("Beat 1", fromUrl ? "Reading the company, then its org" : "The org this company needs");
     await narrate(fromUrl
-        ? "Point the Org Designer at any company URL. It reads the homepage and proposes the smallest team that could actually run this business: one human operator, plus the digital workers that are its execution layer."
+        ? "Point this at any company URL. First a scraper reads the homepage - title, tagline, the sections it leads with. Then a Company Analyst agent reasons about what the business actually is, before the Org Designer proposes the team to run it."
         : "Before any work happens, an Org Designer agent decides what team this company needs: one human operator, plus the digital workers that form its execution layer. Every role exists for a reason.");
 
     let org;
+    let profile = null;
     try {
         const ares = await api("/api/company/analyze", { pitch: state.pitch, url: state.url, company_name: state.company });
         org = ares.org;
+        profile = ares.profile || null;
         state.org = org;
         setHud(ares.state);
         if (!state.pitch) state.pitch = org.company_summary || ares.brief || "";
@@ -518,6 +520,14 @@ async function beginStory() {
         await narrate(`The Org Designer could not be reached: ${e.message}`);
         return;
     }
+
+    // Make the scrape + reasoning visible before the org chart resolves.
+    if (fromUrl && profile) {
+        setMemory((profile.signals || []).map((s) => ({ source: profile.host || "homepage", content: s })));
+        setWorker("orgdesigner", "STRATEGIST_MODEL (Foundry)", "Designing the org", true);
+        await narrate(`Scraped ${profile.host}${profile.scraped ? "" : " (unreachable - using a sensible default)"}. The Company Analyst reads it as: ${profile.company_summary} It sells ${profile.what_they_sell} to ${profile.target_customer}. Model: ${profile.business_model}.`);
+    }
+
     if (A.thinkingStop) A.thinkingStop();
     if (A.chime) A.chime();
 
@@ -584,23 +594,25 @@ async function revealVentureGraph() {
         }
     }
     await renderMermaid(def);
-    await narrate(`Five chapters, each owned by a specialist agent: ${state.chapters.map((c) => ROLE_NAME[c.owner_role] || c.owner_role).join(", ")}. Dependencies set the order. This graph is the world the Worker Factory will build.`);
+    const owners = state.chapters.map((c) => c.assigned_worker_title || ROLE_NAME[c.owner_role] || c.owner_role);
+    await narrate(`Five chapters, each owned by ${state.org ? "one of the digital workers you just designed" : "a specialist agent"}: ${owners.join(", ")}. Dependencies set the order. This graph is the world the Worker Factory will build.`);
     markProgress(0);
 }
 
 async function runNextChapter() {
     if (state.idx >= state.chapters.length) return;
     const ch = state.chapters[state.idx];
+    const ownerName = ch.assigned_worker_title || ROLE_NAME[ch.owner_role] || ch.owner_role;
     $("next").disabled = true;
     $("auto").disabled = true;
     markProgress(state.idx);
 
     setSceneHead(`Chapter ${state.idx + 1}`, ch.title);
-    setWorker(ch.owner_role, `${(ch.owner_role || "role").toUpperCase()}_MODEL (Foundry)`, "Reasoning over the brief", true);
+    setWorker(ch.owner_role, `${(ch.owner_role || "role").toUpperCase()}_MODEL (Foundry)`, "Reasoning over the brief", true, ownerName);
     if (A.thinkingStart) A.thinkingStart();
-    $("hint").textContent = `${ROLE_NAME[ch.owner_role]} is working...`;
+    $("hint").textContent = `${ownerName} is working...`;
 
-    await narrate(`Chapter ${state.idx + 1}: ${ch.goal}. The ${ROLE_NAME[ch.owner_role]} agent spins up on its Foundry deployment and recalls relevant playbooks from Foundry IQ memory.`);
+    await narrate(`Chapter ${state.idx + 1}: ${ch.goal}. ${ownerName}${ch.assigned_worker_title ? ", a digital worker the Org Designer created," : " agent"} spins up on its Foundry deployment and recalls relevant playbooks from Foundry IQ memory.`);
 
     let res;
     try {
@@ -618,7 +630,7 @@ async function runNextChapter() {
     const inv = res.invocation || {};
     const score = chapter.validation_score ?? 0;
     setMemory(res.memory);
-    setWorker(ch.owner_role, inv.deployment || "simulation", `Done in ${inv.latency_s ?? 0}s`, false);
+    setWorker(ch.owner_role, inv.deployment || "simulation", `Done in ${inv.latency_s ?? 0}s`, false, inv.worker_title || ownerName);
 
     // Animate the artifact into a diagram.
     const diag = diagramForArtifact(ch.owner_role, chapter.artifact);
@@ -632,7 +644,7 @@ async function runNextChapter() {
     setHud(res.state);
 
     const artifactKind = describeArtifact(ch.owner_role);
-    await narrate(`The ${ROLE_NAME[ch.owner_role]} delivered ${artifactKind}. The deterministic validator scored it ${score} of 100 - ${score >= 80 ? "it passes the gate and the company graph grows." : "bronze, so it pauses for a human gate."}`);
+    await narrate(`${ownerName} delivered ${artifactKind}. The deterministic validator scored it ${score} of 100 - ${score >= 80 ? "it passes the gate and the company graph grows." : "bronze, so it pauses for a human gate."}`);
 
     completedChapters.push({ title: ch.title, role: ch.owner_role });
     state.idx += 1;
