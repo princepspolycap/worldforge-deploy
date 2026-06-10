@@ -10,7 +10,7 @@ This project turns the live battle RPG prompt into a business-building quest gam
 - Concept narrative is captured in [../PROJECT_NARRATIVE.md](../PROJECT_NARRATIVE.md).
 - Official challenge references remain untouched under [../starter-kits/2-reasoning-agents](../starter-kits/2-reasoning-agents).
 - This `submission/` folder is reserved for our build, docs, agent code, tools, state, knowledge, quests, UI, and replay logs.
-- The current playable shell uses FastAPI plus Phaser: pitch entry, quest state, three NPC rooms, room-gated agent turns, verification gates, XP, streak bonuses, autoplay, and sprite/procedural rendering fallback.
+- The current playable shell uses FastAPI plus a narrated story view: pitch entry, dynamic org design, chapter execution on Foundry deployments, verification gates, XP, animated Mermaid/SVG artifact diagrams, MAI-generated portraits, narration, and synthesized audio.
 - The next design step is mapped in [docs/game_loop.md](docs/game_loop.md): split the prototype UI code into smaller browser modules, move room metadata into data, and grow the experience into a proper game foundation.
 - Sprite-game mechanics are mapped in [docs/sprite_game_mechanics.md](docs/sprite_game_mechanics.md): reusable movement, room, animation, reward, and automation patterns for the next game-feel pass.
 
@@ -52,7 +52,7 @@ submission/
 ## Setup Checklist
 
 - [ ] Confirm Azure Foundry project endpoint and model deployment.
-- [x] Decide UI stack: Phaser for the side-scroller, served by FastAPI for the current demo shell.
+- [x] Decide UI stack: a narrated story view (no bundler, vanilla JS + Mermaid) served by FastAPI.
 - [ ] Keep all third-party game art out of the public fork (geometric-first ships MIT-clean).
 - [ ] Choose the project codename for package naming and branding.
 - [ ] Ask Carlotta whether community voting applies to the invitational live battle.

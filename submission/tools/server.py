@@ -881,7 +881,7 @@ def reset_game():
 UI_DIRECTORY = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ui")
 os.makedirs(UI_DIRECTORY, exist_ok=True)
 
-# Mount '/' to return index.html, static files, etc.
+# Mount the static UI under /game; '/' serves the story view.
 app.mount("/game", StaticFiles(directory=UI_DIRECTORY, html=True), name="ui")
 
 @app.get("/")
@@ -894,12 +894,6 @@ def read_root():
 def read_story():
     """Serve the animated, narrated story view."""
     return FileResponse(os.path.join(UI_DIRECTORY, "story.html"))
-
-
-@app.get("/sprites")
-def read_sprites():
-    """Serve the legacy sprite-based UI (assets are gitignored)."""
-    return FileResponse(os.path.join(UI_DIRECTORY, "index.html"))
 
 if __name__ == "__main__":
     import uvicorn

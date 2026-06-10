@@ -5,9 +5,20 @@
 // a dynamic Mermaid / SVG diagram, narrated beat by beat, validated at a gate,
 // and folded into a company graph that grows as the venture comes alive.
 
-import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+// Mermaid: vendored UMD bundle (ui/vendor/mermaid.min.js, pinned 11.12.2, MIT)
+// loaded by story.html before this module - so diagrams work offline after a
+// fresh git clone. Falls back to the CDN ESM build only if the vendor file is
+// missing, and to text-only beats if both are unavailable.
+let mermaid = window.mermaid || null;
+if (!mermaid) {
+    try {
+        ({ default: mermaid } = await import("https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.esm.min.mjs"));
+    } catch (e) {
+        console.warn("Mermaid unavailable - diagrams disabled, narration continues.", e);
+    }
+}
 
-mermaid.initialize({
+if (mermaid) mermaid.initialize({
     startOnLoad: false,
     theme: "base",
     securityLevel: "loose",
@@ -104,6 +115,10 @@ async function narrate(text, speed = 18) {
 let diagramSeq = 0;
 async function renderMermaid(def) {
     const host = $("diagram");
+    if (!mermaid) {
+        host.innerHTML = `<div style="color:#586079;font-family:monospace;font-size:12px">diagram renderer unavailable (offline) - the narration carries the beat</div>`;
+        return;
+    }
     const id = `m${++diagramSeq}`;
     let svg;
     try {
@@ -476,7 +491,17 @@ function orgBlueprintMermaid(org) {
 }
 
 // Populate the persistent "Digital Workforce" rail: stats + operating model +
-// the educational per-role rationale.
+// the educational per-role rationale. Each worker gets the MAI portrait of the
+// archetype closest to its lifecycle stage (hidden when the PNG is absent).
+const STAGE_AVATAR = {
+    discovery: "strategist", positioning: "strategist", mvp: "designer",
+    gtm: "marketer", retention: "ops", ops: "ops",
+};
+function avatarFor(role) {
+    if (role.kind === "human") return null; // the operator is the player
+    const stage = (role.lifecycle_stage || "").toLowerCase();
+    return STAGE_AVATAR[stage] || "ops";
+}
 function setOrgPanel(org) {
     const host = $("org-panel");
     if (!org || !Array.isArray(org.roles)) {
@@ -490,7 +515,11 @@ function setOrgPanel(org) {
     org.roles.forEach((r) => {
         const c = r.kind === "human" ? "var(--strategist)" : r.kind === "hybrid" ? "var(--designer)" : "var(--ops)";
         const kindLabel = r.kind === "digital_worker" ? "digital" : r.kind;
-        html += `<div class="org-role"><span class="org-orb" style="background:${c}"></span>`
+        const av = avatarFor(r);
+        const avatar = av
+            ? `<img class="org-avatar" src="/game/assets/generated/${av}.png" alt="" onerror="this.style.display='none'">`
+            : "";
+        html += `<div class="org-role">${avatar}<span class="org-orb" style="background:${c}"></span>`
             + `<b>${esc(r.title)}</b><span class="org-kind">${esc(kindLabel)}</span>`
             + `<div class="org-why">${esc(r.why || r.mandate)}</div></div>`;
     });
@@ -844,6 +873,26 @@ $("mute").addEventListener("click", () => {
     const muted = A.toggleMute ? A.toggleMute() : false;
     $("mute").style.opacity = muted ? 0.4 : 1;
 });
+const musicBtn = $("music");
+if (musicBtn) {
+    musicBtn.addEventListener("click", () => {
+        if (A.unlock) A.unlock();
+        const on = A.toggleMusic ? A.toggleMusic() : false;
+        musicBtn.style.opacity = on ? 1 : 0.4;
+    });
+}
+
+// Browser autoplay policy: the score can only start after a user gesture, so
+// the first pointer/key interaction anywhere (intro click, space, begin)
+// unlocks audio and fades the ambient track in.
+function startAudioOnce() {
+    if (A.unlock) A.unlock();
+    if (A.musicStart) A.musicStart();
+    document.removeEventListener("pointerdown", startAudioOnce);
+    document.removeEventListener("keydown", startAudioOnce);
+}
+document.addEventListener("pointerdown", startAudioOnce);
+document.addEventListener("keydown", startAudioOnce);
 
 // Detect live mode for the HUD chip.
 fetch("/api/mode").then((r) => (r.ok ? r.json() : null)).then((d) => {

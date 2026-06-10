@@ -1,43 +1,21 @@
 # UI Assets
 
-This folder is reserved for game art that is safe to ship with the public,
-MIT-licensed submission. The committed baseline is **geometric-first**: the live
-`/story` view draws everything procedurally (Phaser shapes), so the public repo
-ships with **no third-party art** and is fully MIT-clean.
+This folder holds the game art that ships with the public, MIT-licensed
+submission. The committed baseline is **generated-art-first with a geometric
+fallback**: the `/story` view draws its diagrams procedurally and shows
+Foundry-generated portraits when they exist, so the public repo ships with
+**no third-party art** and is fully MIT-clean.
 
-## Third-party sprite packs (Limezu) - use rules
+## Third-party sprite packs (historical note)
 
-The optional `/sprites` view can load the **Limezu "Modern Interiors"** and
-**"Modern Office"** packs for a richer local demo. These are **paid, licensed**
-assets - not ours, and not MIT. The license terms below were verified against the
-`LICENSE.txt` shipped inside each pack and the live itch.io product pages
-(<https://limezu.itch.io/moderninteriors>, <https://limezu.itch.io/modernoffice>):
+An earlier sprite-based view used the paid **Limezu** packs locally. That view
+has been removed; the rules below are kept only so future art decisions stay
+license-safe:
 
-```
-YOU CAN:
-- Edit and use the asset in any commercial or non-commercial project
-- Use the asset in any commercial or non-commercial project
-YOU CAN'T:
-- Resell or distribute the asset to others
-- Edit and resell the asset to others
-- Credits required (limezu.itch.io)
-```
-
-What that means for this repo:
-
-- **Using** the packs in a local live demo is allowed (commercial use is
-  explicitly permitted) **as long as we credit `limezu.itch.io`**.
-- **Committing/redistributing** the raw PNGs in this public repo is **not
-  allowed** - publishing the files so others can download them is exactly the
-  "distribute the asset to others" the license forbids.
-- Therefore the PNGs stay **gitignored** under `submission/ui/assets/local/`
-  (never committed). After `git clone`, the procedural fallback takes over and
-  the game still runs. If you present `/sprites` live, show a visible
-  "Art: Limezu (limezu.itch.io)" credit.
-
-> Note: a few itch.io comments loosely call this "CC-BY". The binding text is the
-> shipped `LICENSE.txt` / product-page license above, which explicitly prohibits
-> redistribution. Treat it as: use yes, redistribute no.
+- Paid packs like Limezu's allow *use* in projects but **forbid
+  redistribution** - their PNGs must never be committed to this public repo.
+- Anything under `submission/ui/assets/local/` stays gitignored for that
+  reason.
 
 ## Foundry-generated art (MAI-Image-2e) - the committed-art path
 

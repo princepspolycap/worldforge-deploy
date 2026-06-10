@@ -298,10 +298,10 @@ boundaries in [architecture.md](architecture.md), the game-feel rationale in
 [game_loop.md](game_loop.md), and [sprite_game_mechanics.md](sprite_game_mechanics.md)
 for the legacy sprite notes. The dark, narrated **story view (`/story`) is the
 single hero surface** we present and ship. The retired `/geometric` prototype was
-removed to keep one clean path. A legacy `/sprites` view still exists for local
-experiments only: its Limezu art is **gitignored and never redistributed**, the
-repo falls back to procedural drawing after `git clone`, and we do not present it
-as part of the MIT deliverable.
+removed to keep one clean path. The legacy sprite view has been removed
+entirely - the story view is the single UI. Its Limezu art was never committed
+(license forbids redistribution), and the repo remains fully procedural plus
+Foundry-generated portraits after `git clone`.
 
 Naming the genre honestly: what this is now is a **narrated management RPG** -
 visual-novel-style lore and choices, tycoon-style company building, and RPG

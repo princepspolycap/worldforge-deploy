@@ -43,8 +43,10 @@ OUT_DIR = Path(__file__).resolve().parent.parent / "ui" / "assets" / "generated"
 
 # House style shared by every asset so the cast feels like one game.
 STYLE = (
-    "minimal flat geometric portrait, dark navy background, teal and gold "
-    "accents, clean vector style game avatar, centered bust, no text"
+    "minimal flat geometric portrait, dark navy background filling the entire "
+    "canvas edge to edge, teal and gold accents, clean vector style game "
+    "avatar, centered bust, no text, no border, no frame, no letterboxing, "
+    "no white bars"
 )
 
 # role -> portrait prompt. Matches VOICE_BY_ROLE / ROLE_NAME in ui/game/story.js.

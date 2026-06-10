@@ -478,6 +478,34 @@
             font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint);
         }
         .mic-status.live { color: var(--bad); }
+
+        /* ---- Cast strip: the agent party on the title card ---- */
+        .cast-strip {
+            display: flex; gap: 14px; justify-content: center;
+            margin: 18px 0 4px;
+        }
+        .cast-strip figure {
+            margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px;
+            animation: castin 600ms ease backwards;
+        }
+        .cast-strip img {
+            width: 64px; height: 64px; border-radius: 14px; object-fit: cover;
+            border: 1px solid var(--line);
+            box-shadow: 0 10px 26px -14px rgba(0,0,0,0.9);
+            transition: 180ms ease;
+        }
+        .cast-strip figure:hover img { transform: translateY(-3px) scale(1.05); border-color: var(--blue); }
+        .cast-strip figcaption {
+            font-family: 'JetBrains Mono', monospace; font-size: 9px;
+            letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-faint);
+        }
+        @keyframes castin { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+        /* ---- Org rail avatars ---- */
+        .org-avatar {
+            width: 22px; height: 22px; border-radius: 6px; object-fit: cover;
+            border: 1px solid var(--line); vertical-align: -6px; margin-right: 7px;
+        }
     </style>
 </head>
 <body>
@@ -491,6 +519,7 @@
                 <span class="chip"><span id="mode-dot" class="dot"></span><span id="mode-label">simulation</span></span>
                 <span>Level <b id="hud-level">1</b></span>
                 <span><b id="hud-xp">0</b> XP</span>
+                <button id="music" class="iconbtn" title="Toggle music">&#9835;</button>
                 <button id="mute" class="iconbtn" title="Toggle audio">&#9834;</button>
             </div>
         </header>
@@ -507,6 +536,14 @@
                         <div class="kicker">A reasoning RPG on Microsoft Foundry</div>
                         <h1>Take the CEO's chair.</h1>
                         <p>Bring a pitch &mdash; or a real company. A Foundry World Designer decomposes it into a venture quest line, then your agent workforce builds the org, the systems, and the launch &mdash; one gate you approve at a time.</p>
+                        <div class="cast-strip" aria-hidden="true">
+                            <figure style="animation-delay:0ms"><img src="/game/assets/generated/narrator.png" alt="" onerror="this.parentElement.style.display='none'"><figcaption>Narrator</figcaption></figure>
+                            <figure style="animation-delay:80ms"><img src="/game/assets/generated/orgdesigner.png" alt="" onerror="this.parentElement.style.display='none'"><figcaption>Org Designer</figcaption></figure>
+                            <figure style="animation-delay:160ms"><img src="/game/assets/generated/strategist.png" alt="" onerror="this.parentElement.style.display='none'"><figcaption>Strategist</figcaption></figure>
+                            <figure style="animation-delay:240ms"><img src="/game/assets/generated/designer.png" alt="" onerror="this.parentElement.style.display='none'"><figcaption>Designer</figcaption></figure>
+                            <figure style="animation-delay:320ms"><img src="/game/assets/generated/marketer.png" alt="" onerror="this.parentElement.style.display='none'"><figcaption>Marketer</figcaption></figure>
+                            <figure style="animation-delay:400ms"><img src="/game/assets/generated/ops.png" alt="" onerror="this.parentElement.style.display='none'"><figcaption>Operations</figcaption></figure>
+                        </div>
                         <div class="field">
                             <label>Company</label>
                             <input id="in-company" value="Agency of Poly" />
@@ -588,8 +625,9 @@
         <div id="intro-dots" class="intro-dots"></div>
     </div>
 
-    <script src="/game/game/audio.js?v=3"></script>
-    <script type="module" src="/game/game/story.js?v=9"></script>
+    <script src="/game/vendor/mermaid.min.js?v=1"></script>
+    <script src="/game/game/audio.js?v=4"></script>
+    <script type="module" src="/game/game/story.js?v=10"></script>
     <script src="/game/game/intro.js?v=5"></script>
 </body>
 </html>
