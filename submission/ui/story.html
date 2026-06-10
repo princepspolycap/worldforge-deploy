@@ -169,6 +169,22 @@
         }
         .title-card p { color: var(--ink-dim); font-size: 16px; line-height: 1.6; margin: 0 auto 30px; max-width: 540px; }
 
+        /* Founding scene: replaces the form the moment the descent begins. */
+        .founding { text-align: center; }
+        .founding .kicker {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px; letter-spacing: 0.34em; text-transform: uppercase;
+            color: var(--blue); margin-bottom: 18px;
+        }
+        .founding h1 {
+            font-family: 'Fraunces', serif; font-weight: 600;
+            font-size: clamp(34px, 5vw, 56px); line-height: 1.05; margin: 0 0 14px;
+            background: linear-gradient(180deg, #ffffff, #b9c6e8);
+            -webkit-background-clip: text; background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .founding .founding-arch { color: var(--ink-dim); font-size: 14px; font-family: 'JetBrains Mono', monospace; }
+
         .field { text-align: left; margin: 0 auto 14px; max-width: 540px; }
         .field label {
             display: block; font-family: 'JetBrains Mono', monospace;
@@ -229,6 +245,15 @@
             border: 1px solid var(--line); border-radius: 12px; padding: 14px;
             background: rgba(255,255,255,0.02);
         }
+        .worker-id { display: flex; align-items: center; gap: 11px; }
+        .worker-portrait { width: 46px; height: 46px; border-radius: 10px; object-fit: cover;
+            border: 1px solid var(--line); flex: 0 0 46px; }
+        .worker-id-text { min-width: 0; }
+        .worker-ms { margin-top: 9px; font-family: 'JetBrains Mono', monospace; font-size: 10px;
+            letter-spacing: 0.06em; color: #7fb0ff; display: flex; align-items: center; gap: 6px; }
+        .worker-ms .ms-logo { width: 11px; height: 11px; flex: 0 0 11px; display: inline-grid;
+            grid-template-columns: 1fr 1fr; gap: 1px; }
+        .worker-ms .ms-logo i { background: #7fb0ff; opacity: 0.9; }
         .worker-role {
             font-family: 'Fraunces', serif; font-size: 17px; margin-bottom: 3px;
             display: flex; align-items: center; gap: 9px;
@@ -256,6 +281,22 @@
             border-radius: 5px; padding: 1px 6px;
         }
         .worker-reasoning .rz-text { font-style: italic; color: var(--ink-faint); }
+
+        /* Toolbox chips: the tools the worker drew for this chapter. */
+        .worker-tools {
+            margin-top: 11px; padding-top: 10px; border-top: 1px dashed var(--line);
+            font-size: 11px; color: var(--ink-dim); line-height: 1.9;
+        }
+        .worker-tools .rz-head {
+            font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.16em;
+            text-transform: uppercase; color: var(--ops); margin-bottom: 5px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .tool-chip {
+            font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--ink);
+            background: rgba(45,212,191,0.10); border: 1px solid rgba(45,212,191,0.25);
+            border-radius: 6px; padding: 2px 7px; margin-right: 5px; white-space: nowrap;
+        }
 
         .mem-item {
             border: 1px solid var(--line); border-left: 2px solid var(--ops);
@@ -288,6 +329,56 @@
             margin-top: 2px; border: 1px solid var(--line); border-radius: 12px;
             padding: 13px 14px; background: rgba(255,255,255,0.02);
         }
+
+        /* ---- Reasoning theater: the agent's plan, center stage ---- */
+        #theater {
+            position: absolute; inset: 0; z-index: 30;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 56px 64px 140px; gap: 14px;
+            background: rgba(5,8,16,0.86); backdrop-filter: blur(10px);
+            animation: sceneIn 400ms ease;
+        }
+        #theater[hidden] { display: none; }
+        .th-head {
+            font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.2em;
+            text-transform: uppercase; color: var(--strategist); margin-bottom: 6px;
+            display: flex; align-items: center; gap: 9px;
+        }
+        .th-head .pulse { width: 8px; height: 8px; }
+        .th-worker { font-family: 'Fraunces', serif; font-size: 26px; color: var(--ink); margin-bottom: 2px; }
+        .th-deploy { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--ink-faint); margin-bottom: 16px; }
+        .th-steps { width: 100%; max-width: 660px; display: flex; flex-direction: column; gap: 10px; }
+        .th-step {
+            display: flex; gap: 12px; align-items: flex-start;
+            border: 1px solid var(--line); border-radius: 10px; padding: 11px 14px;
+            background: rgba(255,255,255,0.025);
+            opacity: 0; transform: translateY(8px);
+            animation: memIn 420ms ease forwards;
+        }
+        .th-step .th-ico { font-size: 14px; line-height: 1.4; width: 20px; text-align: center; flex: none; }
+        .th-step .th-k {
+            font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.14em;
+            text-transform: uppercase; color: var(--ink-faint); display: block; margin-bottom: 3px;
+        }
+        .th-step .th-v { font-size: 13px; color: var(--ink-dim); line-height: 1.5; }
+        .th-step .th-v .tool-chip { font-size: 10.5px; }
+        .th-step.th-live { border-left: 2px solid var(--strategist); }
+        .th-quote {
+            width: 100%; max-width: 660px; margin-top: 6px;
+            border: 1px solid rgba(91,140,255,0.35); border-radius: 12px;
+            background: rgba(91,140,255,0.07); padding: 16px 20px;
+            opacity: 0; transform: translateY(8px); animation: memIn 500ms ease forwards;
+        }
+        .th-quote .th-k {
+            font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.16em;
+            text-transform: uppercase; color: var(--strategist); margin-bottom: 8px;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .th-quote .rz-tokens {
+            font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--ink);
+            background: rgba(91,140,255,0.16); border-radius: 5px; padding: 1px 7px;
+        }
+        .th-quote .th-cot { font-size: 14.5px; color: var(--ink); line-height: 1.65; font-style: italic; }
         .gate-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
         .gate-label { font-size: 12px; color: var(--ink-dim); }
         .score-num { font-family: 'Fraunces', serif; font-size: 26px; color: var(--ink); }
@@ -296,6 +387,55 @@
         .gate-verdict { margin-top: 9px; font-size: 12px; font-weight: 600; }
         .gate-verdict.pass { color: var(--good); }
         .gate-verdict.review { color: var(--marketer); }
+        .arch-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        .arch-card { background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 10px;
+            padding: 9px 8px; cursor: pointer; text-align: left; color: var(--ink);
+            font-family: inherit; transition: border-color 150ms ease, background 150ms ease; }
+        .arch-card b { display: block; font-size: 12px; margin-bottom: 3px; }
+        .arch-card span { display: block; font-size: 10.5px; color: var(--ink-dim); }
+        .arch-card:hover { border-color: var(--blue); }
+        .arch-card.sel { border-color: var(--blue); background: rgba(91,140,255,0.12); }
+        #dilemma-overlay { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center;
+            justify-content: center; background: rgba(5,8,16,0.72); backdrop-filter: blur(6px); }
+        #dilemma-overlay[hidden] { display: none; }
+        .dilemma-card { width: min(640px, 92vw); background: linear-gradient(180deg, #0e1424, #0a0f1d);
+            border: 1px solid var(--line); border-radius: 16px; padding: 26px 28px;
+            box-shadow: 0 24px 80px rgba(0,0,0,0.55); }
+        .dilemma-kicker { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.18em;
+            text-transform: uppercase; color: var(--marketer); margin-bottom: 10px; }
+        .dilemma-prompt { font-family: 'Fraunces', serif; font-size: 22px; line-height: 1.35; margin-bottom: 18px; }
+        .dilemma-options { display: flex; flex-direction: column; gap: 10px; }
+        .dilemma-opt { background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 12px;
+            padding: 13px 16px; cursor: pointer; text-align: left; color: var(--ink); font-family: inherit;
+            transition: border-color 150ms ease, background 150ms ease; width: 100%; }
+        .dilemma-opt:hover { border-color: var(--blue); background: rgba(91,140,255,0.10); }
+        .dilemma-opt b { display: block; font-size: 14.5px; margin-bottom: 4px; }
+        .dilemma-opt span { display: block; font-size: 12px; color: var(--ink-dim); }
+        .dilemma-own { margin-top: 10px; }
+        .dilemma-own .own b { color: var(--ink-dim); }
+        #dilemma-own-wrap { display: flex; gap: 8px; margin-top: 10px; }
+        #dilemma-own-wrap input { flex: 1; background: rgba(255,255,255,0.04); border: 1px solid var(--line);
+            border-radius: 10px; color: var(--ink); padding: 10px 12px; font-family: inherit; font-size: 13px; }
+        .income-beat { display: flex; flex-direction: column; align-items: center; gap: 22px; width: min(560px, 90%); }
+        .income-num { text-align: center; }
+        #income-counter { display: block; font-family: 'Fraunces', serif; font-size: 56px; color: var(--good);
+            font-variant-numeric: tabular-nums; line-height: 1; }
+        .income-label { display: block; margin-top: 8px; font-family: 'JetBrains Mono', monospace;
+            font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-dim); }
+        .income-feed { width: 100%; display: flex; flex-direction: column; gap: 7px; max-height: 220px; overflow: hidden; }
+        .income-line { font-size: 12.5px; color: var(--ink-dim); background: rgba(255,255,255,0.025);
+            border: 1px solid var(--line); border-radius: 9px; padding: 8px 12px; animation: incomeIn 400ms ease; }
+        .income-who { color: var(--ink); font-weight: 600; }
+        .income-gate { float: right; font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
+            letter-spacing: 0.1em; text-transform: uppercase; color: var(--good); }
+        @keyframes incomeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+        #rubric { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+        .rub-row { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+        .rub-name { flex: 0 0 108px; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .rub-bar { flex: 1; height: 4px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden; }
+        .rub-fill { display: block; height: 100%; border-radius: 999px; background: var(--good); transition: width 600ms ease; }
+        .rub-num { flex: 0 0 24px; text-align: right; font-variant-numeric: tabular-nums; }
+        .rub-src { margin-top: 3px; font-size: 10px; color: var(--ink-faint); }
 
         /* ---- Narration track ---- */
         #narration {
@@ -437,7 +577,15 @@
         .intro-dots .d.on { background: var(--blue); }
 
         /* ---- Intro: two-mission choice screen ---- */
-        .intro-skill { max-width: 540px; margin: 24px auto 16px; text-align: left; }
+        .intro-arch { display: flex; gap: 9px; justify-content: center; margin: 20px auto 4px; flex-wrap: wrap; }
+        .intro-arch-chip {
+            font-family: 'JetBrains Mono', monospace; font-size: 11.5px; letter-spacing: 0.08em;
+            color: var(--ink-dim); background: rgba(255,255,255,0.04); border: 1px solid var(--line);
+            border-radius: 999px; padding: 8px 18px; cursor: pointer; transition: 140ms ease;
+        }
+        .intro-arch-chip:hover { color: var(--ink); border-color: var(--blue); }
+        .intro-arch-chip.sel { color: var(--ink); border-color: var(--blue); background: rgba(91,140,255,0.16); }
+        .intro-skill { max-width: 540px; margin: 10px auto 16px; text-align: left; }
         .intro-skill label {
             display: block; font-family: 'JetBrains Mono', monospace; font-size: 10px;
             letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-dim); margin-bottom: 6px;
@@ -524,6 +672,11 @@
                     <span id="scene-title"></span>
                 </div>
 
+                <!-- Reasoning theater: while a worker reasons, its plan takes the
+                     whole stage - tools drawn, IQ recalls, then the model's own
+                     chain-of-thought. The judged thing, made the centerpiece. -->
+                <div id="theater" hidden></div>
+
                 <div id="diagram">
                     <div class="title-card fade-scene">
                         <div class="kicker">A reasoning RPG on Microsoft Foundry</div>
@@ -542,6 +695,15 @@
                             <div id="mic-status" class="mic-status"></div>
                         </div>
                         <div class="field">
+                            <label>What you bring &mdash; your skill is your starting gear</label>
+                            <div id="arch-row" class="arch-row">
+                                <button type="button" class="arch-card" data-arch="Builder" data-skill="building product: shipping software, prototypes, systems"><b>1 &middot; Builder</b><span>You ship product</span></button>
+                                <button type="button" class="arch-card" data-arch="Seller" data-skill="selling: closing deals, partnerships, growth conversations"><b>2 &middot; Seller</b><span>You close deals</span></button>
+                                <button type="button" class="arch-card" data-arch="Designer" data-skill="design: brand, product experience, storytelling"><b>3 &middot; Designer</b><span>You shape the story</span></button>
+                                <button type="button" class="arch-card" data-arch="Operator" data-skill="operations: process, logistics, keeping the machine running"><b>4 &middot; Operator</b><span>You run the machine</span></button>
+                            </div>
+                        </div>
+                        <div class="field">
                             <label>Or a company URL &mdash; map any real business</label>
                             <input id="in-url" placeholder="agencyofpoly.com  (optional; map any real company)" />
                         </div>
@@ -554,9 +716,16 @@
                 <div>
                     <div class="rail-h"><span class="dot"></span> Active Worker</div>
                     <div id="worker" class="worker-card">
-                        <div class="worker-role"><span class="role-orb" style="color:var(--narrator)"></span><span id="worker-name">World Designer</span></div>
-                        <div id="worker-deploy" class="worker-deploy">awaiting brief</div>
+                        <div class="worker-id">
+                            <img id="worker-portrait" class="worker-portrait" src="/game/assets/generated/narrator.png" alt="" onerror="this.style.display='none'" />
+                            <div class="worker-id-text">
+                                <div class="worker-role"><span class="role-orb" style="color:var(--narrator)"></span><span id="worker-name">World Designer</span></div>
+                                <div id="worker-deploy" class="worker-deploy">awaiting brief</div>
+                            </div>
+                        </div>
+                        <div id="worker-ms" class="worker-ms" hidden></div>
                         <div id="worker-state" class="worker-state">Idle</div>
+                        <div id="worker-tools" class="worker-tools" hidden></div>
                         <div id="worker-reasoning" class="worker-reasoning" hidden></div>
                     </div>
                 </div>
@@ -580,6 +749,7 @@
                         </div>
                         <div class="score-bar"><div id="score-fill" class="score-fill"></div></div>
                         <div id="verdict" class="gate-verdict">Awaiting first artifact</div>
+                        <div id="rubric"></div>
                     </div>
                 </div>
             </aside>
@@ -600,6 +770,24 @@
         </footer>
     </div>
 
+    <!-- Dilemma gate: after each sealed chapter the narrator poses a CEO
+         tradeoff. Click a card or press 1/2; 3 opens the free-text path.
+         The pick becomes binding direction for the next worker. -->
+    <div id="dilemma-overlay" hidden>
+        <div class="dilemma-card">
+            <div class="dilemma-kicker">CEO decision &mdash; your call shapes the next chapter</div>
+            <div id="dilemma-prompt" class="dilemma-prompt"></div>
+            <div id="dilemma-options" class="dilemma-options"></div>
+            <div class="dilemma-own">
+                <button id="dilemma-own-btn" class="dilemma-opt own" type="button"><b>3 &middot; Chart your own path</b><span>type your call</span></button>
+                <div id="dilemma-own-wrap" hidden>
+                    <input id="dilemma-own-input" placeholder="Your decision, in one sentence..." />
+                    <button id="dilemma-own-go" class="btn primary" type="button">Commit</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Lore / tutorial intro: the game introduces itself before the first pitch.
          Fully skippable (Skip button / Esc). Append ?intro=0 to bypass on reload. -->
     <div id="intro-overlay" aria-hidden="false">
@@ -612,8 +800,8 @@
         <div id="intro-dots" class="intro-dots"></div>
     </div>
 
-    <script src="/game/game/audio.js?v=6"></script>
-    <script type="module" src="/game/game/story.js?v=8"></script>
-    <script src="/game/game/intro.js?v=9"></script>
+    <script src="/game/game/audio.js?v=7"></script>
+    <script type="module" src="/game/game/story.js?v=101"></script>
+    <script src="/game/game/intro.js?v=14"></script>
 </body>
 </html>

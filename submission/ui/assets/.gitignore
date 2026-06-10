@@ -16,6 +16,10 @@ local/
 !generated/CREDITS.md
 !generated/lore/
 !generated/lore/*.png
+# Baked narration takes (tools/generate_narration.py) ship committed - the
+# directed cinematic voice is the baseline every fork hears, no keys needed.
+!generated/lore/narration/
+!generated/lore/narration/*.mp3
 # Veo motion clips are a local-only progressive enhancement - too heavy to
 # commit. The committed MAI stills are the baseline every fork gets.
 generated/lore/video/

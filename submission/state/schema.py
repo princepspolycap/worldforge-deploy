@@ -65,11 +65,20 @@ class Chapter(BaseModel):
     status: str = "not-started"  # not-started, in-progress, completed, failed
     artifact: Optional[Dict[str, Any]] = None
     validation_score: Optional[int] = None
+    # Rubric evaluation at the gate: weighted dimension breakdown produced by
+    # the Foundry rubric evaluator (live) or derived deterministically from the
+    # validators (simulation). The UI fills the gate bar from these dimensions.
+    rubric: Optional[Dict[str, Any]] = None
     # Binding to the dynamically designed digital worker (OrgBlueprint role) that
     # owns this chapter. Set by the Worker Factory's scheduler; closes the seam
     # between the org the LLM designs and the agents that do the work.
     assigned_worker_id: Optional[str] = None
     assigned_worker_title: Optional[str] = None
+    # The CEO decision made at this chapter's dilemma gate (game_design.md
+    # section 5): {prompt, option (label picked), tradeoff, custom (bool)}.
+    # Written by the dilemma endpoint; recalled in later chapter briefs so
+    # choices visibly chain (memory is what makes a choice feel real).
+    dilemma_choice: Optional[Dict[str, Any]] = None
 
 
 class WorkerInvocation(BaseModel):
@@ -87,6 +96,9 @@ class WorkerInvocation(BaseModel):
     tokens_out: int = 0
     reasoning_tokens: int = 0          # hidden "thinking" tokens the model spent
     reasoning_preview: str = ""        # short excerpt of chain-of-thought, if exposed
+    # Tools the worker drew from the Toolbox for this chapter (diegetic: the
+    # rail names them before the artifact appears).
+    tools_drawn: List[str] = Field(default_factory=list)
     latency_s: float = 0.0
     error: Optional[str] = None
 
@@ -98,6 +110,9 @@ class WorldGraph(BaseModel):
     invocations: List[WorkerInvocation] = Field(default_factory=list)
     current_chapter_index: int = 0
     status: str = "not-started"  # not-started, active, completed
+    # Session memory: every gate decision in order - {chapter_id, chapter_title,
+    # option, tradeoff}. Worker briefs and narration recall from this ledger.
+    decisions: List[Dict[str, Any]] = Field(default_factory=list)
 
 class QuestStep(BaseModel):
     id: str

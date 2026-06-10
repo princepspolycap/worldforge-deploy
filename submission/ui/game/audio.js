@@ -153,10 +153,12 @@
         // True if narration can happen at all (server OR browser).
         canSpeak() { return !!TTS || serverTTS; },
 
-        // Speak a line of narration. Prefers real Azure neural TTS via the
-        // server (/api/tts); falls back to the browser voice if the server is
-        // unavailable or errors. Cancels any in-flight speech so beats never
-        // overlap. Markup is stripped so HTML accents are not read aloud.
+        // Speak a line of narration. Plays a pre-baked take (opts.baked, a
+        // URL to a curated mp3) when one ships with the repo; otherwise
+        // prefers real Azure neural TTS via the server (/api/tts); falls back
+        // to the browser voice if the server is unavailable or errors.
+        // Cancels any in-flight speech so beats never overlap. Markup is
+        // stripped so HTML accents are not read aloud.
         speak(text, opts) {
             if (muted || !narrationOn) return null;
             const clean = stripMarkup(text);
@@ -164,6 +166,12 @@
 
             this.stopSpeaking();
             const myToken = ++serverAudioToken;
+
+            // Curated takes ship as files - instant, deterministic, directed.
+            if (opts && opts.baked) {
+                this._speakBaked(clean, myToken, opts);
+                return null;
+            }
 
             // Wait for the availability probe (already in flight since load;
             // resolves in milliseconds) so the very first line gets the neural
@@ -177,31 +185,65 @@
             return null;
         },
 
+        // Play a curated narration file; degrade to live TTS if it is missing
+        // (fresh fork before baking) or fails to decode/play.
+        _speakBaked(clean, myToken, opts) {
+            const fallBack = () => {
+                if (myToken !== serverAudioToken || muted || !narrationOn) return;
+                probeServerTTS().then((available) => {
+                    if (myToken !== serverAudioToken || muted || !narrationOn) return;
+                    if (available) this._speakServer(clean, myToken, opts);
+                    else this._speakBrowser(clean, opts);
+                });
+            };
+            fetch(opts.baked)
+                .then((r) => {
+                    if (!r.ok) throw new Error("baked " + r.status);
+                    const type = r.headers.get("content-type") || "";
+                    if (!/audio|octet-stream|mpeg/.test(type)) throw new Error("baked type " + type);
+                    return r.blob();
+                })
+                .then((blob) => {
+                    if (myToken !== serverAudioToken || muted || !narrationOn) return;
+                    this._playBlob(blob, myToken, opts);
+                })
+                .catch(fallBack);
+        },
+
+        // Shared playback for narration blobs (baked files and server TTS).
+        _playBlob(blob, myToken, opts) {
+            const url = URL.createObjectURL(blob);
+            const a = new Audio(url);
+            a.volume = (opts && opts.volume) || 1.0;
+            a.onended = a.onerror = () => URL.revokeObjectURL(url);
+            if (opts && typeof opts.onend === "function") {
+                a.addEventListener("ended", opts.onend);
+                a.addEventListener("error", opts.onend);
+            }
+            serverAudio = a;
+            // If playback is blocked (no user gesture yet), stay silent
+            // rather than degrading to the robotic browser voice - the
+            // film paces itself on the dwell fallback instead.
+            a.play().catch(() => {
+                if (opts && typeof opts.onend === "function") opts.onend();
+            });
+        },
+
         // Fetch MP3 from the server and play it; fall back to browser on error.
         _speakServer(clean, myToken, opts) {
             fetch("/api/tts", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: clean, voice: (opts && opts.voice) || null }),
+                body: JSON.stringify({
+                    text: clean,
+                    voice: (opts && opts.voice) || null,
+                    instructions: (opts && opts.instructions) || null,
+                }),
             })
                 .then((r) => { if (!r.ok) throw new Error("tts " + r.status); return r.blob(); })
                 .then((blob) => {
                     if (myToken !== serverAudioToken || muted || !narrationOn) return;
-                    const url = URL.createObjectURL(blob);
-                    const a = new Audio(url);
-                    a.volume = (opts && opts.volume) || 1.0;
-                    a.onended = a.onerror = () => URL.revokeObjectURL(url);
-                    if (opts && typeof opts.onend === "function") {
-                        a.addEventListener("ended", opts.onend);
-                        a.addEventListener("error", opts.onend);
-                    }
-                    serverAudio = a;
-                    // If playback is blocked (no user gesture yet), stay silent
-                    // rather than degrading to the robotic browser voice - the
-                    // film paces itself on the dwell fallback instead.
-                    a.play().catch(() => {
-                        if (opts && typeof opts.onend === "function") opts.onend();
-                    });
+                    this._playBlob(blob, myToken, opts);
                 })
                 .catch(() => { if (myToken === serverAudioToken) this._speakBrowser(clean, opts); });
         },

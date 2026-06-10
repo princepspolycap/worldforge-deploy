@@ -17,13 +17,14 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from state.schema import StateStore, QuestState, QuestStep, CompanyState, WorldGraph, Chapter, OrgBlueprint
 from agents.foundry_agents import MasterNarrator, StrategistAgent, DesignerAgent, MarketerAgent, generate_lore
-from agents.model_config import model_for, is_live
+from agents.model_config import model_for, is_live, get_foundry_client, create_chat_completion
 from agents.world_designer import design_world
 from agents.worker_factory import run_world, execute_chapter, bind_world_to_org
 from agents.org_designer import design_org
 from agents.retrieval import retrieve, brief_from_url
 from agents.company_analyst import analyze_company as analyze_company_url
 from tools.code_interpreter_wrappers import validate_positioning, validate_landing_page, validate_marketing_email
+from tools.toolbox import tools_list, tools_call, tools_for_role
 
 app = FastAPI(
     title="Your Company Is the Dungeon - Server",
@@ -55,6 +56,32 @@ def get_state():
         # Return a clean empty-like structure or indicator
         return {"initialized": False, "state": None}
     return {"initialized": True, "state": state.model_dump()}
+
+
+@app.get("/api/toolbox")
+def get_toolbox(role: Optional[str] = None):
+    """The toolbox catalog (MCP tools/list shape).
+
+    Passes through to a real Foundry Toolbox when TOOLBOX_URL is configured;
+    otherwise lists the local registry. The story UI renders this as the
+    workers' shared toolbox. Pass ?role= to also get the tools that archetype
+    draws for a chapter (powers the reasoning theater).
+    """
+    catalog = tools_list()
+    if role:
+        catalog["role_tools"] = tools_for_role(role)
+    return catalog
+
+
+class ToolCallRequest(BaseModel):
+    name: str
+    arguments: Dict[str, Any] = {}
+
+
+@app.post("/api/toolbox/call")
+def post_toolbox_call(payload: ToolCallRequest):
+    """Execute one toolbox tool (MCP tools/call shape)."""
+    return tools_call(payload.name, payload.arguments)
 
 
 @app.get("/api/mode")
@@ -100,6 +127,7 @@ def tts_available() -> bool:
 class TTSRequest(BaseModel):
     text: str
     voice: Optional[str] = None
+    instructions: Optional[str] = None
 
 
 @app.get("/api/tts/status")
@@ -125,11 +153,15 @@ def tts(payload: TTSRequest):
     text = text[:1200]
     url = (f"{TTS_ENDPOINT}/openai/deployments/{TTS_DEPLOYMENT}"
            f"/audio/speech?api-version={TTS_API_VERSION}")
-    body = json.dumps({
+    body_data = {
         "model": TTS_DEPLOYMENT,
         "input": text,
         "voice": (payload.voice or TTS_VOICE),
-    }).encode("utf-8")
+    }
+    # Delivery direction (tone, pacing) - supported by gpt-4o-mini-tts.
+    if payload.instructions:
+        body_data["instructions"] = payload.instructions.strip()[:600]
+    body = json.dumps(body_data).encode("utf-8")
     req = urllib.request.Request(
         url, data=body, method="POST",
         headers={"api-key": TTS_API_KEY, "Content-Type": "application/json"},
@@ -668,6 +700,155 @@ def design_world_endpoint(payload: AutoplayRequest):
     return {"state": state.model_dump()}
 
 
+# Canned dilemmas per archetype role - the deterministic, demo-safe floor
+# (game_design.md section 5). The live path asks the narrator model instead.
+_CANNED_DILEMMAS = {
+    "strategist": {
+        "prompt": "Two wedges are open. Which do you take first?",
+        "options": [
+            {"option": "Depth: one niche, one painful workflow, owned end to end", "tradeoff": "slower expansion, deeper moat"},
+            {"option": "Breadth: a broad beachhead across several workflows", "tradeoff": "faster reach, shallower proof"},
+        ],
+    },
+    "designer": {
+        "prompt": "The build is at 70%. Ship now or polish?",
+        "options": [
+            {"option": "Ship the 70% this week and learn from real users", "tradeoff": "rough edges in public"},
+            {"option": "Take three more weeks to reach 95%", "tradeoff": "slower learning, higher burn"},
+        ],
+    },
+    "marketer": {
+        "prompt": "Pricing sets the company's posture. Which way?",
+        "options": [
+            {"option": "Price for adoption: low, grassroots, volume", "tradeoff": "thin margins, more support"},
+            {"option": "Price for runway: high, fewer, bigger accounts", "tradeoff": "slower community, longer sales"},
+        ],
+    },
+    "ops": {
+        "prompt": "Support is scaling. Automate it fully?",
+        "options": [
+            {"option": "Automate support fully - protect the margin", "tradeoff": "risk to trust at the edges"},
+            {"option": "Keep a human in the loop - protect the promise", "tradeoff": "margin pressure"},
+        ],
+    },
+}
+
+
+class DilemmaRequest(BaseModel):
+    chapter_id: str
+
+
+@app.post("/api/dilemma")
+def generate_dilemma(payload: DilemmaRequest):
+    """Generate the CEO dilemma for the chapter just sealed.
+
+    Live: the narrator deployment writes a venture-specific tradeoff (2
+    options) grounded in the chapter's artifact. Offline/error: a canned
+    dilemma per archetype. The pick is recorded via /api/decision and
+    becomes binding direction for the next chapter's worker.
+    """
+    state = store.load()
+    if not state or not state.world:
+        raise HTTPException(status_code=400, detail="No world graph.")
+    world = state.world
+    chapter = next((ch for ch in world.chapters if ch.id == payload.chapter_id), None)
+    if not chapter:
+        raise HTTPException(status_code=404, detail=f"Unknown chapter: {payload.chapter_id}")
+
+    idx = world.chapters.index(chapter)
+    next_ch = world.chapters[idx + 1] if idx + 1 < len(world.chapters) else None
+
+    dilemma = None
+    client = get_foundry_client()
+    deployment = model_for("narrator")
+    if client and deployment and is_live():
+        try:
+            resp = create_chat_completion(
+                deployment,
+                [
+                    {"role": "system", "content": (
+                        "You are the narrator of a business-building RPG. The player is the "
+                        "CEO. Pose ONE sharp strategic dilemma arising from the work just "
+                        "completed, with exactly 2 options. Both options must be defensible; "
+                        "each has a real tradeoff. Keep each option under 14 words, each "
+                        "tradeoff under 8 words. Return ONLY JSON: {\"prompt\": str, "
+                        "\"options\": [{\"option\": str, \"tradeoff\": str}, ...]}"
+                    )},
+                    {"role": "user", "content": (
+                        f"Venture: {world.brief[:400]}\n"
+                        f"Chapter just completed: {chapter.title} - {chapter.goal}\n"
+                        f"Artifact summary: {json.dumps(chapter.artifact or {})[:1200]}\n"
+                        + (f"Next chapter: {next_ch.title} - {next_ch.goal}\n" if next_ch else "")
+                        + "The dilemma should steer how the next chapter is executed."
+                    )},
+                ],
+                max_completion_tokens=1500,
+            )
+            content = resp.choices[0].message.content or ""
+            parsed = json.loads(content[content.index("{"):content.rindex("}") + 1])
+            opts = [o for o in (parsed.get("options") or []) if isinstance(o, dict) and o.get("option")][:2]
+            if parsed.get("prompt") and len(opts) == 2:
+                dilemma = {"prompt": str(parsed["prompt"])[:240],
+                           "options": [{"option": str(o["option"])[:160],
+                                        "tradeoff": str(o.get("tradeoff", ""))[:120]} for o in opts],
+                           "source": "foundry"}
+        except Exception:
+            dilemma = None
+    if not dilemma:
+        canned = _CANNED_DILEMMAS.get(chapter.owner_role) or _CANNED_DILEMMAS["strategist"]
+        dilemma = {**canned, "source": "canned"}
+
+    store.log_event("DILEMMA_POSED", "narrator",
+        f"Dilemma after '{chapter.title}': {dilemma['prompt']}",
+        {"chapter_id": chapter.id, "source": dilemma["source"], "options": dilemma["options"]})
+    store.save()
+    return {"chapter_id": chapter.id, **dilemma}
+
+
+class DecisionRequest(BaseModel):
+    chapter_id: str
+    option: str
+    tradeoff: Optional[str] = ""
+    prompt: Optional[str] = ""
+    custom: Optional[bool] = False
+
+
+@app.post("/api/decision")
+def record_decision(payload: DecisionRequest):
+    """Record the CEO's dilemma-gate decision into session memory.
+
+    Writes Chapter.dilemma_choice and appends to WorldGraph.decisions, the
+    ledger every later worker brief recalls from (game_design.md section 5:
+    memory is what makes a choice feel real). Idempotent per chapter: a new
+    decision for the same chapter replaces the old one.
+    """
+    state = store.load()
+    if not state or not state.world:
+        raise HTTPException(status_code=400, detail="No world graph.")
+    world = state.world
+    chapter = next((ch for ch in world.chapters if ch.id == payload.chapter_id), None)
+    if not chapter:
+        raise HTTPException(status_code=404, detail=f"Unknown chapter: {payload.chapter_id}")
+
+    choice = {
+        "prompt": (payload.prompt or "")[:300],
+        "option": payload.option[:200],
+        "tradeoff": (payload.tradeoff or "")[:200],
+        "custom": bool(payload.custom),
+    }
+    chapter.dilemma_choice = choice
+    entry = {"chapter_id": chapter.id, "chapter_title": chapter.title, **choice}
+    world.decisions = [d for d in world.decisions if d.get("chapter_id") != chapter.id]
+    world.decisions.append(entry)
+
+    store.log_event("CEO_DECISION", "founder",
+        f"Gate decision after '{chapter.title}': {choice['option']}",
+        {"chapter_id": chapter.id, "option": choice["option"],
+         "tradeoff": choice["tradeoff"], "custom": choice["custom"]})
+    store.save()
+    return {"recorded": entry, "decisions": world.decisions}
+
+
 @app.post("/api/world/run-next")
 def run_next_chapter():
     """Execute the next pending chapter via the Worker Factory."""
@@ -688,7 +869,8 @@ def run_next_chapter():
     memory = retrieve(f"{world.brief} {chapter.goal} {chapter.success_metric}", top_k=2)
 
     previous_artifacts = [ch.artifact for ch in world.chapters[:idx] if ch.artifact]
-    invocation, artifact, score = execute_chapter(chapter, world.brief, previous_artifacts, org=state.org)
+    invocation, artifact, score = execute_chapter(
+        chapter, world.brief, previous_artifacts, org=state.org, decisions=world.decisions)
     world.invocations.append(invocation)
 
     if artifact:
@@ -707,7 +889,8 @@ def run_next_chapter():
         f"Chapter '{chapter.title}' -> score {score}, +{xp_earned} XP ({invocation.deployment}, {invocation.latency_s}s)",
         {"chapter_id": chapter.id, "score": score, "xp_earned": xp_earned, "latency_s": invocation.latency_s,
          "reasoning_tokens": invocation.reasoning_tokens,
-         "reasoning_preview": invocation.reasoning_preview}
+         "reasoning_preview": invocation.reasoning_preview,
+         "rubric": chapter.rubric}
     )
 
     if all(ch.status == "completed" for ch in world.chapters):
@@ -721,6 +904,9 @@ def run_next_chapter():
         "chapter": chapter.model_dump(),
         "invocation": invocation.model_dump(),
         "memory": memory,
+        # The most recent CEO decision the worker was briefed with - the UI
+        # name-checks it so the player hears their own words come back.
+        "recalled_decision": world.decisions[-1] if world.decisions else None,
     }
 
 

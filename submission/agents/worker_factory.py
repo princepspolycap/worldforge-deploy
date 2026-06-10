@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from agents.model_config import get_foundry_client, is_live, model_for, model_for_hint, create_chat_completion, reasoning_from_response
 from agents.retrieval import retrieve
 from state.schema import Chapter, OrgBlueprint, OrgRole, WorkerInvocation, WorldGraph
+from tools.toolbox import tools_call, tools_for_role
 from tools.code_interpreter_wrappers import (
     validate_financial_plan,
     validate_landing_page,
@@ -276,6 +277,110 @@ def _score_artifact(role: str, artifact: Optional[Dict[str, Any]]) -> int:
     return max(scores)
 
 
+# ---------------------------------------------------------------------------
+# Rubric evaluation at the gate. The gate score is no longer a single
+# hand-rolled number: a rubric (weighted dimensions, judged per artifact)
+# produces the breakdown the UI renders, and the deterministic validators
+# remain the floor the final score can never fall below.
+#   live      -> the narrator deployment judges the artifact against the rubric
+#   simulation/error -> a deterministic rubric derived from the validator floor
+# ---------------------------------------------------------------------------
+
+RUBRIC_DIMENSIONS = [
+    ("Relevance to goal", 30),
+    ("Completeness", 25),
+    ("Actionability", 25),
+    ("Clarity & structure", 20),
+]
+
+
+def _weighted_total(dimensions: List[Dict[str, Any]]) -> int:
+    total_w = sum(int(d.get("weight", 0)) for d in dimensions) or 1
+    raw = sum(int(d.get("score", 0)) * int(d.get("weight", 0)) for d in dimensions)
+    return max(0, min(100, round(raw / total_w)))
+
+
+def _rubric_from_floor(floor: int) -> Dict[str, Any]:
+    """Deterministic rubric breakdown derived from the validator floor.
+
+    Keeps the gate diegetic offline: the same four weighted dimensions render
+    after a fresh clone with zero keys, traceably tied to validator results.
+    """
+    spread = [5, 0, -5, 0]  # mild, deterministic variation around the floor
+    dimensions = [
+        {"name": name, "weight": weight, "score": max(0, min(100, floor + spread[i])),
+         "note": "derived from deterministic validators"}
+        for i, (name, weight) in enumerate(RUBRIC_DIMENSIONS)
+    ]
+    return {
+        "dimensions": dimensions,
+        "weighted_total": _weighted_total(dimensions),
+        "floor": floor,
+        "source": "validators",
+        "verdict": "Scored by deterministic validators (simulation rubric).",
+    }
+
+
+def rubric_evaluate(chapter: Chapter, brief: str, artifact: Optional[Dict[str, Any]],
+                    floor: int) -> Dict[str, Any]:
+    """Score an artifact against the gate rubric.
+
+    Returns {dimensions, weighted_total, floor, final, source, verdict}. The
+    final gate score is max(floor, weighted_total): the rubric judges quality,
+    the validators guarantee the deterministic floor.
+    """
+    rubric: Dict[str, Any]
+    client = get_foundry_client()
+    deployment = model_for("narrator")
+    if artifact and client and deployment:
+        dims_spec = ", ".join(f"{n} (weight {w})" for n, w in RUBRIC_DIMENSIONS)
+        try:
+            resp = create_chat_completion(
+                deployment,
+                [
+                    {"role": "system", "content": (
+                        "You are a strict rubric evaluator for business artifacts. "
+                        "Score the artifact 0-100 on each dimension: " + dims_spec + ". "
+                        "Return ONLY JSON: {\"dimensions\": [{\"name\", \"weight\", \"score\", "
+                        "\"note\" (<=12 words)}], \"verdict\": one sentence}."
+                    )},
+                    {"role": "user", "content": (
+                        f"Venture brief: {brief[:600]}\n"
+                        f"Chapter goal: {chapter.goal}\n"
+                        f"Success metric: {chapter.success_metric}\n\n"
+                        f"Artifact JSON:\n{json.dumps(artifact)[:4000]}"
+                    )},
+                ],
+                max_completion_tokens=2500,
+            )
+            parsed = _extract_json(resp.choices[0].message.content or "") or {}
+            dims = parsed.get("dimensions") or []
+            # Re-anchor to our spec: trusted names/weights, model-provided scores.
+            by_name = {str(d.get("name", "")).strip().lower(): d for d in dims if isinstance(d, dict)}
+            dimensions = []
+            for name, weight in RUBRIC_DIMENSIONS:
+                d = by_name.get(name.lower(), {})
+                dimensions.append({
+                    "name": name, "weight": weight,
+                    "score": max(0, min(100, int(d.get("score", floor)))),
+                    "note": str(d.get("note", ""))[:120],
+                })
+            rubric = {
+                "dimensions": dimensions,
+                "weighted_total": _weighted_total(dimensions),
+                "floor": floor,
+                "source": "foundry",
+                "verdict": str(parsed.get("verdict", ""))[:240],
+            }
+        except Exception:
+            rubric = _rubric_from_floor(floor)
+    else:
+        rubric = _rubric_from_floor(floor)
+
+    rubric["final"] = max(floor, rubric["weighted_total"])
+    return rubric
+
+
 def _short_brief(brief: str, words: int = 6) -> str:
     """Compact a brief into a short product label for mock diagrams."""
     cleaned = re.sub(r"[^A-Za-z0-9 ]", " ", brief or "Venture").strip()
@@ -374,14 +479,17 @@ def execute_chapter(
     brief: str,
     previous_artifacts: Optional[List[Dict]] = None,
     org: Optional[OrgBlueprint] = None,
+    decisions: Optional[List[Dict]] = None,
 ) -> Tuple[WorkerInvocation, Optional[Dict], int]:
     """Execute a single chapter's worker and return (invocation, artifact, score).
 
     When an `org` is supplied, the chapter is executed by the dynamically designed
     digital worker that owns it: the worker drives identity, deployment (via its
     `deployment_hint`) and reasoning grounding, while the archetype `role` still
-    drives the prompt contract + deterministic validators. Returns a deterministic
-    mock if live mode is off.
+    drives the prompt contract + deterministic validators. `decisions` is the
+    CEO's gate-decision ledger (WorldGraph.decisions); when present it is
+    injected as binding direction so choices visibly chain across chapters.
+    Returns a deterministic mock if live mode is off.
     """
     role = chapter.owner_role if chapter.owner_role in ROLE_PROMPTS else "strategist"
 
@@ -408,6 +516,9 @@ def execute_chapter(
         worker_title=worker_title,
         deployment=deployment_label,
         started_at=time.time(),
+        # The worker draws its tools from the Toolbox by name, up front - the
+        # rail renders these before the artifact lands (ludonarrative rule).
+        tools_drawn=tools_for_role(role),
     )
 
     prompts = ROLE_PROMPTS[role]
@@ -432,7 +543,21 @@ def execute_chapter(
             context_block += f"  Chapter {i}: {json.dumps(art)[:500]}\n"
         user += context_block
 
-    retrieval_hits = retrieve(f"{brief} {chapter.goal} {chapter.success_metric}", top_k=2)
+    # Session memory: the CEO's decisions at prior dilemma gates are binding
+    # direction, not reference - the artifact must visibly reflect the latest.
+    if decisions:
+        user += "\n\nCEO decisions made at earlier gates (binding direction):\n"
+        for d in decisions[-3:]:
+            user += (f"- After '{d.get('chapter_title', d.get('chapter_id', ''))}': "
+                     f"chose \"{d.get('option', '')}\""
+                     + (f" (tradeoff accepted: {d.get('tradeoff', '')})" if d.get('tradeoff') else "")
+                     + "\n")
+        user += ("Your artifact MUST visibly follow the most recent decision - "
+                 "reference it where relevant.\n")
+
+    retrieval_hits = (tools_call("recall", {
+        "query": f"{brief} {chapter.goal} {chapter.success_metric}", "top_k": 2,
+    }).get("result") or {}).get("hits") or []
     if retrieval_hits:
         user += "\n\nFoundry IQ context snippets:\n"
         for hit in retrieval_hits:
@@ -445,7 +570,10 @@ def execute_chapter(
         invocation.status = "completed"
         invocation.completed_at = time.time()
         invocation.latency_s = 0.1
-        return invocation, artifact, _score_artifact(role, artifact)
+        floor = _score_artifact(role, artifact)
+        rubric = rubric_evaluate(chapter, brief, artifact, floor)
+        chapter.rubric = rubric
+        return invocation, artifact, rubric["final"]
 
     t0 = time.perf_counter()
     try:
@@ -478,8 +606,10 @@ def execute_chapter(
     invocation.status = "completed"
 
     artifact = _extract_json(content)
-    score = _score_artifact(role, artifact)
-    return invocation, artifact, score
+    floor = _score_artifact(role, artifact)
+    rubric = rubric_evaluate(chapter, brief, artifact, floor)
+    chapter.rubric = rubric
+    return invocation, artifact, rubric["final"]
 
 
 def run_world(world: WorldGraph, brief: str, auto_approve_threshold: int = 80,
@@ -500,7 +630,8 @@ def run_world(world: WorldGraph, brief: str, auto_approve_threshold: int = 80,
         chapter.status = "in-progress"
         world.current_chapter_index = i
 
-        invocation, artifact, score = execute_chapter(chapter, brief, previous_artifacts, org=org)
+        invocation, artifact, score = execute_chapter(
+            chapter, brief, previous_artifacts, org=org, decisions=world.decisions)
         world.invocations.append(invocation)
 
         if artifact:

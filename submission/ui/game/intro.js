@@ -28,7 +28,8 @@
     const skipBtn = document.getElementById("intro-skip");
 
     const DWELL = 6800;      // fallback hold (ms) when narration is unavailable
-    const DWELL_MAX = 24000;  // safety cap while a narration line is speaking
+    const DWELL_MAX = 34000;  // safety cap while a narration line is speaking
+                              // (must clear the longest baked take: sahara ~28s)
 
     // Cinematic backdrops. Stills are generated with the Foundry MAI image
     // deployment (tools/generate_art.py --keyart) and ship committed. If a
@@ -46,7 +47,7 @@
     // so a fresh fork still narrates and the demo never sounds robotic.
     const NARR_BASE = IMG_BASE + "narration/";
     // Delivery direction shared by the baked takes and the live TTS fallback.
-    const NARRATOR_STYLE = "Warm cinematic film narrator. Intimate, unhurried, grounded awe - an invitation into a story. Natural pauses between sentences, soft dynamics. Never monotone, never robotic, never an announcer.";
+    const NARRATOR_STYLE = "A master storyteller speaking softly to one person by firelight, inviting them into an adventure. Low, warm, breathy chest voice. Slow conversational pace with long natural pauses at every dash and period. Lean into key words with rising wonder, then drop to near-whisper on the final line. Imperfect, human, alive - slight breaths audible. Absolutely never monotone, never robotic, never an announcer or commercial read.";
     const loadedImgs = {}; // filename -> true once preloaded OK
     const loadedVids = {}; // scene base name -> object URL of a playable clip
     let pendingBg = null;  // scene requested before its image finished loading
@@ -167,7 +168,7 @@
             kicker: "Microsoft Agents League - Battle 2 - Reasoning Agents",
             h2: "Welcome to your hero's journey.",
             sub: "Chart your path: terraform the Sahara. Automate basic needs.",
-            vo: "Welcome to your hero's journey. You are to chart a path within a world that terraforms the Sahara desert and automates basic needs. To achieve this, you have at your disposal reasoning agents, competing in the Agents League - agents who collaborate within a web of social contracts, between a multitude of organizations and institutions. The journey is ambitious. And it is taken care of. What it needs - is you.",
+            vo: "Welcome to your hero's journey. You are to chart a path within a world that terraforms the Sahara desert and automates basic needs. At your disposal: a league of reasoning agents - your digital workers - moving through the web of social contracts our lives are suspended in, automating your basic needs by automating how your skill set makes money. The journey is ambitious. And it is taken care of. What it needs - is you.",
             img: "sahara.png",
         },
         {
@@ -315,10 +316,15 @@
             '<div class="intro-anim">' +
             '<div class="kicker">Character creation</div>' +
             "<h2>What do you bring?</h2>" +
-            "<p>Your real skill is your starting gear. Then pick the front your agents build toward - or bring your own.</p>" +
+            "<p>Your real skill is your starting gear - it becomes the human seat of your org. Then pick the front your agents build toward.</p>" +
+            '<div class="intro-arch">' +
+            '<button class="intro-arch-chip" data-arch="Builder" data-skill="building product: shipping software, prototypes, systems">Builder</button>' +
+            '<button class="intro-arch-chip" data-arch="Seller" data-skill="selling: closing deals, partnerships, growth conversations">Seller</button>' +
+            '<button class="intro-arch-chip" data-arch="Designer" data-skill="design: brand, product experience, storytelling">Designer</button>' +
+            '<button class="intro-arch-chip" data-arch="Operator" data-skill="operations: process, logistics, keeping the machine running">Operator</button>' +
+            "</div>" +
             '<div class="intro-skill">' +
-            "<label>What you bring (optional)</label>" +
-            '<input id="intro-skill-input" placeholder="what you are good at - design, sales, logistics, code..." />' +
+            '<input id="intro-skill-input" placeholder="or say it your way - what are you good at?" />' +
             "</div>" +
             '<div class="intro-choices">' +
             '<button class="intro-choice a" data-mission="needs">' +
@@ -336,8 +342,16 @@
             "</div>";
         if (A.tick) { try { A.tick(true); } catch (e) { /* audio optional */ } }
         if (A.speak) { try { A.speak("Now - tell us what you bring. Your skill is your starting gear. Then choose your front, founder: press one to automate basic needs, press two to terraform the Sahara, or bring a brief of your own. The dungeon takes all comers.", { voice: "onyx", baked: NARR_BASE + "choice.mp3", instructions: NARRATOR_STYLE }); } catch (e) { /* narration optional */ } }
-        hintEl.textContent = "press 1 or 2 to choose - esc to skip";
+        hintEl.textContent = "press 1 or 2 to choose your front - esc for your own brief";
 
+        Array.prototype.forEach.call(cardEl.querySelectorAll(".intro-arch-chip"), (b) => {
+            b.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const was = b.classList.contains("sel");
+                Array.prototype.forEach.call(cardEl.querySelectorAll(".intro-arch-chip"), (c) => c.classList.remove("sel"));
+                if (!was) b.classList.add("sel");
+            });
+        });
         Array.prototype.forEach.call(cardEl.querySelectorAll(".intro-choice"), (b) => {
             b.addEventListener("click", (e) => { e.stopPropagation(); pickMission(b.dataset.mission); });
         });
@@ -354,18 +368,27 @@
         el.dispatchEvent(new Event("input", { bubbles: true }));
     }
 
-    // A mission pre-fills the existing pitch screen and reveals it. The player
-    // (or presenter) reviews the brief, then clicks Begin - no auto-start, so
-    // the run stays under human control even on stage.
+    // Picking a mission IS founding the company: the run starts underneath
+    // while the film fades - one continuous descent, no second form. The
+    // archetype chip (or typed skill) rides along as the founder's gear.
     function pickMission(key) {
         const m = MISSIONS[key];
         if (!m) return;
-        const skillEl = document.getElementById("intro-skill-input");
-        const skill = (skillEl && skillEl.value || "").trim();
-        setField("in-company", m.company);
-        setField("in-pitch", m.pitch + (skill ? " The founding operator's edge: " + skill + "." : ""));
-        setField("in-url", "");
-        dismiss(false, "begin");
+        const chip = cardEl.querySelector(".intro-arch-chip.sel");
+        const typed = (document.getElementById("intro-skill-input") || {}).value || "";
+        const archetype = chip
+            ? { name: chip.dataset.arch, skill: chip.dataset.skill }
+            : (typed.trim() ? { name: "Founder", skill: typed.trim() } : null);
+        if (window.DungeonStory && window.DungeonStory.start) {
+            window.DungeonStory.start({ company: m.company, pitch: m.pitch, archetype: archetype });
+            dismiss(false, null);
+        } else {
+            // Fallback: pre-fill the form the old way.
+            setField("in-company", m.company);
+            setField("in-pitch", m.pitch + (archetype ? " The founding operator's edge: " + archetype.skill + "." : ""));
+            setField("in-url", "");
+            dismiss(false, "begin");
+        }
     }
 
     // Keep whatever default is already on the pitch screen (the live Poly meta).
@@ -397,6 +420,7 @@
         overlay.setAttribute("aria-hidden", "true");
         const finish = () => {
             overlay.style.display = "none";
+            if (!focusTarget) return; // the game is already running underneath
             const id = focusTarget === "begin" ? "begin" : "in-pitch";
             const el = document.getElementById(id);
             if (el) { try { el.focus(); } catch (e) { /* focus optional */ } }
