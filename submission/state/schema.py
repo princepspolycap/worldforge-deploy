@@ -85,6 +85,8 @@ class WorkerInvocation(BaseModel):
     status: str = "pending"  # pending, running, completed, failed
     tokens_in: int = 0
     tokens_out: int = 0
+    reasoning_tokens: int = 0          # hidden "thinking" tokens the model spent
+    reasoning_preview: str = ""        # short excerpt of chain-of-thought, if exposed
     latency_s: float = 0.0
     error: Optional[str] = None
 

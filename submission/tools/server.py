@@ -3,18 +3,20 @@ import sys
 import json
 import time
 import yaml
+import urllib.request
+import urllib.error
 from typing import Dict, Any, Optional, Tuple, Iterator
 from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, Response
 from pydantic import BaseModel
 
 # Ensure submission path is in Python path for local modular references
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from state.schema import StateStore, QuestState, QuestStep, CompanyState, WorldGraph, Chapter, OrgBlueprint
-from agents.foundry_agents import MasterNarrator, StrategistAgent, DesignerAgent, MarketerAgent
+from agents.foundry_agents import MasterNarrator, StrategistAgent, DesignerAgent, MarketerAgent, generate_lore
 from agents.model_config import model_for, is_live
 from agents.world_designer import design_world
 from agents.worker_factory import run_world, execute_chapter, bind_world_to_org
@@ -59,6 +61,148 @@ def get_state():
 def get_mode():
     """Report whether the reasoning path is hitting live Foundry or simulation."""
     return {"live": is_live(), "mode": "live" if is_live() else "simulation"}
+
+
+class LoreRequest(BaseModel):
+    pitch: Optional[str] = ""
+    company_name: Optional[str] = ""
+
+
+@app.post("/api/lore")
+def lore(payload: LoreRequest):
+    """Generate a short, personalized adventure intro for the player's idea.
+
+    Adaptive lore: the narrator deployment frames *this* founder's specific
+    venture as their quest. Spoken aloud by the UI while the org designs, so the
+    opening is bespoke to whatever pitch / URL / voice input the player gave.
+    """
+    out = generate_lore(payload.pitch or "", payload.company_name or "")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Narration: real Microsoft Azure neural TTS with a model-upgrade chain.
+# Newer audio models (gpt-audio-1.5 family) speak through the chat-completions
+# audio API; older speech models (gpt-4o-mini-tts) use /audio/speech. We try
+# each configured deployment in order, auto-detecting the right API shape, so
+# upgrading the voice is just an env change. The browser still has its own
+# speechSynthesis fallback, so if every deployment is unconfigured or errors,
+# narration degrades gracefully to local TTS.
+# ---------------------------------------------------------------------------
+
+TTS_ENDPOINT = os.getenv("TTS_ENDPOINT", "").strip().rstrip("/")
+# Comma-separated upgrade chain, newest voice model first. Falls back to the
+# single TTS_DEPLOYMENT for older .env files.
+_tts_deployments_raw = os.getenv("TTS_DEPLOYMENTS", "").strip()
+TTS_DEPLOYMENTS = [d.strip() for d in _tts_deployments_raw.split(",") if d.strip()] or \
+    [os.getenv("TTS_DEPLOYMENT", "gpt-4o-mini-tts").strip()]
+TTS_API_KEY = os.getenv("TTS_API_KEY", "").strip()
+TTS_VOICE = os.getenv("TTS_VOICE", "onyx").strip()
+TTS_API_VERSION = os.getenv("TTS_API_VERSION", "2025-03-01-preview").strip()
+
+
+def tts_available() -> bool:
+    return bool(TTS_ENDPOINT and TTS_API_KEY and TTS_DEPLOYMENTS)
+
+
+def _tts_uses_chat_audio(deployment: str) -> bool:
+    """Newer audio models (gpt-audio*, MAI-Voice*) speak via chat completions."""
+    name = deployment.lower()
+    return "gpt-audio" in name or "mai-voice" in name
+
+
+def _synthesize_speech_api(deployment: str, text: str, voice: str) -> bytes:
+    """Legacy speech models (gpt-4o-mini-tts, tts-1): POST /audio/speech."""
+    url = (f"{TTS_ENDPOINT}/openai/deployments/{deployment}"
+           f"/audio/speech?api-version={TTS_API_VERSION}")
+    body = json.dumps({"model": deployment, "input": text, "voice": voice}).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=body, method="POST",
+        headers={"api-key": TTS_API_KEY, "Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return resp.read()
+
+
+def _synthesize_chat_audio_api(deployment: str, text: str, voice: str) -> bytes:
+    """Newer audio models: chat completions with audio modality, mp3 out."""
+    url = (f"{TTS_ENDPOINT}/openai/deployments/{deployment}"
+           f"/chat/completions?api-version={TTS_API_VERSION}")
+    body = json.dumps({
+        "model": deployment,
+        "modalities": ["text", "audio"],
+        "audio": {"voice": voice, "format": "mp3"},
+        "messages": [
+            {"role": "system",
+             "content": "Read the user's text aloud verbatim, with natural epic-narrator delivery. Do not add or change words."},
+            {"role": "user", "content": text},
+        ],
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=body, method="POST",
+        headers={"api-key": TTS_API_KEY, "Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        payload = json.loads(resp.read().decode("utf-8"))
+    b64 = (((payload.get("choices") or [{}])[0].get("message") or {}).get("audio") or {}).get("data", "")
+    if not b64:
+        raise ValueError("chat-audio response contained no audio data")
+    import base64
+    return base64.b64decode(b64)
+
+
+def synthesize_narration(text: str, voice: str) -> bytes:
+    """Try each configured voice deployment newest-first; raise if all fail."""
+    last_exc: Exception = RuntimeError("No TTS deployments configured.")
+    for deployment in TTS_DEPLOYMENTS:
+        try:
+            if _tts_uses_chat_audio(deployment):
+                return _synthesize_chat_audio_api(deployment, text, voice)
+            return _synthesize_speech_api(deployment, text, voice)
+        except Exception as exc:  # noqa: BLE001 - try the next deployment
+            last_exc = exc
+            continue
+    raise last_exc
+
+
+class TTSRequest(BaseModel):
+    text: str
+    voice: Optional[str] = None
+
+
+@app.get("/api/tts/status")
+def tts_status():
+    """Tell the UI whether server-side Azure neural narration is available."""
+    return {
+        "available": tts_available(),
+        "voice": TTS_VOICE,
+        "deployment": TTS_DEPLOYMENTS[0] if tts_available() else None,
+        "deployments": TTS_DEPLOYMENTS if tts_available() else [],
+    }
+
+
+@app.post("/api/tts")
+def tts(payload: TTSRequest):
+    """Synthesize narration through the voice-model upgrade chain.
+
+    Returns audio/mpeg bytes. On any failure returns 503 so the browser falls
+    back to local speechSynthesis - narration never hard-fails the demo.
+    """
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="No text to speak.")
+    if not tts_available():
+        raise HTTPException(status_code=503, detail="Server TTS not configured.")
+
+    # Keep latency sane: cap very long inputs (beats are short anyway).
+    text = text[:1200]
+    try:
+        audio = synthesize_narration(text, payload.voice or TTS_VOICE)
+    except Exception as exc:  # noqa: BLE001 - degrade to browser TTS
+        raise HTTPException(status_code=503, detail=f"TTS upstream error: {exc}")
+
+    return Response(content=audio, media_type="audio/mpeg",
+                    headers={"Cache-Control": "no-store"})
 
 @app.post("/api/init")
 def initialize_game(payload: PitchRequest):
@@ -129,31 +273,36 @@ def initialize_game(payload: PitchRequest):
 # endpoint and the SSE streaming endpoint, so both run identical logic).
 # ---------------------------------------------------------------------------
 
-def _run_step_agent(quest: QuestState, step: QuestStep) -> Tuple[Dict[str, Any], bool, Dict[str, Any]]:
+def _run_step_agent(quest: QuestState, step: QuestStep) -> Tuple[Dict[str, Any], bool, Dict[str, Any], Dict[str, Any]]:
     """Run the right character agent for a quest step and validate its artifact.
 
-    Returns (artifact_data, success, validation_results). Pure compute - no
-    state mutation or persistence, so callers control how results are stored.
+    Returns (artifact_data, success, validation_results, reasoning). `reasoning`
+    is {reasoning_tokens, reasoning_preview} captured from the live Foundry
+    response (empty in simulation). Pure compute - no state mutation or
+    persistence, so callers control how results are stored.
     """
     pitch = (store.state.pitch if store.state else "") or ""
     role = step.assigned_to
 
     if role == "strategist":
-        artifact = StrategistAgent().formulate_positioning(pitch)
+        agent = StrategistAgent()
+        artifact = agent.formulate_positioning(pitch)
         success, results = validate_positioning(artifact)
     elif role == "designer":
         positioning = quest.steps[0].artifact_data or {}
-        artifact = DesignerAgent().build_page_structure(positioning)
+        agent = DesignerAgent()
+        artifact = agent.build_page_structure(positioning)
         success, results = validate_landing_page(artifact)
     elif role == "marketer":
         positioning = quest.steps[0].artifact_data or {}
         page_structure = quest.steps[1].artifact_data or {}
-        artifact = MarketerAgent().draft_launch_email(positioning, page_structure)
+        agent = MarketerAgent()
+        artifact = agent.draft_launch_email(positioning, page_structure)
         success, results = validate_marketing_email(artifact)
     else:
         raise ValueError(f"Unknown agent role: {role}")
 
-    return artifact, success, results
+    return artifact, success, results, dict(agent.last_reasoning or {})
 
 
 # Friendly per-role labels for the reasoning trace.
@@ -205,7 +354,7 @@ def _stream_step_reasoning(state: CompanyState, quest: QuestState, step: QuestSt
 
     t0 = time.time()
     try:
-        artifact_data, success, val_results = _run_step_agent(quest, step)
+        artifact_data, success, val_results, reasoning = _run_step_agent(quest, step)
     except Exception as exc:  # noqa: BLE001
         step.status = "failed"
         store.log_event("STEP_EXECUTION_ERROR", "system", f"Failed executing step reasoning: {exc}")
@@ -215,12 +364,20 @@ def _stream_step_reasoning(state: CompanyState, quest: QuestState, step: QuestSt
     latency = round(time.time() - t0, 2)
 
     artifact_keys = list(artifact_data.keys())
+    reasoning_tokens = int(reasoning.get("reasoning_tokens", 0) or 0)
+    reasoning_preview = reasoning.get("reasoning_preview", "") or ""
+    done_msg = f"Artifact returned ({len(artifact_keys)} fields) in {latency}s."
+    if reasoning_tokens:
+        done_msg = (f"Artifact returned ({len(artifact_keys)} fields) in {latency}s "
+                    f"after {reasoning_tokens} thinking tokens.")
     yield _sse("phase", {
         "kind": "invoke_done",
         "actor": persona_name,
-        "message": f"Artifact returned ({len(artifact_keys)} fields) in {latency}s.",
+        "message": done_msg,
         "latency_s": latency,
         "artifact_keys": artifact_keys,
+        "reasoning_tokens": reasoning_tokens,
+        "reasoning_preview": reasoning_preview,
     })
 
     # Phase 3: deterministic code-interpreter validators, streamed per check.
@@ -254,7 +411,9 @@ def _stream_step_reasoning(state: CompanyState, quest: QuestState, step: QuestSt
     step.validation_results = val_results
     store.log_event("STEP_COMPLETED_REASONING", step.assigned_to,
                     "Artifact created. Verification gate waiting for review.",
-                    {"artifact": artifact_data, "validation_results": val_results})
+                    {"artifact": artifact_data, "validation_results": val_results,
+                     "reasoning_tokens": reasoning_tokens,
+                     "reasoning_preview": reasoning_preview})
     store.save()
 
     yield _sse("done", {
@@ -305,13 +464,15 @@ def execute_current_step():
     store.save()
     
     try:
-        artifact_data, success, val_results = _run_step_agent(quest, step)
+        artifact_data, success, val_results, reasoning = _run_step_agent(quest, step)
         step.artifact_data = artifact_data
         step.validation_results = val_results
         
         store.log_event("STEP_COMPLETED_REASONING", step.assigned_to, f"Artifact created. Verification gate waiting for review.", {
             "artifact": artifact_data,
-            "validation_results": val_results
+            "validation_results": val_results,
+            "reasoning_tokens": int(reasoning.get("reasoning_tokens", 0) or 0),
+            "reasoning_preview": reasoning.get("reasoning_preview", "") or ""
         })
         store.save()
         
@@ -622,7 +783,9 @@ def run_next_chapter():
 
     store.log_event("CHAPTER_EXECUTED", invocation.role,
         f"Chapter '{chapter.title}' -> score {score}, +{xp_earned} XP ({invocation.deployment}, {invocation.latency_s}s)",
-        {"chapter_id": chapter.id, "score": score, "xp_earned": xp_earned, "latency_s": invocation.latency_s}
+        {"chapter_id": chapter.id, "score": score, "xp_earned": xp_earned, "latency_s": invocation.latency_s,
+         "reasoning_tokens": invocation.reasoning_tokens,
+         "reasoning_preview": invocation.reasoning_preview}
     )
 
     if all(ch.status == "completed" for ch in world.chapters):
@@ -731,12 +894,6 @@ def read_root():
 def read_story():
     """Serve the animated, narrated story view."""
     return FileResponse(os.path.join(UI_DIRECTORY, "story.html"))
-
-
-@app.get("/geometric")
-def read_geometric():
-    """Serve the geometric Phaser UI."""
-    return FileResponse(os.path.join(UI_DIRECTORY, "geometric.html"))
 
 
 @app.get("/sprites")

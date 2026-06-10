@@ -1,5 +1,9 @@
 # Architecture
 
+> For the intent behind this system - the CEO role-play, the lore, the two
+> missions, and how the project evolved into its current shape - see
+> [vision_and_evolution.md](vision_and_evolution.md).
+
 ## Core Pattern
 
 The implementation follows the official RPG live-battle architecture and reskins it for business creation.

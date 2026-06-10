@@ -1,0 +1,26 @@
+# Hosted-agent runtime config for the Dungeon Narrator.
+# Consumed by the Foundry hosted-agents tooling (azd ai agent init / agent
+# version create). Protocol: invocations - the agent-callable surface other
+# agents and apps invoke, A2A-style.
+name: dungeon-narrator
+description: >
+  Master Narrator for "Your Company Is the Dungeon". Takes a business pitch and
+  returns personalized adventure lore plus a 3-step quest line decomposed for
+  strategist, designer, and marketer agents, with visible reasoning-token counts.
+version: v0.0.1
+protocols:
+  - protocol: invocations
+    version: v0.0.1
+resources:
+  cpu: 1
+  memory: 2Gi
+environment_variables:
+  # Reasoning core (no secrets here - values are injected at deploy time).
+  - name: DEMO_MODE
+    value: live
+  - name: FOUNDRY_BASE_URL
+    value: ""
+  - name: NARRATOR_MODEL
+    value: ""
+  - name: FOUNDRY_FALLBACK_MODEL
+    value: ""

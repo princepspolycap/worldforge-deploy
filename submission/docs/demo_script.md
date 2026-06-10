@@ -2,7 +2,7 @@
 
 ## 0-3 min: Hook
 
-- Open the side-scroller experience.
+- Open the narrated management-RPG experience (`/story`).
 - Show the title: Your Company Is the Dungeon.
 - Point out the player, NPC agents, XP bar, quest log, and reasoning drawer.
 

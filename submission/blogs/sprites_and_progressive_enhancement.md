@@ -13,7 +13,7 @@ The thesis is small but load-bearing:
 
 ## 1. Why progressive enhancement (and not "just commit the PNGs")
 
-We reuse the Limezu **Modern Interiors Revamped** character pack - the same atlas that drives our internal Polyverse project. It is beautiful work, but the license is unambiguous: *no redistribution of the source files, even in a fork*. That single constraint forced a design we now think every agent-demo repo should adopt:
+We reuse the Limezu **Modern Interiors Revamped** character pack - the same atlas we use in our own local game work. It is beautiful work, but the license is unambiguous: *no redistribution of the source files, even in a fork*. That single constraint forced a design we now think every agent-demo repo should adopt:
 
 1. **The public repo ships only MIT-safe art.** In our case, that means procedural shapes drawn with `Phaser.GameObjects.Graphics`: a head, a body, a name label, an "ACTIVE" badge. They are ugly. They work.
 2. **The pixel-art layer is opt-in.** If - and only if - four specific PNGs exist under `submission/ui/assets/local/characters/`, the game loads them as spritesheets and replaces the procedural shapes at runtime.

@@ -8,7 +8,7 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
-from agents.model_config import get_foundry_client, model_for
+from agents.model_config import get_foundry_client, model_for, create_chat_completion
 
 
 SYSTEM = (
@@ -178,13 +178,13 @@ def design_world(brief: str) -> List[Dict[str, Any]]:
     user = USER_TEMPLATE.format(brief=brief)
 
     try:
-        resp = client.chat.completions.create(
-            model=deployment,
-            messages=[
+        resp = create_chat_completion(
+            deployment,
+            [
                 {"role": "system", "content": SYSTEM},
                 {"role": "user", "content": user},
             ],
-            max_completion_tokens=4000,
+            max_completion_tokens=8000,
         )
         content = resp.choices[0].message.content or ""
         parsed = _extract_json(content)

@@ -6,6 +6,7 @@ This project turns the live battle RPG prompt into a business-building quest gam
 
 ## Current Status
 
+- The full vision, lore, CEO role-play frame, two missions, and project evolution are documented in [docs/vision_and_evolution.md](docs/vision_and_evolution.md).
 - Concept narrative is captured in [../PROJECT_NARRATIVE.md](../PROJECT_NARRATIVE.md).
 - Official challenge references remain untouched under [../starter-kits/2-reasoning-agents](../starter-kits/2-reasoning-agents).
 - This `submission/` folder is reserved for our build, docs, agent code, tools, state, knowledge, quests, UI, and replay logs.
@@ -52,7 +53,7 @@ submission/
 
 - [ ] Confirm Azure Foundry project endpoint and model deployment.
 - [x] Decide UI stack: Phaser for the side-scroller, served by FastAPI for the current demo shell.
-- [ ] Confirm Polyverse assets are safe to include in a public MIT-licensed fork.
+- [ ] Keep all third-party game art out of the public fork (geometric-first ships MIT-clean).
 - [ ] Choose the project codename for package naming and branding.
 - [ ] Ask Carlotta whether community voting applies to the invitational live battle.
 - [x] Create the first working quest definition.
@@ -74,6 +75,5 @@ pip install -r submission/requirements.txt
 python3 submission/tools/run_quest_simulation.py --pitch "Your idea here"
 ```
 
-For Foundry-backed runs, copy keys from the local Poly env at
-`/Users/princeps/Projects/Poly186/Poly/.env` (maintainer machine only) into
-`submission/.env`.
+For Foundry-backed runs, copy the keys you need from your own local Foundry env
+(kept off this public repo) into `submission/.env`.

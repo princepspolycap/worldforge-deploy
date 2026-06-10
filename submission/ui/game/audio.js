@@ -18,6 +18,68 @@
     let muted = false;
     let thinkingNodes = null; // active "thinking" loop, if any
 
+    // --- Narration (Text-to-Speech) -------------------------------------
+    // Uses the browser SpeechSynthesis API: no audio files, no API keys, no
+    // network - so narration works offline after a fresh git clone and cannot
+    // fail on stage. Voice selection prefers a natural local English voice.
+    const TTS = window.speechSynthesis || null;
+    let narrationOn = true;
+    let chosenVoice = null;
+    let voicesReady = false;
+
+    // Server-side Azure neural TTS (gpt-4o-mini-tts). Preferred when available;
+    // we probe /api/tts/status once and fall back to the browser voice if the
+    // server cannot synthesize (offline fork, error, or unconfigured).
+    let serverTTS = false;
+    let serverTTSProbed = false;
+    let serverAudio = null;       // current HTMLAudioElement playing narration
+    let serverAudioToken = 0;     // cancels stale fetches/playbacks
+
+    function probeServerTTS() {
+        if (serverTTSProbed) return Promise.resolve(serverTTS);
+        serverTTSProbed = true;
+        return fetch("/api/tts/status")
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => { serverTTS = !!(d && d.available); return serverTTS; })
+            .catch(() => { serverTTS = false; return false; });
+    }
+
+    function pickVoice() {
+        if (!TTS) return null;
+        const voices = TTS.getVoices() || [];
+        if (!voices.length) return null;
+        voicesReady = true;
+        // Prefer known high-quality natural English voices, in order.
+        const preferred = [
+            "Google UK English Male", "Google US English", "Microsoft Guy Online",
+            "Microsoft Aria Online", "Samantha", "Daniel", "Karen", "Alex",
+        ];
+        for (const name of preferred) {
+            const v = voices.find((x) => x.name === name);
+            if (v) return v;
+        }
+        // Otherwise the first local en-* voice, then any en-* voice.
+        return voices.find((v) => /^en[-_]/i.test(v.lang) && v.localService)
+            || voices.find((v) => /^en[-_]/i.test(v.lang))
+            || voices[0];
+    }
+
+    if (TTS) {
+        chosenVoice = pickVoice();
+        // Voices often load asynchronously; refine the pick when they arrive.
+        TTS.addEventListener && TTS.addEventListener("voiceschanged", () => {
+            chosenVoice = pickVoice();
+        });
+    }
+
+    function stripMarkup(text) {
+        return String(text || "")
+            .replace(/<[^>]*>/g, " ")     // drop any HTML tags (intro accents)
+            .replace(/&[a-z]+;/gi, " ")   // drop entities like &rarr;
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
     function ensureContext() {
         if (ctx) {
             if (ctx.state === "suspended") ctx.resume();
@@ -61,6 +123,7 @@
         // Called from a user gesture (e.g. launch click) to unlock audio.
         unlock() {
             ensureContext();
+            probeServerTTS();
         },
 
         isMuted() {
@@ -72,12 +135,93 @@
             if (masterGain && ctx) {
                 masterGain.gain.setTargetAtTime(muted ? 0 : 0.5, ctx.currentTime, 0.02);
             }
+            if (muted) this.stopSpeaking();
             return muted;
         },
 
         toggleMute() {
             return this.setMuted(!muted);
         },
+
+        // --- Narration -------------------------------------------------
+        // True if narration can happen at all (server OR browser).
+        canSpeak() { return !!TTS || serverTTS; },
+
+        // Speak a line of narration. Prefers real Azure neural TTS via the
+        // server (/api/tts); falls back to the browser voice if the server is
+        // unavailable or errors. Cancels any in-flight speech so beats never
+        // overlap. Markup is stripped so HTML accents are not read aloud.
+        speak(text, opts) {
+            if (muted || !narrationOn) return null;
+            const clean = stripMarkup(text);
+            if (!clean) return null;
+
+            this.stopSpeaking();
+            const myToken = ++serverAudioToken;
+
+            // Try the server neural voice first (once probed). If the probe has
+            // not run yet, kick it off and use the browser voice this time so
+            // the first beat is never delayed.
+            if (serverTTS) {
+                this._speakServer(clean, myToken, opts);
+            } else {
+                this._speakBrowser(clean, opts);
+                if (!serverTTSProbed) probeServerTTS();
+            }
+            return null;
+        },
+
+        // Fetch MP3 from the server and play it; fall back to browser on error.
+        _speakServer(clean, myToken, opts) {
+            fetch("/api/tts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: clean, voice: (opts && opts.voice) || null }),
+            })
+                .then((r) => { if (!r.ok) throw new Error("tts " + r.status); return r.blob(); })
+                .then((blob) => {
+                    if (myToken !== serverAudioToken || muted || !narrationOn) return;
+                    const url = URL.createObjectURL(blob);
+                    const a = new Audio(url);
+                    a.volume = (opts && opts.volume) || 1.0;
+                    a.onended = a.onerror = () => URL.revokeObjectURL(url);
+                    if (opts && typeof opts.onend === "function") a.addEventListener("ended", opts.onend);
+                    serverAudio = a;
+                    a.play().catch(() => this._speakBrowser(clean, opts));
+                })
+                .catch(() => { if (myToken === serverAudioToken) this._speakBrowser(clean, opts); });
+        },
+
+        // Browser SpeechSynthesis voice (offline-safe fallback).
+        _speakBrowser(clean, opts) {
+            if (!TTS) return;
+            try { TTS.cancel(); } catch (e) { /* ignore */ }
+            const u = new SpeechSynthesisUtterance(clean);
+            if (chosenVoice) u.voice = chosenVoice;
+            u.rate = (opts && opts.rate) || 0.98;
+            u.pitch = (opts && opts.pitch) || 1.0;
+            u.volume = (opts && opts.volume) || 1.0;
+            if (opts && typeof opts.onend === "function") u.onend = opts.onend;
+            try { TTS.speak(u); } catch (e) { /* narration optional */ }
+        },
+
+        stopSpeaking() {
+            serverAudioToken++;
+            if (serverAudio) {
+                try { serverAudio.pause(); } catch (e) { /* ignore */ }
+                serverAudio = null;
+            }
+            if (!TTS) return;
+            try { TTS.cancel(); } catch (e) { /* ignore */ }
+        },
+
+        setNarration(on) {
+            narrationOn = !!on;
+            if (!narrationOn) this.stopSpeaking();
+            return narrationOn;
+        },
+
+        narrationEnabled() { return narrationOn && (!!TTS || serverTTS); },
 
         // A low, slow pulse loop while an agent is reasoning (the live call).
         thinkingStart() {

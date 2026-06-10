@@ -18,7 +18,7 @@ import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
-from agents.model_config import get_foundry_client, is_live, model_for
+from agents.model_config import get_foundry_client, is_live, model_for, create_chat_completion
 from agents.retrieval import scrape_company
 
 
@@ -194,9 +194,9 @@ def analyze_company(url: str) -> Dict[str, Any]:
             excerpt=(scraped.get("text", "") or "")[:1200],
         )
         try:
-            resp = client.chat.completions.create(
-                model=deployment,
-                messages=[
+            resp = create_chat_completion(
+                deployment,
+                [
                     {"role": "system", "content": SYSTEM},
                     {"role": "user", "content": user},
                 ],

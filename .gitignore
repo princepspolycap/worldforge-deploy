@@ -4,6 +4,10 @@
 .env.*.local
 submission/docs/llm_smoke_test_results*.json
 
+# Maintainer-only working notes (deployment names, quota numbers, demo-day
+# logistics). Never committed - this is an open-source repo.
+submission/private/
+
 # API keys and secrets
 **/secrets/
 **/config/secrets.*

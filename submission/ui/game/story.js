@@ -62,10 +62,29 @@ async function api(path, body) {
 }
 
 // --- Narration typewriter --------------------------------------------------
+// Multi-voice cast: each agent speaks with a distinct Azure neural voice so the
+// party feels like different characters, not one narrator. Voices are real
+// gpt-4o-mini-tts (2025-12-15) voices verified on the deployment. Falls back to
+// the narrator voice for unknown roles.
+const VOICE_BY_ROLE = {
+    narrator: "onyx",       // the Narrator / World Designer - deep, epic guide
+    orgdesigner: "sage",    // the Org Designer - wise, measured
+    strategist: "ballad",   // Soren - thoughtful
+    designer: "coral",      // Dahlia - bright, creative
+    marketer: "verse",      // Maddox - energetic
+    ops: "alloy",           // Operations - steady
+};
+const NARRATOR_VOICE = "onyx";
+let currentVoice = NARRATOR_VOICE;
+
 let typeToken = 0;
 async function narrate(text, speed = 18) {
     const el = $("narration-text");
     const myToken = ++typeToken;
+    // Speak the beat aloud in the active worker's voice (real Azure neural TTS,
+    // browser TTS fallback). This also fills the air during slow live Foundry
+    // calls, so latency reads as "the agent is thinking" rather than dead time.
+    if (A.speak) { try { A.speak(text, { voice: currentVoice }); } catch (e) { /* narration optional */ } }
     el.innerHTML = "";
     const caret = document.createElement("span");
     caret.className = "caret";
@@ -373,6 +392,9 @@ const state = {
 };
 
 function setWorker(role, deployLabel, stateText, thinking, displayName) {
+    // Switch the narration voice to this worker's so each character sounds
+    // distinct. Unknown roles keep the narrator voice.
+    currentVoice = VOICE_BY_ROLE[role] || NARRATOR_VOICE;
     $("worker-name").textContent = displayName || ROLE_NAME[role] || role;
     const orb = document.querySelector(".role-orb");
     if (orb) orb.style.color = ROLE_COLOR[role] || "#94a3b8";
@@ -380,6 +402,24 @@ function setWorker(role, deployLabel, stateText, thinking, displayName) {
     $("worker-state").innerHTML = thinking
         ? `<span class="pulse"></span> ${stateText}`
         : stateText;
+}
+
+// Show the model's visible "thinking": reasoning-token count and, when the
+// deployment exposes it, a short chain-of-thought preview. This is the model
+// reasoning over the player's public business brief - no secrets - and it is
+// HTML-escaped before display. Hidden when there is nothing to show.
+function setReasoning(inv) {
+    const el = $("worker-reasoning");
+    if (!el) return;
+    const tokens = Number(inv && inv.reasoning_tokens) || 0;
+    const preview = (inv && inv.reasoning_preview) || "";
+    if (!tokens && !preview) { el.hidden = true; el.innerHTML = ""; return; }
+    let html = `<div class="rz-head">&#9670; Reasoning`;
+    if (tokens) html += ` <span class="rz-tokens">${tokens} thinking tokens</span>`;
+    html += `</div>`;
+    if (preview) html += `<div class="rz-text">&ldquo;${esc(preview)}&hellip;&rdquo;</div>`;
+    el.innerHTML = html;
+    el.hidden = false;
 }
 
 function setMemory(hits) {
@@ -495,6 +535,16 @@ async function beginStory() {
     $("begin").disabled = true;
     $("reset").disabled = false;
 
+    // ---- Beat 0: a personalized, LLM-narrated welcome to THIS venture ----
+    // Adaptive lore: the narrator frames the player's specific idea as their
+    // quest. Spoken aloud while it types, so the opening is bespoke to whatever
+    // pitch / URL / voice the player brought.
+    setSceneHead("Your quest", state.company || "A new venture");
+    try {
+        const loreRes = await api("/api/lore", { pitch: state.pitch || state.url, company_name: state.company });
+        if (loreRes && loreRes.lore) await narrate(loreRes.lore);
+    } catch (e) { /* lore is optional flavor - never block the run */ }
+
     // ---- Beat 1: scrape + reason (URL) -> design the digital workforce ----
     const fromUrl = !!state.url;
     $("hint").textContent = fromUrl ? "Reading the company URL..." : "Designing the org...";
@@ -609,6 +659,7 @@ async function runNextChapter() {
 
     setSceneHead(`Chapter ${state.idx + 1}`, ch.title);
     setWorker(ch.owner_role, `${(ch.owner_role || "role").toUpperCase()}_MODEL (Foundry)`, "Reasoning over the brief", true, ownerName);
+    setReasoning(null);
     if (A.thinkingStart) A.thinkingStart();
     $("hint").textContent = `${ownerName} is working...`;
 
@@ -631,6 +682,7 @@ async function runNextChapter() {
     const score = chapter.validation_score ?? 0;
     setMemory(res.memory);
     setWorker(ch.owner_role, inv.deployment || "simulation", `Done in ${inv.latency_s ?? 0}s`, false, inv.worker_title || ownerName);
+    setReasoning(inv);
 
     // Animate the artifact into a diagram.
     const diag = diagramForArtifact(ch.owner_role, chapter.artifact);
@@ -698,6 +750,81 @@ async function resetStory() {
     location.reload();
 }
 
+// --- Voice input (browser speech-to-text) ----------------------------------
+// Lets the founder speak their company idea instead of typing it. Uses the
+// browser SpeechRecognition API (Chrome/Edge/Safari) - no API key, no network
+// of our own. Degrades gracefully: if unsupported, the mic button is hidden and
+// typing still works.
+function setupVoiceInput() {
+    const micBtn = $("mic");
+    const statusEl = $("mic-status");
+    const pitchEl = $("in-pitch");
+    if (!micBtn || !pitchEl) return;
+
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { micBtn.style.display = "none"; return; }
+
+    let rec = null;
+    let listening = false;
+    let baseText = "";
+
+    function setStatus(msg, live) {
+        if (!statusEl) return;
+        statusEl.textContent = msg || "";
+        statusEl.classList.toggle("live", !!live);
+    }
+
+    function stop() {
+        listening = false;
+        micBtn.classList.remove("listening");
+        try { rec && rec.stop(); } catch (e) { /* ignore */ }
+    }
+
+    micBtn.addEventListener("click", () => {
+        if (A.unlock) { try { A.unlock(); } catch (e) { /* audio optional */ } }
+        if (listening) { stop(); setStatus("", false); return; }
+
+        rec = new SR();
+        rec.lang = "en-US";
+        rec.interimResults = true;
+        rec.continuous = true;
+        // Start a fresh dictation but keep whatever the founder already typed.
+        baseText = (pitchEl.value || "").trim();
+
+        rec.onstart = () => {
+            listening = true;
+            micBtn.classList.add("listening");
+            setStatus("Listening - speak your idea...", true);
+        };
+        rec.onerror = (e) => {
+            setStatus("Mic error: " + (e.error || "unknown"), false);
+            stop();
+        };
+        rec.onend = () => {
+            micBtn.classList.remove("listening");
+            if (listening) setStatus("Heard you. Edit, or press Begin.", false);
+            listening = false;
+        };
+        rec.onresult = (event) => {
+            let interim = "";
+            let finalTxt = "";
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                const t = event.results[i][0].transcript;
+                if (event.results[i].isFinal) finalTxt += t;
+                else interim += t;
+            }
+            const joined = [baseText, finalTxt].filter(Boolean).join(" ").trim();
+            if (finalTxt) baseText = joined;
+            pitchEl.value = (joined + (interim ? " " + interim : "")).trim();
+            // Speaking a fresh idea should clear any URL so the pitch wins.
+            const urlEl = $("in-url");
+            if (urlEl && pitchEl.value) urlEl.value = "";
+        };
+
+        try { rec.start(); } catch (e) { setStatus("Could not start mic", false); }
+    });
+}
+
 // --- Wire up ---------------------------------------------------------------
 $("begin").addEventListener("click", beginStory);
 $("next").addEventListener("click", runNextChapter);
@@ -717,3 +844,6 @@ fetch("/api/mode").then((r) => (r.ok ? r.json() : null)).then((d) => {
         state.live = true;
     }
 }).catch(() => {});
+
+// Enable speak-your-idea voice input on the pitch field (if the browser supports it).
+setupVoiceInput();

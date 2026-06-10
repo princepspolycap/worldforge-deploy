@@ -3,6 +3,10 @@
 > **Microsoft Agents League · Battle #2 — Reasoning Agents with Microsoft Foundry**
 > Live invitational re-run · June 10, 2026 · 9:00 AM PT · ~20 min live demo
 > Host: Carlotta (Microsoft) · 3 competitors
+>
+> This file is the origin strategy. The project has since evolved — the current
+> vision, CEO role-play frame, lore, two missions, and the full evolution are
+> documented in [submission/docs/vision_and_evolution.md](submission/docs/vision_and_evolution.md).
 
 ---
 
@@ -23,7 +27,7 @@ Official judging weights (verified from `microsoft/agentsleague` README, May 202
 | Accuracy & Relevance | 20% | We are a **literal 1:1 reskin** of the canonical `live_battle_challenge.md` example. Game Master → Master Narrator. Warrior/Mage/Rogue/Healer/Rival → Strategist/Marketer/Designer/Finance/Rival Competitor. Code interpreter for dice rolls → code interpreter for artifact validation. Foundry IQ for campaign lore → Foundry IQ for business launch knowledge. Shared state JSON identical shape. Judges will see we read the brief deeply. |
 | Reasoning & Multi-step Thinking | 20% | Visible reasoning panel showing the Master Narrator's decomposition tree in real-time. Every quest step is a multi-hop chain: intent → retrieve knowledge → propose plan → execute via tool → validate → present to verifier. Replay log shows the full chain. |
 | Reliability & Safety | 20% | Every external/destructive action passes through a **human verification gate** before XP is awarded. Tools have simulation fallbacks for the live demo (no network failure can kill the run). Synthetic data only — no PII. |
-| Creativity & Originality | 15% | Other teams will ship fantasy RPGs (canonical scenario) or chat UIs (default). We ship a **side-scrolling video game using Hollow Knight-style sprites** (Polyverse asset library, MIT-licensed, ours) where the "dungeon" is the player's business. Domain reskin + visual format are both novel. |
+| Creativity & Originality | 15% | Other teams will ship fantasy RPGs (canonical scenario) or chat UIs (default). We ship a **side-scrolling business dungeon** with an original geometric/narrated visual style that ships fully MIT-clean (no third-party art committed to the repo), where the "dungeon" is the player's business. Domain reskin + visual format are both novel. |
 | User Experience & Presentation | 15% | Hand-drawn side-scroller aesthetic. NPC character agents stand in the dungeon room and speak in pixel-text bubbles. XP bar + level-up screen. Quest log scroll. Approve/Reject buttons styled as wax seals. Recognizable game-feel, not enterprise SaaS. |
 | Community Vote | 10% | TBD — pending Carlotta confirmation on whether the Discord poll applies to the invitational format. |
 
@@ -80,12 +84,13 @@ The verification gate is the soul. It's what makes this a game and not a slop ge
 **Single playable quest line.** First-time founder pitches a SaaS idea. Quest line: positioning → landing page → first email signup. ~3 weeks of build.
 
 ### Must-have for demo
+
 - [ ] Master Narrator agent (Foundry-hosted, GPT-4o or equivalent)
 - [ ] 3 character agents (Strategist, Marketer, Designer) — Foundry-hosted
 - [ ] Foundry IQ knowledge base (10–20 synthetic business-launch docs)
 - [ ] Code interpreter integration (landing page 200-check, email regex, copy length validator)
 - [ ] Shared state JSON (company + quest + party schema)
-- [ ] Side-scroller UI shell (1 dungeon room per quest step, NPC sprites from Polyverse, pixel-text bubbles)
+- [ ] Side-scroller UI shell (1 dungeon room per quest step, original geometric NPCs - no third-party art - pixel-text bubbles)
 - [ ] Verification gate UI (approve/reject artifact, styled as wax seal buttons)
 - [ ] XP bar + level-up screen
 - [ ] Reasoning panel (collapsible side drawer showing live decomposition tree + tool calls)
@@ -93,6 +98,7 @@ The verification gate is the soul. It's what makes this a game and not a slop ge
 - [ ] Replay log (saves full session for post-demo walkthrough)
 
 ### Nice-to-have if time permits
+
 - [ ] Finance agent (4th character)
 - [ ] Rival Competitor agent (creates dramatic tension — canonical pattern from spec)
 - [ ] Multiple quest lines (B2C, B2B, marketplace, etc.)
@@ -100,6 +106,7 @@ The verification gate is the soul. It's what makes this a game and not a slop ge
 - [ ] Telemetry dashboard for judges to inspect after demo
 
 ### Explicitly out of scope
+
 - Full Poly backend integration (one tool call max, with fallback)
 - Multi-player / multi-tenant
 - Production deployment hardening beyond demo
@@ -111,10 +118,12 @@ The verification gate is the soul. It's what makes this a game and not a slop ge
 ## 6. Demo Script (20 min Live)
 
 **Minutes 0–3 — Hook**
+
 - Open the side-scroller. Title screen. "Your Company Is the Dungeon."
 - Quick visual tour: dungeon room, NPC sprites, XP bar, reasoning panel collapsed on the right.
 
 **Minutes 3–10 — Live play (the meat)**
+
 - Type a pitch: "AI tool that helps freelance designers price their projects."
 - Master Narrator decomposes live → quest line appears as scrolls on screen.
 - Walk through quest step 1: Strategist NPC speaks, reasoning panel shows Foundry IQ retrieval + decomposition.
@@ -124,16 +133,19 @@ The verification gate is the soul. It's what makes this a game and not a slop ge
 - Quest complete screen.
 
 **Minutes 10–15 — Code walkthrough**
+
 - Show repo structure. Highlight: Foundry agent definitions, Foundry IQ KB config, code interpreter tool wrappers, verification gate handler, state schema.
 - Show the replay log of the demo we just ran — full reasoning chain visible.
 
 **Minutes 15–18 — Architecture reasoning**
+
 - Diagram: Master Narrator + party + tools + IQ + verification gate.
 - Why this maps to the canonical Game Master pattern in `live_battle_challenge.md`.
 - Why the verification gate is the safety story (Reliability 20%).
 - Why the domain reskin is the creativity story (Creativity 15%).
 
 **Minutes 18–20 — Forkability + close**
+
 - Repo is MIT-licensed, public day one. `git clone` and ship your own dungeon.
 - Quest definitions are YAML — community can author new dungeons (B2C, B2B, agency, indie game, etc.) without writing code.
 - Q&A handoff.
@@ -150,6 +162,7 @@ From official rubric and starter-kit README:
 4. **Demo flow fixed:** UI demo → code walkthrough → architecture reasoning, ~20 min live.
 
 ### What this means for the Poly backend
+
 - Poly is **optional hands**, not the brain. Reasoning lives in Foundry agents.
 - One tool call max to a Poly endpoint (e.g., `deploy_landing_page`) — and only if it has a simulation fallback so a network failure during demo doesn't kill the run.
 - Don't take a dependency on Poly. The repo must work standalone after `git clone`.
@@ -190,7 +203,7 @@ agentsleague-afterbuild/                  # this fork
     │   └── first_landing_page.yaml       # phase-1 quest definition
     ├── ui/
     │   ├── (TBD: React + Pixi.js? Phaser? Plain Canvas?)
-    │   ├── sprites/                      # Polyverse assets
+    │   ├── sprites/                      # original art only (any third-party packs gitignored)
     │   ├── components/                   # reasoning panel, XP bar, verification gate
     │   └── pages/                        # title screen, dungeon room, level-up
     ├── replay/
@@ -206,7 +219,7 @@ agentsleague-afterbuild/                  # this fork
 
 1. **Project name** — "Your Company Is the Dungeon" is the marketing name. Repo subdirectory name? Options: `questforge`, `dungeon-builder`, `poly-quest`, `boot-startup`, something else?
 2. **UI framework** — Pixi.js (true game engine, more polish, longer build) vs Phaser (game engine, easier) vs React + plain Canvas (faster to ship, less game-feel) vs HTML/CSS side-scroller (fastest, weakest aesthetic). Recommendation: **Phaser** — balance of polish and ship speed.
-3. **Polyverse sprite licensing** — confirm assets are MIT-compatible so the fork can stay MIT.
+3. **Sprite licensing** — keep all third-party game art out of the repo; ship geometric-first so the fork stays MIT-clean.
 4. **Carlotta reply** — should I draft it now, or wait until Phase 1 scaffold exists so we have something concrete to show?
 5. **Community vote** — ask Carlotta whether the 10% Discord poll applies to the invitational, or if it's just judge scoring.
 

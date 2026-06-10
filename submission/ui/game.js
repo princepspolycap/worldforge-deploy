@@ -108,7 +108,7 @@ const overlayReasoningLogs = document.getElementById("overlay-reasoning-logs");
 let isAutoplayActive = false;
 const AUTOPLAY_DELAY_MS = 700;
 const TIER_STYLES = GAME_MECHANICS.tierStyles || {
-    gold:   { color: "#fde047", border: "border-yellow-400/60", text: "text-yellow-300", label: "GOLD x2.0" },
+    gold: { color: "#fde047", border: "border-yellow-400/60", text: "text-yellow-300", label: "GOLD x2.0" },
     silver: { color: "#cbd5f5", border: "border-slate-300/60", text: "text-slate-100", label: "SILVER x1.5" },
     bronze: { color: "#fb923c", border: "border-orange-500/60", text: "text-orange-300", label: "BRONZE x1.0" }
 };
@@ -140,7 +140,7 @@ async function initClient() {
     try {
         const response = await fetch(`${API_BASE}/state`);
         const data = await response.json();
-        
+
         if (data.initialized && data.state) {
             currentGameState = data.state;
             showGameScreen();
@@ -174,7 +174,7 @@ function showGameScreen() {
     if (!phaserGame) {
         phaserGame = initPhaser();
     }
-    
+
     updateUIWithState();
 }
 
@@ -319,7 +319,7 @@ function renderWorldState(world) {
 // Render dynamic elements
 function updateUIWithState() {
     if (!currentGameState) return;
-    
+
     pitchBanner.innerText = `"${currentGameState.pitch}"`;
     levelBadge.innerText = currentGameState.level;
 
@@ -327,7 +327,7 @@ function updateUIWithState() {
     if (stageBadge && currentGameState.stage) {
         stageBadge.innerText = currentGameState.stage;
     }
-    
+
     // Update XP Bar (limit 50 XP per level in design)
     const baseXP = currentGameState.xp;
     let targetLimit = 50;
@@ -350,7 +350,7 @@ function updateUIWithState() {
             ? "pixel-font-title text-base text-orange-300 animate-pulse"
             : "pixel-font-title text-base text-orange-300";
     }
-    
+
     // Render logs. During a streamed turn we keep the live phase trace on
     // screen instead of replacing it with the coarser replay-log summary.
     if (!suppressLogRerender) {
@@ -361,21 +361,21 @@ function updateUIWithState() {
             else if (log.event_type.includes("REJECTED") || log.event_type.includes("ERROR")) color = "text-rose-400";
             else if (log.event_type.includes("START")) color = "text-yellow-300";
             else if (log.actor && log.actor !== "system") color = "text-teal-400";
-            
+
             logTerminal(`[${log.actor}] ${log.message}`, color);
         });
     }
-    
+
     // Render Quests Track List
     questBoard.innerHTML = "";
     if (currentGameState.active_quest && currentGameState.active_quest.steps) {
         const activeIdx = currentGameState.active_quest.current_step_index;
-        
+
         currentGameState.active_quest.steps.forEach((step, idx) => {
             let borderClass = "border-slate-800 bg-slate-900";
             let tagClass = "bg-slate-800 text-slate-400";
             let statusText = "Pending";
-            
+
             if (idx === activeIdx) {
                 borderClass = "border-teal-500 bg-teal-950/20 shadow-md ring-1 ring-teal-500/20";
                 tagClass = "bg-teal-500 text-slate-950 font-bold";
@@ -385,7 +385,7 @@ function updateUIWithState() {
                 tagClass = "bg-emerald-950 text-emerald-400";
                 statusText = "Passed";
             }
-            
+
             const card = document.createElement("div");
             card.className = `px-2 py-2 rounded border text-center transition-all ${borderClass}`;
             card.innerHTML = `
@@ -398,21 +398,21 @@ function updateUIWithState() {
             `;
             questBoard.appendChild(card);
         });
-        
+
         // Setup Active Step Artifact & Button views
         const currentActiveStep = currentGameState.active_quest.steps[activeIdx];
         if (currentActiveStep) {
             activeAgentBadge.innerText = `${currentActiveStep.assigned_to.toUpperCase()} Agent`;
-            
+
             // If the step has been executed in the current session and has artifacts...
             if (currentActiveStep.artifact_data) {
                 triggerPanel.classList.add("hidden");
                 gatePanel.classList.remove("hidden");
                 valScoreBox.classList.remove("hidden");
-                
+
                 // Set Artifact Viewer content
                 artifactContentArea.innerHTML = renderArtifactObject(currentActiveStep.artifact_data);
-                
+
                 // Show deterministic scoring
                 const score = currentActiveStep.validation_results?.score || 0;
                 checkingScore.innerText = `${score}/100`;
@@ -436,11 +436,11 @@ function updateUIWithState() {
                     tierBadge.innerText = approvedTier ? style.label : `${style.label} (preview)`;
                     tierBadge.className = `text-[10px] px-2 py-0.5 rounded font-bold border ${style.border} ${style.text} bg-slate-950`;
                 }
-                
+
                 failsList.innerHTML = "";
                 const checks = currentActiveStep.validation_results?.checks || {};
                 const feedback = currentActiveStep.validation_results?.feedback || [];
-                
+
                 for (const [checkName, isPassed] of Object.entries(checks)) {
                     const symb = isPassed ? "🟩" : "🟥";
                     const color = isPassed ? "text-emerald-400" : "text-rose-400";
@@ -449,14 +449,14 @@ function updateUIWithState() {
                     row.innerHTML = `<span>${symb}</span> <span class="truncate">${checkName}</span>`;
                     failsList.appendChild(row);
                 }
-                
+
                 if (feedback.length > 0) {
                     const notice = document.createElement("div");
                     notice.className = "text-rose-400 border border-rose-500/20 bg-rose-950/20 p-2 rounded mt-2 text-[10px]";
                     notice.innerHTML = `<strong>Validator Notes:</strong><br>` + feedback.map(f => `- ${f}`).join("<br>");
                     failsList.appendChild(notice);
                 }
-                
+
             } else {
                 // Not yet executed
                 triggerPanel.classList.remove("hidden");
@@ -622,10 +622,10 @@ launchBtn.addEventListener("click", async () => {
     const cName = companyInput.value.trim();
     if (!pitch) return;
     if (window.DungeonAudio) DungeonAudio.unlock();
-    
+
     launchBtn.disabled = true;
     launchBtn.innerText = "DEPLOYING CORE NARRATIVE...";
-    
+
     try {
         const res = await fetch(`${API_BASE}/init`, {
             method: "POST",
@@ -707,10 +707,10 @@ async function attemptRunCurrentStep(force = false) {
     runStepBtn.disabled = true;
     reasoningLoader.classList.remove("hidden");
     syncRunButtonState();
-    
+
     // Animate Phaser NPC focusing attention
     notifyPhaserAgentActive();
-    
+
     try {
         // Preferred path: stream the reasoning trace live via SSE so the
         // decomposition + tool calls appear during the turn, not after.
@@ -755,7 +755,7 @@ function streamStepReasoning() {
         let es;
         const watchdog = setTimeout(() => {
             if (settled) return;
-            try { es && es.close(); } catch (_) {}
+            try { es && es.close(); } catch (_) { }
             // Stream stalled - fall back to the blocking POST path.
             runStepReasoningViaPost().then(resolve, reject);
             settled = true;
@@ -776,6 +776,12 @@ function streamStepReasoning() {
                 let line = `${actor}${p.message || p.kind}`;
                 if (p.kind === "check") line = `${actor}${p.passed ? "PASS" : "FAIL"}  ${p.name}`;
                 logTerminal(line, color);
+                // Visible "thinking": when the deployment reports reasoning
+                // tokens (and possibly a scrubbed chain-of-thought excerpt),
+                // show it so the audience sees the model genuinely reasoning.
+                if (p.kind === "invoke_done" && p.reasoning_preview) {
+                    logTerminal(`[${p.actor}] thinking> "${p.reasoning_preview}..."`, "text-violet-400 italic");
+                }
                 // Audio cues bound to the real reasoning phases.
                 if (window.DungeonAudio) {
                     if (p.kind === "invoke_start") DungeonAudio.thinkingStart();
@@ -783,7 +789,7 @@ function streamStepReasoning() {
                     else if (p.kind === "check") DungeonAudio.tick(p.passed);
                     else if (p.kind === "score") DungeonAudio.chime();
                 }
-            } catch (_) {}
+            } catch (_) { }
         });
 
         es.addEventListener("done", (ev) => {
@@ -808,7 +814,7 @@ function streamStepReasoning() {
             try {
                 const payload = JSON.parse(ev.data);
                 logTerminal(`[system] ${payload.message || "Agent failure."}`, "text-rose-400");
-            } catch (_) {}
+            } catch (_) { }
             es.close();
             reject(new Error("stream failure"));
         });
@@ -819,7 +825,7 @@ function streamStepReasoning() {
             settled = true;
             clearTimeout(watchdog);
             if (window.DungeonAudio) DungeonAudio.thinkingStop();
-            try { es.close(); } catch (_) {}
+            try { es.close(); } catch (_) { }
             // Fall back to POST so a flaky stream never blocks the demo.
             runStepReasoningViaPost().then(resolve, reject);
         };
@@ -875,11 +881,11 @@ rejectBtn.addEventListener("click", async () => {
             body: JSON.stringify({ feedback: "Needs refactoring on feature alignments." })
         });
         const data = await res.json();
-        
+
         // Sweat balloon in Phaser
         notifyPhaserAgentReject();
         if (window.DungeonAudio) DungeonAudio.reject();
-        
+
         currentGameState = data.state;
         updateUIWithState();
     } catch (e) {
@@ -1170,7 +1176,7 @@ function initPhaser() {
 
 // Optional pixel-art sprite keys. Files live under submission/ui/assets/local/characters/
 // and are gitignored. When missing (default after `git clone`), the procedural drawings
-// below take over - the game still runs without the Polyverse pack.
+// below take over - the game still runs without the optional local sprite pack.
 const SPRITE_KEYS = GAME_MECHANICS.spriteKeys || {
     player: 'player_sheet',
     strategist: 'npc_strategist',
@@ -1204,10 +1210,10 @@ function phaserPreload() {
 const DIR_FRAMES = GAME_MECHANICS.dirFrames || {
     idle: { left: 2, up: 1, right: 0, down: 3 },
     walk: {
-        left:  [68, 69, 70, 71, 72, 73],
-        up:    [62, 63, 64, 65, 66, 67],
+        left: [68, 69, 70, 71, 72, 73],
+        up: [62, 63, 64, 65, 66, 67],
         right: [56, 57, 58, 59, 60, 61],
-        down:  [74, 75, 76, 77, 78, 79],
+        down: [74, 75, 76, 77, 78, 79],
     },
 };
 
@@ -1362,11 +1368,11 @@ function phaserCreate() {
 
 function phaserUpdate() {
     if (!player) return;
-    
+
     // Smooth control inputs
     player.body.setVelocity(0);
     const speed = 160;
-    
+
     let dx = 0, dy = 0;
     if (cursors.left.isDown || wasdKeys.left.isDown) {
         player.body.setVelocityX(-speed);
@@ -1375,7 +1381,7 @@ function phaserUpdate() {
         player.body.setVelocityX(speed);
         dx = 1;
     }
-    
+
     if (cursors.up.isDown || wasdKeys.up.isDown) {
         player.body.setVelocityY(-speed);
         dy = -1;
@@ -1383,7 +1389,7 @@ function phaserUpdate() {
         player.body.setVelocityY(speed);
         dy = 1;
     }
-    
+
     // Collide edges
     player.x = Phaser.Math.Clamp(player.x, PLAYER_BOUNDS.minX, PLAYER_BOUNDS.maxX);
     player.y = Phaser.Math.Clamp(player.y, PLAYER_BOUNDS.minY, PLAYER_BOUNDS.maxY);
@@ -1403,7 +1409,7 @@ function phaserUpdate() {
 
     // Pedestal inspect prompt while standing next to a ready artifact.
     syncPedestalInspectPrompt(this);
-    
+
     // Directional animation: prefer horizontal when both axes are pressed.
     const moving = dx !== 0 || dy !== 0;
     if (moving) {
@@ -1427,7 +1433,7 @@ function phaserUpdate() {
             player.angle = 0;
         }
     }
-    
+
     // Proximity dialogues
     checkProximityDialogues(this);
     syncRunButtonState();
@@ -2102,7 +2108,7 @@ function createProceduralNPC(scene, x, y, name, colorVal, spriteKey) {
     const container = scene.add.container(x, y);
 
     if (spriteKey && scene.textures.exists(spriteKey)) {
-        // Real pixel-art sprite (Polyverse pack, local-only). Frames are 32x64.
+        // Real pixel-art sprite (optional local pack, local-only). Frames are 32x64.
         const sprite = scene.add.sprite(0, 0, spriteKey, 0).setScale(1.5);
         const hasAnims = ensureCharacterAnims(scene, spriteKey);
         // face() picks the right anim per direction + idle/walk state.
@@ -2126,7 +2132,7 @@ function createProceduralNPC(scene, x, y, name, colorVal, spriteKey) {
     }
 
     // Procedural fallback (default - works after `git clone`).
-    container.face = () => {}; // no-op for graphics fallback
+    container.face = () => { }; // no-op for graphics fallback
 
     // Sophisticated procedural avatar: concentric rings for visual depth.
     const outerRing = scene.add.circle(0, 0, 22, colorVal, 0.25);
@@ -2216,7 +2222,7 @@ function createProceduralPlayer(scene, x, y, spriteKey) {
         };
         container.face('down', false);
         // Keep setFlipX exposed for any leftover callers (no-op against real anims).
-        container.setFlipX = () => {};
+        container.setFlipX = () => { };
         const nameplate = scene.add.text(0, -56, "Foundry Player", {
             fontFamily: 'Press Start 2P, Arial',
             fontSize: '7px',
@@ -2230,14 +2236,14 @@ function createProceduralPlayer(scene, x, y, spriteKey) {
     }
 
     // Procedural fallback.
-    container.face = () => {};
-    container.setFlipX = () => {};
+    container.face = () => { };
+    container.setFlipX = () => { };
     const head = scene.add.graphics();
     head.fillStyle(0x0f172a, 1);
     head.fillCircle(0, 0, 16);
     head.lineStyle(2.5, 0x2dd4bf, 1);
     head.strokeCircle(0, 0, 16);
-    
+
     const visor = scene.add.graphics();
     visor.fillStyle(0xffcc00, 1);
     visor.fillEllipse(0, -2, 10, 6);
@@ -2467,16 +2473,16 @@ function notifyPhaserAgentActive() {
     const activeIdx = currentGameState.active_quest?.current_step_index;
     const step = currentGameState.active_quest?.steps[activeIdx];
     if (!step) return;
-    
+
     const npcKey = step.assigned_to;
     const npc = npcs[npcKey];
     if (!npc) return;
 
     setAgentFocusRing(npcKey, true);
-    
+
     // Zoom camera on the active unit
     phaserSceneRef.cameras.main.zoomTo(1.15, 800, 'Sine.easeInOut', true);
-    
+
     // Spawn speech bubble
     showSpeechBubble(npc.x, npc.y - 65, "Agent turn running. Watch the trace panel for handoffs and checks.");
 }
@@ -2486,16 +2492,16 @@ function notifyPhaserAgentComplete(isSuccess) {
     const activeIdx = currentGameState.active_quest?.current_step_index;
     const step = currentGameState.active_quest?.steps[activeIdx];
     if (!step) return;
-    
+
     const npcKey = step.assigned_to;
     const npc = npcs[npcKey];
     if (!npc) return;
 
     setAgentFocusRing(npcKey, false);
-    
+
     // Zoom back
     phaserSceneRef.cameras.main.zoomTo(1, 600, 'Sine.easeInOut', true);
-    
+
     if (isSuccess) {
         showSpeechBubble(npc.x, npc.y - 65, "Artifact complete. Review it at the verification gate.");
     } else {
@@ -2508,13 +2514,13 @@ function notifyPhaserAgentReject() {
     const activeIdx = currentGameState.active_quest?.current_step_index;
     const step = currentGameState.active_quest?.steps[activeIdx];
     if (!step) return;
-    
+
     const npcKey = step.assigned_to;
     const npc = npcs[npcKey];
     if (!npc) return;
 
     setAgentFocusRing(npcKey, false);
-    
+
     showSpeechBubble(npc.x, npc.y - 65, "Feedback noted. I will rework the artifact.");
 }
 
@@ -2816,16 +2822,16 @@ function showSpeechBubble(x, y, text) {
     if (bubbleTimer) {
         bubbleTimer.remove();
     }
-    
+
     const bubble = phaserSceneRef.add.container(x, y);
-    
+
     // Backdrop
     const bg = phaserSceneRef.add.graphics();
     bg.fillStyle(0x0a0f1d, 0.9);
     bg.fillRect(-100, -32, 200, 38);
     bg.lineStyle(1.5, 0x14b8a6, 0.8);
     bg.strokeRect(-100, -32, 200, 38);
-    
+
     // Bubble arrow pointing down
     const arrow = phaserSceneRef.add.graphics();
     arrow.fillStyle(0x0a0f1d, 0.9);
@@ -2841,7 +2847,7 @@ function showSpeechBubble(x, y, text) {
     arrow.lineTo(0, 14);
     arrow.lineTo(8, 6);
     arrow.strokePath();
-    
+
     const msg = phaserSceneRef.add.text(0, -14, text, {
         fontFamily: 'Share Tech Mono, Arial',
         fontSize: '10px',
@@ -2849,10 +2855,10 @@ function showSpeechBubble(x, y, text) {
         align: 'center',
         wordWrap: { width: 180 }
     }).setOrigin(0.5);
-    
+
     bubble.add([bg, arrow, msg]);
     activeNpcBubble = bubble;
-    
+
     // Auto-wipe dialogue bubble after 5000ms
     bubbleTimer = phaserSceneRef.time.addEvent({
         delay: 5000,
@@ -2870,11 +2876,11 @@ function checkProximityDialogues(scene) {
     if (!currentGameState || !player) return;
     const step = getCurrentActiveStep();
     if (!step) return;
-    
+
     const activeNpcKey = step.assigned_to;
     const npc = npcs[activeNpcKey];
     if (!npc) return;
-    
+
     refreshActiveAgentProximity();
     const isNearNow = isPlayerNearActiveAgent;
 

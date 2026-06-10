@@ -12,8 +12,9 @@ Auth priority:
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 
@@ -41,6 +42,12 @@ AGENT_MODELS = {
 DEMO_MODE = os.getenv("DEMO_MODE", "simulation").strip().lower()
 FOUNDRY_BASE_URL = os.getenv("FOUNDRY_BASE_URL", "").strip()
 FOUNDRY_API_KEY = os.getenv("FOUNDRY_API_KEY", "").strip()
+
+# Reliability net: a high-quota deployment to retry on when a role's primary
+# model is rate-limited (HTTP 429) or errors mid-demo. Set this to a deployment
+# that exists on your endpoint AND has quota headroom. Default gpt-5.5 (large
+# capacity on our endpoint); override via env. Leave blank to disable fallback.
+FOUNDRY_FALLBACK_MODEL = os.getenv("FOUNDRY_FALLBACK_MODEL", "gpt-5.5").strip()
 
 
 def is_live() -> bool:
@@ -110,3 +117,116 @@ def model_for_hint(hint: str) -> Optional[str]:
     if not role:
         return None
     return model_for(role) or model_for("narrator")
+
+
+def create_chat_completion(deployment, messages, *, max_completion_tokens=8000,
+                           response_format=None, temperature=None):
+    """Run a chat completion with automatic resilience, returning the response.
+
+    Two safety behaviors, both transparent to callers:
+      1. Cross-deployment fallback - if `deployment` errors (e.g. a 429 rate
+         limit because an open-source model is at 100% of its regional quota),
+         retry once on FOUNDRY_FALLBACK_MODEL, which is chosen to have quota
+         headroom. This is what keeps a live demo from breaking on quota.
+      2. Temperature retry - gpt-5.x deployments reject a non-default
+         temperature; on that specific error we drop it and retry the same
+         deployment.
+
+    Raises the last exception if every candidate fails, so existing callers keep
+    their own try/except (mock fallback, failed-invocation) as the final net.
+    """
+    client = get_foundry_client()
+    if client is None or not deployment:
+        raise RuntimeError("No Foundry client or deployment configured.")
+
+    candidates = [deployment]
+    if FOUNDRY_FALLBACK_MODEL and FOUNDRY_FALLBACK_MODEL != deployment:
+        candidates.append(FOUNDRY_FALLBACK_MODEL)
+
+    last_exc: Optional[Exception] = None
+    for dep in candidates:
+        kwargs = {"model": dep, "messages": messages,
+                  "max_completion_tokens": max_completion_tokens}
+        if response_format is not None:
+            kwargs["response_format"] = response_format
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        try:
+            return client.chat.completions.create(**kwargs)
+        except Exception as exc:  # noqa: BLE001
+            msg = str(exc).lower()
+            # gpt-5.x rejects non-default temperature: drop it, retry same dep.
+            if "temperature" in msg and "temperature" in kwargs:
+                try:
+                    kwargs.pop("temperature")
+                    return client.chat.completions.create(**kwargs)
+                except Exception as exc2:  # noqa: BLE001
+                    last_exc = exc2
+                    continue
+            last_exc = exc
+            continue
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("create_chat_completion: no candidates attempted.")
+
+
+# Patterns that look like credentials. The reasoning preview is the model's own
+# chain-of-thought over the player's PUBLIC business brief, so it should never
+# contain secrets - but this repo is open source and previews can land in a
+# committed replay log, so we redact anything secret-shaped as defense in depth
+# before any reasoning text is surfaced or persisted.
+_SECRET_PATTERNS = [
+    re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),                       # OpenAI-style keys
+    re.compile(r"AKIA[0-9A-Z]{16}"),                             # AWS access key id
+    re.compile(r"ghp_[A-Za-z0-9]{20,}"),                         # GitHub PAT
+    re.compile(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}"),  # JWT
+    re.compile(r"https?://[^\s/@]+:[^\s/@]+@"),                  # credentials in a URL
+    re.compile(
+        r"(?i)\b(api[_-]?key|secret|password|passwd|bearer|access[_-]?token|client[_-]?secret)\b\s*[:=]\s*\S+"
+    ),
+]
+
+
+def scrub_secrets(text: str) -> str:
+    """Redact anything that looks like a credential from free text.
+
+    Defense in depth for the open-source replay log: reasoning previews and
+    similar model output are scrubbed before they are surfaced or persisted, so
+    a stray token can never leak into a committed log.
+    """
+    if not text:
+        return text
+    out = str(text)
+    for pat in _SECRET_PATTERNS:
+        out = pat.sub("[redacted]", out)
+    return out
+
+
+def reasoning_from_response(resp, preview_chars: int = 280) -> Dict[str, Any]:
+    """Extract visible 'thinking' signal from a chat completion response.
+
+    Returns {reasoning_tokens, reasoning_preview}. Two kinds of models expose
+    reasoning: some report a hidden reasoning-token *count* in usage (gpt-5.x,
+    grok reasoning), others return the actual chain-of-thought *text* in
+    message.reasoning_content / reasoning (e.g. Kimi). We surface a short, safe
+    preview of the text so the UI can show "the agent is thinking" honestly,
+    without dumping a huge payload. No secrets are involved - this is the model's
+    own reasoning about the user's public business brief.
+    """
+    reasoning_tokens = 0
+    preview = ""
+    try:
+        usage = getattr(resp, "usage", None)
+        details = getattr(usage, "completion_tokens_details", None) if usage else None
+        reasoning_tokens = int(getattr(details, "reasoning_tokens", 0) or 0) if details else 0
+    except Exception:
+        reasoning_tokens = 0
+    try:
+        msg = resp.choices[0].message
+        text = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None) or ""
+        if text:
+            preview = scrub_secrets(" ".join(str(text).split()))[:preview_chars]
+    except Exception:
+        preview = ""
+    return {"reasoning_tokens": reasoning_tokens, "reasoning_preview": preview}
+

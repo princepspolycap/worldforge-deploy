@@ -16,7 +16,7 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
-from agents.model_config import get_foundry_client, is_live, model_for
+from agents.model_config import get_foundry_client, is_live, model_for, create_chat_completion
 
 
 SYSTEM = (
@@ -215,7 +215,7 @@ def _fallback_blueprint(brief: str) -> Dict[str, Any]:
         },
     ]
     return {
-        "company_summary": f"A solo-operated venture turning {label} into a repeatable, paid service.",
+        "company_summary": "A solo-operated venture run as a repeatable, paid service - one human operator, a workforce of digital workers.",
         "operating_model": "One human operator sets direction and approves; a team of digital workers does the execution.",
         "roles": roles,
         "notes": [
@@ -347,20 +347,24 @@ def design_org(brief: str, source: str = "pitch", source_ref: str = "",
     org reads coherently on the URL path even in simulation.
     """
     client = get_foundry_client()
-    deployment = model_for("strategist") or model_for("narrator")
+    # Org design is the first on-screen reveal, so prefer the narrator
+    # deployment (frontier reasoning, fast, clean JSON) over the deep strategist
+    # model, which is verbose and slow enough to hurt a live demo. Strategist is
+    # the fallback if the narrator deployment is not configured.
+    deployment = model_for("narrator") or model_for("strategist")
 
     if not (client and deployment and is_live()):
         return _finalize(_fallback_blueprint(brief), brief, source, source_ref, summary_hint)
 
     user = USER_TEMPLATE.format(brief=brief)
     try:
-        resp = client.chat.completions.create(
-            model=deployment,
-            messages=[
+        resp = create_chat_completion(
+            deployment,
+            [
                 {"role": "system", "content": SYSTEM},
                 {"role": "user", "content": user},
             ],
-            max_completion_tokens=4000,
+            max_completion_tokens=8000,
         )
         content = resp.choices[0].message.content or ""
         parsed = _extract_json(content)

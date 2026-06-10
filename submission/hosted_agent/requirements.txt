@@ -1,0 +1,6 @@
+# Container/runtime deps for the hosted Dungeon Narrator agent.
+azure-ai-agentserver-invocations>=1.0.0b4
+azure-identity
+openai
+pydantic>=2
+python-dotenv

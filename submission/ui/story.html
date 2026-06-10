@@ -241,6 +241,21 @@
         .worker-state { margin-top: 9px; font-size: 12px; color: var(--ink-dim); display: flex; align-items: center; gap: 7px; }
         .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); animation: pulse 1.2s ease-in-out infinite; }
         @keyframes pulse { 0%,100% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.2); } }
+        /* Visible "thinking": reasoning-token count + chain-of-thought preview. */
+        .worker-reasoning {
+            margin-top: 11px; padding-top: 10px; border-top: 1px dashed var(--line);
+            font-size: 11px; color: var(--ink-dim); line-height: 1.5;
+        }
+        .worker-reasoning .rz-head {
+            font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.16em;
+            text-transform: uppercase; color: var(--strategist); margin-bottom: 5px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .worker-reasoning .rz-tokens {
+            font-family: 'JetBrains Mono', monospace; color: var(--ink); background: rgba(91,140,255,0.12);
+            border-radius: 5px; padding: 1px 6px;
+        }
+        .worker-reasoning .rz-text { font-style: italic; color: var(--ink-faint); }
 
         .mem-item {
             border: 1px solid var(--line); border-left: 2px solid var(--ops);
@@ -336,6 +351,126 @@
 
         a.switch { color: var(--ink-faint); font-size: 11px; text-decoration: none; font-family: 'JetBrains Mono', monospace; }
         a.switch:hover { color: var(--ink-dim); }
+
+        /* ---- Intro / lore overlay (the game introduces itself; skippable) ---- */
+        #intro-overlay {
+            position: fixed; inset: 0; z-index: 60;
+            display: flex; align-items: center; justify-content: center;
+            text-align: center; padding: 40px; cursor: pointer;
+            background:
+                radial-gradient(900px 520px at 50% 16%, rgba(91,140,255,0.16), transparent 62%),
+                linear-gradient(180deg, #0a0e1a 0%, #05070f 100%);
+            transition: opacity 600ms ease;
+        }
+        #intro-overlay.hide { opacity: 0; pointer-events: none; }
+        .intro-skip {
+            position: absolute; top: 22px; right: 26px; z-index: 2;
+            font-family: 'JetBrains Mono', monospace; font-size: 11px;
+            letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-faint);
+            background: rgba(255,255,255,0.03); border: 1px solid var(--line);
+            border-radius: 8px; padding: 8px 14px; cursor: pointer; transition: 140ms ease;
+        }
+        .intro-skip:hover { color: var(--ink); border-color: #2c3a5e; }
+        .intro-card { max-width: 780px; }
+        .intro-card .kicker {
+            font-family: 'JetBrains Mono', monospace; font-size: 11px;
+            letter-spacing: 0.32em; text-transform: uppercase; color: var(--blue);
+            margin-bottom: 20px;
+        }
+        .intro-card h2 {
+            font-family: 'Fraunces', serif; font-weight: 600;
+            font-size: clamp(30px, 4.6vw, 56px); line-height: 1.07; margin: 0 0 22px;
+            background: linear-gradient(180deg, #ffffff, #b9c6e8);
+            -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .intro-card p {
+            color: var(--ink-dim); font-size: clamp(15px, 1.7vw, 19px); line-height: 1.62;
+            margin: 0 auto; max-width: 620px;
+        }
+        .intro-card .accent { color: var(--ink); font-weight: 500; }
+        .intro-anim { opacity: 0; transform: translateY(14px); animation: introIn 700ms cubic-bezier(.2,.7,.2,1) forwards; }
+        @keyframes introIn { to { opacity: 1; transform: none; } }
+        .intro-begin {
+            margin-top: 34px; display: inline-flex; align-items: center; gap: 10px;
+            font-family: 'Inter', sans-serif; font-weight: 600; font-size: 16px; color: #06101f;
+            background: linear-gradient(180deg, #7aa6ff, #5b8cff);
+            border: none; border-radius: 12px; padding: 14px 30px; cursor: pointer;
+            box-shadow: 0 18px 44px -18px rgba(91,140,255,0.85); transition: 160ms ease;
+        }
+        .intro-begin:hover { transform: translateY(-1px); }
+        .intro-hint {
+            position: absolute; bottom: 50px; left: 0; right: 0; text-align: center;
+            font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.16em;
+            text-transform: uppercase; color: var(--ink-faint);
+        }
+        .intro-dots { position: absolute; bottom: 30px; left: 0; right: 0; display: flex; justify-content: center; gap: 8px; }
+        .intro-dots .d { width: 26px; height: 4px; border-radius: 999px; background: rgba(255,255,255,0.1); transition: background 300ms ease; }
+        .intro-dots .d.on { background: var(--blue); }
+
+        /* ---- Intro: two-mission choice screen ---- */
+        .intro-skill { max-width: 540px; margin: 24px auto 16px; text-align: left; }
+        .intro-skill label {
+            display: block; font-family: 'JetBrains Mono', monospace; font-size: 10px;
+            letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-dim); margin-bottom: 6px;
+        }
+        .intro-skill input {
+            width: 100%; background: rgba(255,255,255,0.03); border: 1px solid var(--line);
+            border-radius: 10px; color: var(--ink); padding: 11px 13px; font-size: 14px;
+            font-family: 'Inter', sans-serif; outline: none; transition: 140ms ease;
+        }
+        .intro-skill input:focus { border-color: var(--blue); background: rgba(91,140,255,0.06); }
+        .intro-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 720px; margin: 0 auto; }
+        @media (max-width: 680px) { .intro-choices { grid-template-columns: 1fr; } }
+        .intro-choice {
+            text-align: left; display: flex; flex-direction: column; gap: 7px; padding: 18px;
+            border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,0.02);
+            color: var(--ink); cursor: pointer; transition: 160ms ease;
+        }
+        .intro-choice:hover {
+            border-color: var(--blue); background: rgba(91,140,255,0.06);
+            transform: translateY(-2px); box-shadow: 0 18px 40px -22px rgba(91,140,255,0.7);
+        }
+        .intro-choice .ic-tag {
+            font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.2em;
+            text-transform: uppercase; color: var(--blue);
+        }
+        .intro-choice .ic-title { font-family: 'Fraunces', serif; font-size: 21px; color: var(--ink); }
+        .intro-choice .ic-sub { font-size: 12.5px; color: var(--ink-dim); line-height: 1.5; }
+        .intro-choice.b .ic-tag { color: var(--ops); }
+        .intro-choice.b:hover {
+            border-color: var(--ops); background: rgba(45,212,191,0.06);
+            box-shadow: 0 18px 40px -22px rgba(45,212,191,0.7);
+        }
+        .intro-freeform { margin-top: 18px; font-size: 12px; color: var(--ink-faint); }
+        .linklike {
+            background: none; border: none; color: var(--ink-dim); font: inherit;
+            text-decoration: underline; cursor: pointer; padding: 0;
+        }
+        .linklike:hover { color: var(--ink); }
+
+        /* ---- Voice input (browser speech-to-text) ---- */
+        .pitch-wrap { position: relative; }
+        .mic-btn {
+            position: absolute; right: 8px; bottom: 8px; width: 34px; height: 34px;
+            border-radius: 9px; border: 1px solid var(--line); background: rgba(255,255,255,0.04);
+            color: var(--ink-dim); cursor: pointer; font-size: 15px; line-height: 1;
+            transition: 140ms ease;
+        }
+        .mic-btn:hover { color: var(--ink); border-color: var(--blue); }
+        .mic-btn.listening {
+            color: #fff; border-color: var(--bad);
+            background: rgba(251,113,133,0.18);
+            animation: micpulse 1.1s ease-in-out infinite;
+        }
+        @keyframes micpulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(251,113,133,0.5); }
+            50% { box-shadow: 0 0 0 7px rgba(251,113,133,0); }
+        }
+        .mic-status {
+            min-height: 14px; margin-top: 6px; font-family: 'JetBrains Mono', monospace;
+            font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint);
+        }
+        .mic-status.live { color: var(--bad); }
     </style>
 </head>
 <body>
@@ -349,7 +484,6 @@
                 <span class="chip"><span id="mode-dot" class="dot"></span><span id="mode-label">simulation</span></span>
                 <span>Level <b id="hud-level">1</b></span>
                 <span><b id="hud-xp">0</b> XP</span>
-                <a class="switch" href="/geometric">geometric &rsaquo;</a>
                 <button id="mute" class="iconbtn" title="Toggle audio">&#9834;</button>
             </div>
         </header>
@@ -364,19 +498,23 @@
                 <div id="diagram">
                     <div class="title-card fade-scene">
                         <div class="kicker">A reasoning RPG on Microsoft Foundry</div>
-                        <h1>Every company begins<br/>as a single sentence.</h1>
-                        <p>Type a pitch. A Foundry World Designer decomposes it into a venture quest line, then specialist agents build the org, the systems, and the launch &mdash; one verified gate at a time.</p>
+                        <h1>Take the CEO's chair.</h1>
+                        <p>Bring a pitch &mdash; or a real company. A Foundry World Designer decomposes it into a venture quest line, then your agent workforce builds the org, the systems, and the launch &mdash; one gate you approve at a time.</p>
                         <div class="field">
                             <label>Company</label>
-                            <input id="in-company" value="QuestForge Ltd." />
+                            <input id="in-company" value="Agency of Poly" />
                         </div>
                         <div class="field">
-                            <label>Pitch</label>
-                            <textarea id="in-pitch" rows="3">A solo-founder tool that turns a rough startup idea into positioning, a landing page, and a launch campaign.</textarea>
+                            <label>The company you are running (pitch)</label>
+                            <div class="pitch-wrap">
+                                <textarea id="in-pitch" rows="3">A digital workforce you hire instead of software you operate: AI workers with roles, memory, and tools that run marketing, operations, and content under human approval gates.</textarea>
+                                <button id="mic" class="mic-btn" type="button" title="Speak your idea" aria-label="Speak your idea">&#127908;</button>
+                            </div>
+                            <div id="mic-status" class="mic-status"></div>
                         </div>
                         <div class="field">
                             <label>Or a company URL &mdash; map any real business</label>
-                            <input id="in-url" placeholder="https://example.com  (optional; overrides the pitch)" />
+                            <input id="in-url" placeholder="agencyofpoly.com  (optional; map any real company)" />
                         </div>
                         <button id="begin" class="cta">Begin the descent &rarr;</button>
                     </div>
@@ -390,6 +528,7 @@
                         <div class="worker-role"><span class="role-orb" style="color:var(--narrator)"></span><span id="worker-name">World Designer</span></div>
                         <div id="worker-deploy" class="worker-deploy">awaiting brief</div>
                         <div id="worker-state" class="worker-state">Idle</div>
+                        <div id="worker-reasoning" class="worker-reasoning" hidden></div>
                     </div>
                 </div>
 
@@ -432,7 +571,17 @@
         </footer>
     </div>
 
-    <script src="/game/game/audio.js"></script>
-    <script type="module" src="/game/game/story.js?v=5"></script>
+    <!-- Lore / tutorial intro: the game introduces itself before the first pitch.
+         Fully skippable (Skip button / Esc). Append ?intro=0 to bypass on reload. -->
+    <div id="intro-overlay" aria-hidden="false">
+        <button id="intro-skip" class="intro-skip">Skip intro</button>
+        <div id="intro-card" class="intro-card"></div>
+        <div id="intro-hint" class="intro-hint"></div>
+        <div id="intro-dots" class="intro-dots"></div>
+    </div>
+
+    <script src="/game/game/audio.js?v=3"></script>
+    <script type="module" src="/game/game/story.js?v=8"></script>
+    <script src="/game/game/intro.js?v=5"></script>
 </body>
 </html>

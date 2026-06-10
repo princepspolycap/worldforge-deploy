@@ -49,6 +49,9 @@ agentsleague-afterbuild/
 - ✅ Code interpreter validators (`tools/code_interpreter_wrappers.py`) — positioning, landing page, marketing email
 - ✅ First quest definition (`quests/first_landing_page.yaml`)
 - ✅ End-to-end CLI simulator (`tools/run_quest_simulation.py`) — runs without Azure, all checks pass
+- ✅ Thinking-token capture on all reasoning paths (`last_reasoning` sinks, SSE `invoke_done`, replay log) + secret scrubber (`scrub_secrets`)
+- ✅ Voice upgrade chain (`TTS_DEPLOYMENTS`: gpt-audio-1.5 family first, gpt-4o-mini-tts fallback, browser TTS net)
+- ✅ Foundry hosted agent scaffold (`submission/hosted_agent/` — invocations protocol, agent.yaml, Dockerfile)
 - ⏳ Wire agents to real Foundry SDK (currently mock returns)
 - ⏳ Foundry IQ knowledge base + retrieval client
 - ⏳ Phaser side-scroller UI shell
@@ -60,28 +63,25 @@ agentsleague-afterbuild/
 
 These exist on the maintainer's machine. Reference them when wiring features but do **not** hardcode absolute paths in committed code.
 
-### Azure / Foundry models — reuse Poly env
+### Azure / Foundry models — reuse a local Foundry env
 
-- **Source**: `/Users/princeps/Projects/Poly186/Poly/.env`
+- **Source**: a private Foundry `.env` on the maintainer's machine (path kept out of this public repo).
 - Contains private Foundry credentials, deployment names, embedding deployments, and image generation settings. Copy only the values needed into a gitignored `submission/.env`.
 - **Usage**: Copy the keys you need into `submission/.env` (gitignored). Map them onto our `AZURE_AI_PROJECT_ENDPOINT` / `AZURE_AI_MODEL_DEPLOYMENT` variables in [`.env.example`](../submission/.env.example).
 - **Recommended models for this build**:
-  - Master Narrator + character reasoning: `gpt-5` family deployment (use whatever is current in Poly env)
-  - Embeddings for Foundry IQ: `text-embedding-3-large` deployment from Poly env
-- **Constraint**: The runtime code path must still target a Microsoft Foundry deployment (the rule above). Poly env just supplies the credentials/endpoint — don't introduce non-Foundry model routes into the reasoning core.
+  - Master Narrator + character reasoning: `gpt-5` family deployment (use whatever is current in the local Foundry env)
+  - Embeddings for Foundry IQ: `text-embedding-3-large` deployment from the local Foundry env
+- **Constraint**: The runtime code path must still target a Microsoft Foundry deployment (the rule above). The local env just supplies the credentials/endpoint — don't introduce non-Foundry model routes into the reasoning core.
 
 ### Azure CLI
 
 - `az` is installed (`az --version` confirmed 2.67.0). Use it for any quota checks, deployment listings, or resource provisioning before writing new infra.
 
-### Game assets — reuse Polyverse
+### Game assets — reuse a local Phaser asset library
 
-- **Asset catalog**: `/Users/princeps/Projects/Poly186/Polyverse/docs/asset_catalog.md`
-- **Asset sources**:
-  - `Modern Interiors RPG Tileset.zip` and `Modern Office Revamped v1.2.zip` (in `Polyverse/docs/`)
-  - Extracted PNGs: `/Users/princeps/Projects/Poly186/Polyverse/frontend/public/assets/raw/office/` and `.../interiors/`
-- **Existing Phaser usage in Polyverse** confirms our UI framework choice — Phaser, with 32x32 tilesets, preloader pattern, scene-per-room.
-- **When pulling assets into this repo**: copy needed sprites into `submission/ui/assets/` and verify the asset pack license allows redistribution under MIT before committing. If licenses are restrictive, load locally only and add to `.gitignore`.
+- A private local Phaser project (path kept out of this public repo) holds reusable 32x32 tilesets and an asset catalog.
+- **Existing Phaser usage there** confirms our UI framework choice — Phaser, with 32x32 tilesets, preloader pattern, scene-per-room.
+- **When pulling assets into this repo**: verify the asset pack license allows redistribution under MIT before committing. Most paid packs (e.g. Limezu) forbid redistribution — in that case load locally only under `submission/ui/assets/local/` and keep them gitignored. The committed baseline ships geometric-first with no third-party art.
 
 ## Development conventions
 
@@ -105,7 +105,7 @@ python3 submission/tools/run_quest_simulation.py --pitch "Your idea here"
 
 # to wire real Foundry calls
 cp submission/.env.example submission/.env
-# fill values from /Users/princeps/Projects/Poly186/Poly/.env (do NOT commit submission/.env)
+# fill values from your own local Foundry env (do NOT commit submission/.env)
 ```
 
 ## Demo flow (what we're optimizing for)

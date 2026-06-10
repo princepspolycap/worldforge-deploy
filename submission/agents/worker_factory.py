@@ -10,7 +10,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from agents.model_config import get_foundry_client, is_live, model_for, model_for_hint
+from agents.model_config import get_foundry_client, is_live, model_for, model_for_hint, create_chat_completion, reasoning_from_response
 from agents.retrieval import retrieve
 from state.schema import Chapter, OrgBlueprint, OrgRole, WorkerInvocation, WorldGraph
 from tools.code_interpreter_wrappers import (
@@ -449,9 +449,9 @@ def execute_chapter(
 
     t0 = time.perf_counter()
     try:
-        resp = client.chat.completions.create(
-            model=deployment,
-            messages=[
+        resp = create_chat_completion(
+            deployment,
+            [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
@@ -461,34 +461,17 @@ def execute_chapter(
         usage = getattr(resp, "usage", None)
         invocation.tokens_in = getattr(usage, "prompt_tokens", 0) or 0
         invocation.tokens_out = getattr(usage, "completion_tokens", 0) or 0
+        # Capture the visible "thinking" signal (reasoning token count and, when
+        # the model exposes it, a short chain-of-thought preview) for the trace.
+        _r = reasoning_from_response(resp)
+        invocation.reasoning_tokens = _r["reasoning_tokens"]
+        invocation.reasoning_preview = _r["reasoning_preview"]
     except Exception as e:
-        # Temperature retry for gpt-5.x
-        if "temperature" in str(e).lower():
-            try:
-                resp = client.chat.completions.create(
-                    model=deployment,
-                    messages=[
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user},
-                    ],
-                    max_completion_tokens=8000,
-                )
-                content = resp.choices[0].message.content or ""
-                usage = getattr(resp, "usage", None)
-                invocation.tokens_in = getattr(usage, "prompt_tokens", 0) or 0
-                invocation.tokens_out = getattr(usage, "completion_tokens", 0) or 0
-            except Exception as e2:
-                invocation.status = "failed"
-                invocation.error = f"{type(e2).__name__}: {e2}"
-                invocation.completed_at = time.time()
-                invocation.latency_s = round(time.perf_counter() - t0, 2)
-                return invocation, None, 0
-        else:
-            invocation.status = "failed"
-            invocation.error = f"{type(e).__name__}: {e}"
-            invocation.completed_at = time.time()
-            invocation.latency_s = round(time.perf_counter() - t0, 2)
-            return invocation, None, 0
+        invocation.status = "failed"
+        invocation.error = f"{type(e).__name__}: {e}"
+        invocation.completed_at = time.time()
+        invocation.latency_s = round(time.perf_counter() - t0, 2)
+        return invocation, None, 0
 
     invocation.latency_s = round(time.perf_counter() - t0, 2)
     invocation.completed_at = time.time()
