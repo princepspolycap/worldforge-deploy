@@ -27,88 +27,202 @@
     const hintEl = document.getElementById("intro-hint");
     const skipBtn = document.getElementById("intro-skip");
 
-    const DWELL = 6800; // ms a card holds before auto-advancing (room for narration)
+    const DWELL = 6800;      // fallback hold (ms) when narration is unavailable
+    const DWELL_MAX = 24000;  // safety cap while a narration line is speaking
 
-    // Cinematic backdrops generated with MAI-Image-2.5-Flash (Microsoft's latest
-    // image model) via tools/generate_lore_art.py. Local-only and gitignored -
-    // a fresh clone simply gets the pure-text intro. We preload each image and
-    // attach it only if it actually loads, so a missing file can never break
-    // the card flow.
+    // Cinematic backdrops. Stills are generated with the Foundry MAI image
+    // deployment (tools/generate_art.py --keyart) and ship committed. If a
+    // matching Veo-generated motion clip exists next to a still (same name,
+    // .mp4, local-only / gitignored), the scene plays the clip instead - a
+    // progressive enhancement. Two stacked layers crossfade between scenes;
+    // stills get a slow Ken Burns drift, clips bring their own motion. A
+    // missing file (fresh fork) can never break the flow - the card simply
+    // plays over the gradient base.
     const IMG_BASE = "/game/assets/generated/lore/";
+    const VID_BASE = IMG_BASE + "video/";
+    // Pre-baked narration takes (tools/generate_narration.py) - the curated,
+    // cinematic reads of each lore line. audio.js plays these first and only
+    // falls back to live TTS (then the browser voice) when a file is missing,
+    // so a fresh fork still narrates and the demo never sounds robotic.
+    const NARR_BASE = IMG_BASE + "narration/";
+    // Delivery direction shared by the baked takes and the live TTS fallback.
+    const NARRATOR_STYLE = "Warm cinematic film narrator. Intimate, unhurried, grounded awe - an invitation into a story. Natural pauses between sentences, soft dynamics. Never monotone, never robotic, never an announcer.";
     const loadedImgs = {}; // filename -> true once preloaded OK
+    const loadedVids = {}; // scene base name -> object URL of a playable clip
+    let pendingBg = null;  // scene requested before its image finished loading
 
     function preloadLoreArt(names) {
         names.forEach((name) => {
             if (!name) return;
             const im = new Image();
-            im.onload = () => { loadedImgs[name] = true; };
+            im.onload = () => {
+                loadedImgs[name] = true;
+                if (pendingBg && pendingBg.name === name) {
+                    const p = pendingBg;
+                    pendingBg = null;
+                    setBackdrop(p.name, p.dim);
+                }
+            };
             im.src = IMG_BASE + name;
+            // Probe for a motion clip alongside the still. Fetch the whole
+            // file so playback starts instantly and never buffers mid-scene;
+            // a 404 just means this scene stays a still.
+            const base = name.replace(/\.png$/, "");
+            fetch(VID_BASE + base + ".mp4")
+                .then((r) => (r.ok ? r.blob() : null))
+                .then((blob) => {
+                    if (!blob || !/video/.test(blob.type || "video/mp4")) return;
+                    loadedVids[name] = URL.createObjectURL(blob);
+                    // Upgrade the scene live if it is currently showing.
+                    if (!done && index >= 0 && cards[index] && cards[index].img === name) {
+                        setBackdrop(name, bgFront ? bgFront.classList.contains("dimmed") : false);
+                    }
+                })
+                .catch(() => { /* stills-only is a fine baseline */ });
         });
     }
 
-    // The lore arc: premise -> the impossible vision -> the only way to get
-    // there -> the mechanism (an agency of digital workers) -> the fair-data
-    // flywheel -> how it reasons (Foundry) -> why you can trust it -> your turn.
-    // The final card (kind: "choice") hands the player two missions to carve.
+    const bgA = document.getElementById("intro-bg-a");
+    const bgB = document.getElementById("intro-bg-b");
+    const KB = ["kb-in", "kb-out", "kb-deep"];
+    let bgFront = null; // whichever layer currently shows a scene
+    let kbTurn = 0;
+
+    function layerVideo(layer) {
+        let v = layer.querySelector("video");
+        if (!v) {
+            v = document.createElement("video");
+            v.muted = true; v.loop = true; v.playsInline = true;
+            v.setAttribute("muted", ""); v.setAttribute("playsinline", "");
+            layer.appendChild(v);
+        }
+        return v;
+    }
+
+    function setBackdrop(name, dim) {
+        if (!bgA || !bgB) return;
+        if (!name) { // fade back to the gradient base
+            [bgA, bgB].forEach((l) => {
+                l.classList.remove("on");
+                const v = l.querySelector("video");
+                if (v) { try { v.pause(); } catch (e) { /* ok */ } }
+            });
+            bgFront = null;
+            pendingBg = null;
+            return;
+        }
+        const clip = loadedVids[name];
+        if (!clip && !loadedImgs[name]) { pendingBg = { name: name, dim: dim }; return; }
+        pendingBg = null;
+        const incoming = bgFront === bgA ? bgB : bgA;
+        const outgoing = bgFront;
+        const vid = layerVideo(incoming);
+        KB.forEach((k) => incoming.classList.remove(k));
+        if (clip) {
+            // Motion clip: the video supplies the life; no Ken Burns on top.
+            incoming.style.backgroundImage = loadedImgs[name]
+                ? "url('" + IMG_BASE + name + "')" : ""; // poster behind the clip
+            if (vid.src !== clip) {
+                vid.src = clip; // fresh load starts at 0 - do not touch currentTime
+            } else {
+                try { vid.currentTime = 0; } catch (e) { /* ok */ }
+            }
+            vid.style.display = "";
+            const p = vid.play();
+            if (p && p.catch) {
+                p.catch(() => {
+                    // Load was still warming up - retry once it has data.
+                    vid.addEventListener("loadeddata", () => {
+                        vid.play().catch(() => { /* poster still shows */ });
+                    }, { once: true });
+                });
+            }
+        } else {
+            vid.style.display = "none";
+            try { vid.pause(); } catch (e) { /* ok */ }
+            incoming.style.backgroundImage = "url('" + IMG_BASE + name + "')";
+            void incoming.offsetWidth; // restart the Ken Burns animation
+            incoming.classList.add(KB[kbTurn++ % KB.length]);
+        }
+        incoming.classList.toggle("dimmed", !!dim);
+        incoming.classList.add("on");
+        if (outgoing && outgoing !== incoming) {
+            outgoing.classList.remove("on");
+            const ov = outgoing.querySelector("video");
+            if (ov) setTimeout(() => { try { ov.pause(); } catch (e) { /* ok */ } }, 1200);
+        }
+        bgFront = incoming;
+    }
+
+    // The intro is a short film, not a slide deck. Each card is a scene: a
+    // full-bleed Veo/MAI backdrop, an intertitle (kicker + one line on
+    // screen), and a voice-over written for the ear that advances the card
+    // when it finishes speaking. The arc is an invitation into the story -
+    // the hero's journey (chart your path) -> too big to command -> the vow
+    // of basic needs -> the agency of digital workers -> fair pay -> Foundry
+    // reasoning -> the human seal -> the title lands ("your company is the
+    // dungeon") -> the choice screen, where the player answers back.
     const cards = [
         {
             kicker: "Microsoft Agents League - Battle 2 - Reasoning Agents",
-            h2: "Your Company Is the Dungeon",
-            p: "A reasoning RPG, built on Microsoft Foundry. Let it play - or press space to move faster.",
-            img: "title.png",
-        },
-        {
-            kicker: "The premise",
-            h2: "Every company is two companies.",
-            p: "One is the handful of people who decide. The other is all the work that has to get done. For the first time, that second company can be made of <span class='accent'>agents</span>.",
-            img: "premise.png",
-        },
-        {
-            kicker: "Your seat",
-            h2: "You are the CEO - and you want the impossible.",
-            p: "Terraform the Sahara. Build new cities where there is only sand. It is too big to command into existence - so how could anyone actually do it?",
+            h2: "Welcome to your hero's journey.",
+            sub: "Chart your path: terraform the Sahara. Automate basic needs.",
+            vo: "Welcome to your hero's journey. You are to chart a path within a world that terraforms the Sahara desert and automates basic needs. To achieve this, you have at your disposal reasoning agents, competing in the Agents League - agents who collaborate within a web of social contracts, between a multitude of organizations and institutions. The journey is ambitious. And it is taken care of. What it needs - is you.",
             img: "sahara.png",
         },
         {
-            kicker: "The only way",
-            h2: "You cannot command a billion people. You align them.",
-            p: "Automate the <span class='accent'>production and distribution of basic needs</span> - food, water, energy, shelter - and a billion humans, and their AI, finally have a reason to pull the same way.",
+            kicker: "The catch",
+            h2: "Too big to command.",
+            sub: "No one can order a desert green.",
+            vo: "But no one can command a desert green, or hire a billion hands. Most of us suffer the side effects of our chaotically complex social contract systems - overdue for an update. A vision this size is never commanded into existence. It is aligned.",
+            img: "premise.png",
+        },
+        {
+            kicker: "The vow",
+            h2: "Align a billion people.",
+            sub: "No belly hungry. No head unroofed. No back unclad. No soul enslaved.",
+            vo: "Here is the vow that aligns them: no belly goes hungry. No head goes without a roof. No back is unclad. And no soul is enslaved to survival. Automate the basics - food, water, energy, shelter - and a billion humans, and their AI, finally pull the same way.",
             img: "needs.png",
         },
         {
             kicker: "The mechanism",
-            h2: "So you build an agency of digital workers.",
-            p: "Every person with a skill <span class='accent'>binds it to a digital worker</span> that does the execution. Their experience becomes a business that runs while they sleep - income they earn, not income they wait for.",
+            h2: "An agency of digital workers.",
+            sub: "Bind your skill to a worker that executes.",
+            vo: "The mechanism is an agency of digital workers. Bind your real skill to a worker that executes, and your experience becomes a business that runs while you sleep.",
             img: "workforce.png",
         },
         {
             kicker: "The flywheel",
-            h2: "And everyone gets paid - fairly.",
-            p: "The platform learns from <span class='accent'>real people doing real work</span>, paid evenly - not scraped the way today's models were. Even a superintelligence still needs the grassroots: a million humans who know what it cannot.",
+            h2: "Everyone gets paid. Fairly.",
+            sub: "Real, consented work - not scraping.",
+            vo: "And everyone gets paid - fairly. The platform learns from real, consented work, paid evenly - not scraped. Even a superintelligence needs the grassroots.",
             img: "flywheel.png",
         },
         {
             kicker: "How it thinks",
-            h2: "Every agent that reasons runs on Foundry.",
-            p: "<span class='accent'>Foundry IQ</span> for memory, a <span class='accent'>code interpreter</span> for checks it cannot fake, and <span class='accent'>multi-agent orchestration</span> that turns them into a team.",
+            h2: "Reasoning runs on Foundry.",
+            sub: "IQ memory - code interpreter - orchestration.",
+            vo: "Every agent that reasons here runs on Microsoft Foundry. Memory it can cite. A code interpreter for checks it cannot fake. And orchestration that turns lone agents into a team.",
             img: "foundry.png",
         },
         {
-            kicker: "Why you can trust it",
-            h2: "A human stays at the root of everything.",
-            p: "No artifact counts until you approve it at a <span class='accent'>verification gate</span>. That one rule is the difference between a colleague and a slop machine.",
+            kicker: "The law of this world",
+            h2: "A human holds the seal.",
+            sub: "Nothing counts until you approve it.",
+            vo: "And the deepest law of this world: nothing counts until a human presses the seal. Every artifact stops at this gate, and waits, for you.",
             img: "gate.png",
         },
         {
-            kicker: "Your turn",
-            h2: "The vision is the CEO's. The path is yours.",
-            p: "You bring the skill and the judgment. Your <span class='accent'>agent workforce</span> brings the execution. Pick the front you want to carve - and make it yours.",
-            img: "workforce.png",
+            kicker: "The game",
+            h2: "Your company is the dungeon.",
+            sub: "Clear it room by room. The path is yours.",
+            vo: "This is how you enter the story. Found a company on one front of the mission, take the CEO's chair, and clear it room by room with your workforce. Your company is the dungeon.",
+            img: "title.png",
         },
         { kind: "choice" },
     ];
 
-    preloadLoreArt(cards.map((c) => c.img).concat(["sahara.png", "needs.png"]));
+    preloadLoreArt(cards.map((c) => c.img).filter(Boolean));
 
     // The two missions the player can pick - early playable placeholders. Each
     // pre-fills the existing pitch screen, so the same org -> world -> gate loop
@@ -143,25 +257,67 @@
     function render(n) {
         const c = cards[n];
         if (c.kind === "choice") { renderChoice(); return; }
+        setBackdrop(c.img || null, false);
         cardEl.innerHTML =
             '<div class="intro-anim">' +
             '<div class="kicker">' + c.kicker + "</div>" +
             "<h2>" + c.h2 + "</h2>" +
-            "<p>" + c.p + "</p>" +
+            (c.sub ? "<p>" + c.sub + "</p>" : "") +
             "</div>";
         if (A.tick) { try { A.tick(true); } catch (e) { /* audio optional */ } }
-        if (A.speak) { try { A.speak(c.h2 + ". " + c.p, { voice: "onyx" }); } catch (e) { /* narration optional */ } }
+        speakThenAdvance(c.vo || (c.h2 + " " + (c.sub || "")),
+            c.img ? NARR_BASE + c.img.replace(/\.png$/, ".mp3") : null);
         hintEl.textContent = "space / click to advance - esc to skip";
     }
 
+    // The voice-over paces the film: a card holds while its line is spoken and
+    // advances a beat after it ends. If narration is off (muted, no TTS), fall
+    // back to a fixed dwell. A token guards against a stale onend firing after
+    // the player has already advanced by hand.
+    let advanceToken = 0;
+
+    function speakThenAdvance(vo, baked) {
+        const my = ++advanceToken;
+        clearTimeout(timer);
+        const narrated = !!(A.speak && A.narrationEnabled && A.narrationEnabled()
+            && !(A.isMuted && A.isMuted()));
+        if (narrated) {
+            const t0 = Date.now();
+            timer = setTimeout(() => { if (my === advanceToken && !done) next(); }, DWELL_MAX);
+            try {
+                A.speak(vo, {
+                    voice: "onyx",
+                    baked: baked || null,
+                    instructions: NARRATOR_STYLE,
+                    onend: () => {
+                        if (my !== advanceToken || done) return;
+                        clearTimeout(timer);
+                        // If "narration" died in under 1.5s it never really
+                        // played (autoplay block, error) - keep the film at
+                        // reading pace instead of racing through the cards.
+                        const held = Date.now() - t0;
+                        const wait = held < 1500 ? Math.max(DWELL - held, 2200) : 900;
+                        timer = setTimeout(() => { if (my === advanceToken && !done) next(); }, wait);
+                    },
+                });
+            } catch (e) { /* narration optional */ }
+        } else {
+            if (A.speak) { try { A.speak(vo, { voice: "onyx", baked: baked || null, instructions: NARRATOR_STYLE }); } catch (e) { /* optional */ } }
+            timer = setTimeout(() => { if (my === advanceToken && !done) next(); }, DWELL);
+        }
+    }
+
     function renderChoice() {
+        advanceToken++; // the choice screen holds for input - no auto-advance
+        clearTimeout(timer);
+        setBackdrop("sahara.png", true);
         cardEl.innerHTML =
             '<div class="intro-anim">' +
-            '<div class="kicker">Choose your front</div>' +
-            "<h2>Where do you point the workforce?</h2>" +
-            "<p>Two fronts, one workforce. Pick the mission your agents build toward - or bring your own.</p>" +
+            '<div class="kicker">Character creation</div>' +
+            "<h2>What do you bring?</h2>" +
+            "<p>Your real skill is your starting gear. Then pick the front your agents build toward - or bring your own.</p>" +
             '<div class="intro-skill">' +
-            "<label>Your edge (optional)</label>" +
+            "<label>What you bring (optional)</label>" +
             '<input id="intro-skill-input" placeholder="what you are good at - design, sales, logistics, code..." />' +
             "</div>" +
             '<div class="intro-choices">' +
@@ -179,7 +335,7 @@
             '<div class="intro-freeform">or <button id="intro-freeform" class="linklike">start from your own brief</button></div>' +
             "</div>";
         if (A.tick) { try { A.tick(true); } catch (e) { /* audio optional */ } }
-        if (A.speak) { try { A.speak("Where do you point the workforce? Two fronts, one workforce. Press one to automate basic needs, or two to terraform the Sahara.", { voice: "onyx" }); } catch (e) { /* narration optional */ } }
+        if (A.speak) { try { A.speak("Now - tell us what you bring. Your skill is your starting gear. Then choose your front, founder: press one to automate basic needs, press two to terraform the Sahara, or bring a brief of your own. The dungeon takes all comers.", { voice: "onyx", baked: NARR_BASE + "choice.mp3", instructions: NARRATOR_STYLE }); } catch (e) { /* narration optional */ } }
         hintEl.textContent = "press 1 or 2 to choose - esc to skip";
 
         Array.prototype.forEach.call(cardEl.querySelectorAll(".intro-choice"), (b) => {
@@ -220,10 +376,6 @@
         index = Math.max(0, Math.min(cards.length - 1, n));
         render(index);
         paintDots();
-        clearTimeout(timer);
-        if (index < cards.length - 1) {
-            timer = setTimeout(() => show(index + 1), DWELL);
-        }
     }
 
     function isChoice() { return cards[index] && cards[index].kind === "choice"; }
@@ -237,6 +389,7 @@
     function dismiss(instant, focusTarget) {
         if (done) return;
         done = true;
+        advanceToken++;
         clearTimeout(timer);
         if (A.stopSpeaking) { try { A.stopSpeaking(); } catch (e) { /* narration optional */ } }
         document.removeEventListener("keydown", onKey);

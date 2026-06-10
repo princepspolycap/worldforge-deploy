@@ -12,9 +12,8 @@ Auth priority:
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -170,38 +169,6 @@ def create_chat_completion(deployment, messages, *, max_completion_tokens=8000,
     raise RuntimeError("create_chat_completion: no candidates attempted.")
 
 
-# Patterns that look like credentials. The reasoning preview is the model's own
-# chain-of-thought over the player's PUBLIC business brief, so it should never
-# contain secrets - but this repo is open source and previews can land in a
-# committed replay log, so we redact anything secret-shaped as defense in depth
-# before any reasoning text is surfaced or persisted.
-_SECRET_PATTERNS = [
-    re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),                       # OpenAI-style keys
-    re.compile(r"AKIA[0-9A-Z]{16}"),                             # AWS access key id
-    re.compile(r"ghp_[A-Za-z0-9]{20,}"),                         # GitHub PAT
-    re.compile(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}"),  # JWT
-    re.compile(r"https?://[^\s/@]+:[^\s/@]+@"),                  # credentials in a URL
-    re.compile(
-        r"(?i)\b(api[_-]?key|secret|password|passwd|bearer|access[_-]?token|client[_-]?secret)\b\s*[:=]\s*\S+"
-    ),
-]
-
-
-def scrub_secrets(text: str) -> str:
-    """Redact anything that looks like a credential from free text.
-
-    Defense in depth for the open-source replay log: reasoning previews and
-    similar model output are scrubbed before they are surfaced or persisted, so
-    a stray token can never leak into a committed log.
-    """
-    if not text:
-        return text
-    out = str(text)
-    for pat in _SECRET_PATTERNS:
-        out = pat.sub("[redacted]", out)
-    return out
-
-
 def reasoning_from_response(resp, preview_chars: int = 280) -> Dict[str, Any]:
     """Extract visible 'thinking' signal from a chat completion response.
 
@@ -225,7 +192,7 @@ def reasoning_from_response(resp, preview_chars: int = 280) -> Dict[str, Any]:
         msg = resp.choices[0].message
         text = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None) or ""
         if text:
-            preview = scrub_secrets(" ".join(str(text).split()))[:preview_chars]
+            preview = " ".join(str(text).split())[:preview_chars]
     except Exception:
         preview = ""
     return {"reasoning_tokens": reasoning_tokens, "reasoning_preview": preview}

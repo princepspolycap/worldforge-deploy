@@ -229,13 +229,6 @@
             border: 1px solid var(--line); border-radius: 12px; padding: 14px;
             background: rgba(255,255,255,0.02);
         }
-        /* MAI-generated portrait (progressive enhancement: hidden when the
-           PNG is absent, so a fresh clone keeps the geometric baseline). */
-        .worker-portrait {
-            width: 100%; aspect-ratio: 1; border-radius: 10px; object-fit: cover;
-            border: 1px solid var(--line); margin-bottom: 10px; display: block;
-        }
-        .worker-portrait[hidden] { display: none; }
         .worker-role {
             font-family: 'Fraunces', serif; font-size: 17px; margin-bottom: 3px;
             display: flex; align-items: center; gap: 9px;
@@ -323,8 +316,7 @@
         /* ---- Footer controls ---- */
         footer {
             display: flex; align-items: center; justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 16px; padding: 14px 26px 0; border-top: 1px solid var(--line);
+            gap: 16px; padding: 14px 26px; border-top: 1px solid var(--line);
         }
         .progress { display: flex; align-items: center; gap: 7px; }
         .seg { width: 30px; height: 4px; border-radius: 999px; background: rgba(255,255,255,0.08); transition: background 300ms ease; }
@@ -362,7 +354,7 @@
 
         /* ---- Intro / lore overlay (the game introduces itself; skippable) ---- */
         #intro-overlay {
-            position: fixed; inset: 0; z-index: 60;
+            position: fixed; inset: 0; z-index: 60; overflow: hidden;
             display: flex; align-items: center; justify-content: center;
             text-align: center; padding: 40px; cursor: pointer;
             background:
@@ -370,22 +362,34 @@
                 linear-gradient(180deg, #0a0e1a 0%, #05070f 100%);
             transition: opacity 600ms ease;
         }
-        /* Full-bleed MAI key art behind each lore card, crossfaded per beat.
-           Two stacked layers swap opacity so scene changes feel filmic. */
-        .intro-art {
-            position: absolute; inset: 0; z-index: 0; pointer-events: none;
-            background-size: cover; background-position: center;
-            opacity: 0; transition: opacity 900ms ease;
-        }
-        .intro-art.on { opacity: 0.5; }
-        #intro-shade {
-            position: absolute; inset: 0; z-index: 1; pointer-events: none;
-            background:
-                radial-gradient(1200px 700px at 50% 58%, rgba(5,7,15,0.55), rgba(5,7,15,0.92) 78%),
-                linear-gradient(180deg, rgba(5,7,15,0.55), rgba(5,7,15,0.35) 40%, rgba(5,7,15,0.8));
-        }
-        #intro-card, .intro-skip, .intro-hint, .intro-dots { position: relative; z-index: 2; }
         #intro-overlay.hide { opacity: 0; pointer-events: none; }
+        /* Full-bleed cinematic backdrops (MAI-generated key art). Two layers
+           crossfade between scenes; a slow Ken Burns drift keeps each alive.
+           If an image is missing (fresh fork), the gradient base shows instead. */
+        .intro-bg {
+            position: absolute; inset: -2%; opacity: 0; pointer-events: none;
+            background-size: cover; background-position: center;
+            transition: opacity 1100ms ease; will-change: transform, opacity;
+            transform: scale(1.06);
+        }
+        .intro-bg.on { opacity: 1; }
+        .intro-bg video {
+            position: absolute; inset: 0; width: 100%; height: 100%;
+            object-fit: cover; display: block;
+        }
+        .intro-bg.dimmed { filter: brightness(0.5) saturate(0.8); }
+        .intro-bg.kb-in { animation: kbIn 16s ease-out forwards; }
+        .intro-bg.kb-out { animation: kbOut 16s ease-out forwards; }
+        .intro-bg.kb-deep { animation: kbDeep 16s ease-out forwards; }
+        @keyframes kbIn { from { transform: scale(1.04); } to { transform: scale(1.14); } }
+        @keyframes kbOut { from { transform: scale(1.14); } to { transform: scale(1.04); } }
+        @keyframes kbDeep { from { transform: scale(1.14); } to { transform: scale(1.24); } }
+        #intro-scrim {
+            position: absolute; inset: 0; pointer-events: none;
+            background:
+                radial-gradient(1100px 650px at 50% 34%, rgba(5,8,16,0.08), rgba(5,8,16,0.52) 78%),
+                linear-gradient(180deg, rgba(5,8,16,0.66) 0%, rgba(5,8,16,0.16) 34%, rgba(5,8,16,0.28) 62%, rgba(5,8,16,0.88) 100%);
+        }
         .intro-skip {
             position: absolute; top: 22px; right: 26px; z-index: 2;
             font-family: 'JetBrains Mono', monospace; font-size: 11px;
@@ -394,21 +398,23 @@
             border-radius: 8px; padding: 8px 14px; cursor: pointer; transition: 140ms ease;
         }
         .intro-skip:hover { color: var(--ink); border-color: #2c3a5e; }
-        .intro-card { max-width: 780px; }
+        .intro-card { max-width: 780px; position: relative; z-index: 2; }
         .intro-card .kicker {
             font-family: 'JetBrains Mono', monospace; font-size: 11px;
             letter-spacing: 0.32em; text-transform: uppercase; color: var(--blue);
-            margin-bottom: 20px;
+            margin-bottom: 20px; text-shadow: 0 1px 10px rgba(5,8,16,0.95);
         }
         .intro-card h2 {
             font-family: 'Fraunces', serif; font-weight: 600;
             font-size: clamp(30px, 4.6vw, 56px); line-height: 1.07; margin: 0 0 22px;
             background: linear-gradient(180deg, #ffffff, #b9c6e8);
             -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 2px 20px rgba(5,8,16,0.9));
         }
         .intro-card p {
-            color: var(--ink-dim); font-size: clamp(15px, 1.7vw, 19px); line-height: 1.62;
+            color: #ccd6ec; font-size: clamp(15px, 1.7vw, 19px); line-height: 1.62;
             margin: 0 auto; max-width: 620px;
+            text-shadow: 0 1px 14px rgba(5,8,16,0.95), 0 0 3px rgba(5,8,16,0.85);
         }
         .intro-card .accent { color: var(--ink); font-weight: 500; }
         .intro-anim { opacity: 0; transform: translateY(14px); animation: introIn 700ms cubic-bezier(.2,.7,.2,1) forwards; }
@@ -424,9 +430,9 @@
         .intro-hint {
             position: absolute; bottom: 50px; left: 0; right: 0; text-align: center;
             font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.16em;
-            text-transform: uppercase; color: var(--ink-faint);
+            text-transform: uppercase; color: var(--ink-faint); z-index: 2;
         }
-        .intro-dots { position: absolute; bottom: 30px; left: 0; right: 0; display: flex; justify-content: center; gap: 8px; }
+        .intro-dots { position: absolute; bottom: 30px; left: 0; right: 0; display: flex; justify-content: center; gap: 8px; z-index: 2; }
         .intro-dots .d { width: 26px; height: 4px; border-radius: 999px; background: rgba(255,255,255,0.1); transition: background 300ms ease; }
         .intro-dots .d.on { background: var(--blue); }
 
@@ -494,81 +500,6 @@
             font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint);
         }
         .mic-status.live { color: var(--bad); }
-
-        /* ---- Cast strip: the agent party on the title card ---- */
-        .cast-strip {
-            display: flex; gap: 14px; justify-content: center;
-            margin: 18px 0 4px;
-        }
-        .cast-strip figure {
-            margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px;
-            animation: castin 600ms ease backwards;
-        }
-        .cast-strip img {
-            width: 64px; height: 64px; border-radius: 14px; object-fit: cover;
-            border: 1px solid var(--line);
-            box-shadow: 0 10px 26px -14px rgba(0,0,0,0.9);
-            transition: 180ms ease;
-        }
-        .cast-strip figure:hover img { transform: translateY(-3px) scale(1.05); border-color: var(--blue); }
-        .cast-strip figcaption {
-            font-family: 'JetBrains Mono', monospace; font-size: 9px;
-            letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-faint);
-        }
-        @keyframes castin { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-
-        /* ---- Org rail avatars ---- */
-        .org-avatar {
-            width: 22px; height: 22px; border-radius: 6px; object-fit: cover;
-            border: 1px solid var(--line); vertical-align: -6px; margin-right: 7px;
-        }
-
-        /* ---- Microsoft stack strip (footer) ---- */
-        .stack-strip {
-            flex-basis: 100%;
-            display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
-            gap: 6px 14px; padding: 8px 0 10px;
-            border-top: 1px solid var(--line); margin-top: 2px;
-            font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
-            letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint);
-        }
-        .stack-strip .st-lead { color: var(--ink-dim); }
-        .stack-strip .st-item { white-space: nowrap; }
-        .stack-strip .st-item b { color: var(--ink-dim); font-weight: 500; }
-        .stack-strip .st-sep { color: var(--line); }
-        .stack-strip { cursor: pointer; transition: color 140ms ease; }
-        .stack-strip:hover { color: var(--ink-dim); }
-        .stack-strip:hover .st-lead { color: var(--ink); }
-
-        /* ---- Stack page: what powers this build ---- */
-        #stack-overlay {
-            position: fixed; inset: 0; z-index: 70; display: none;
-            align-items: center; justify-content: center; padding: 36px;
-            background: rgba(5,7,15,0.92);
-        }
-        #stack-overlay.open { display: flex; }
-        .stack-card {
-            max-width: 880px; max-height: 86vh; overflow-y: auto;
-            border: 1px solid var(--line); border-radius: 16px; padding: 30px 34px;
-            background: linear-gradient(180deg, #0c1120, #080c17);
-        }
-        .stack-card h2 { font-family: 'Fraunces', serif; font-size: 26px; margin: 0 0 4px; }
-        .stack-card .sc-sub { color: var(--ink-dim); font-size: 13px; margin-bottom: 18px; }
-        .stack-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .stack-item {
-            border: 1px solid var(--line); border-radius: 11px; padding: 12px 14px;
-            background: rgba(255,255,255,0.02);
-        }
-        .stack-item b { display: block; color: var(--ink); font-size: 13px; margin-bottom: 3px; }
-        .stack-item span { color: var(--ink-dim); font-size: 11.5px; line-height: 1.5; }
-        .stack-item .si-tag {
-            display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px;
-            border: 1px solid var(--line); font-family: 'JetBrains Mono', monospace;
-            font-size: 8.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint);
-        }
-        .stack-item .si-tag.live { color: var(--good); border-color: rgba(52,211,153,0.4); }
-        .stack-close { margin-top: 18px; float: right; }
-        @media (max-width: 760px) { .stack-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
@@ -582,7 +513,6 @@
                 <span class="chip"><span id="mode-dot" class="dot"></span><span id="mode-label">simulation</span></span>
                 <span>Level <b id="hud-level">1</b></span>
                 <span><b id="hud-xp">0</b> XP</span>
-                <button id="music" class="iconbtn" title="Toggle music">&#9835;</button>
                 <button id="mute" class="iconbtn" title="Toggle audio">&#9834;</button>
             </div>
         </header>
@@ -598,15 +528,7 @@
                     <div class="title-card fade-scene">
                         <div class="kicker">A reasoning RPG on Microsoft Foundry</div>
                         <h1>Take the CEO's chair.</h1>
-                        <p>The CEO wants the impossible &mdash; terraform the Sahara, automate basic needs. Too big to command, so you align. Every venture below is one front of that map: bring a pitch or a real company, and your agent workforce builds the org, the systems, and the launch &mdash; one gate you approve at a time.</p>
-                        <div class="cast-strip" aria-hidden="true">
-                            <figure style="animation-delay:0ms"><img src="/game/assets/generated/narrator.png" alt="" onerror="this.parentElement.style.display='none'"><figcaption>Narrator</figcaption></figure>
-                            <figure style="animation-delay:80ms"><img src="/game/assets/generated/orgdesigner.png" alt="" onerror="this.parentElement.style.display='none'"><figcaption>Org Designer</figcaption></figure>
-                            <figure style="animation-delay:160ms"><img src="/game/assets/generated/strategist.png" alt="" onerror="this.parentElement.style.display='none'"><figcaption>Strategist</figcaption></figure>
-                            <figure style="animation-delay:240ms"><img src="/game/assets/generated/designer.png" alt="" onerror="this.parentElement.style.display='none'"><figcaption>Designer</figcaption></figure>
-                            <figure style="animation-delay:320ms"><img src="/game/assets/generated/marketer.png" alt="" onerror="this.parentElement.style.display='none'"><figcaption>Marketer</figcaption></figure>
-                            <figure style="animation-delay:400ms"><img src="/game/assets/generated/ops.png" alt="" onerror="this.parentElement.style.display='none'"><figcaption>Operations</figcaption></figure>
-                        </div>
+                        <p>Bring a pitch &mdash; or a real company. A Foundry World Designer decomposes it into a venture quest line, then your agent workforce builds the org, the systems, and the launch &mdash; one gate you approve at a time.</p>
                         <div class="field">
                             <label>Company</label>
                             <input id="in-company" value="Agency of Poly" />
@@ -632,7 +554,6 @@
                 <div>
                     <div class="rail-h"><span class="dot"></span> Active Worker</div>
                     <div id="worker" class="worker-card">
-                        <img id="worker-portrait" class="worker-portrait" alt="" hidden>
                         <div class="worker-role"><span class="role-orb" style="color:var(--narrator)"></span><span id="worker-name">World Designer</span></div>
                         <div id="worker-deploy" class="worker-deploy">awaiting brief</div>
                         <div id="worker-state" class="worker-state">Idle</div>
@@ -676,81 +597,23 @@
                 <button id="next" class="btn primary" disabled>Next &rarr;</button>
                 <button id="reset" class="btn" disabled>Reset</button>
             </div>
-            <div class="stack-strip" id="stack-strip" aria-label="Microsoft technologies in this build - click for details" title="Click for the full stack">
-                <span class="st-lead">Built on Microsoft Foundry</span>
-                <span class="st-sep">|</span>
-                <span class="st-item"><b>gpt-5.5</b> reasoning</span>
-                <span class="st-sep">&middot;</span>
-                <span class="st-item"><b>Foundry IQ</b> retrieval</span>
-                <span class="st-sep">&middot;</span>
-                <span class="st-item"><b>code interpreter</b> gates</span>
-                <span class="st-sep">&middot;</span>
-                <span class="st-item"><b>multi-agent</b> orchestration</span>
-                <span class="st-sep">&middot;</span>
-                <span class="st-item"><b>hosted agents</b> (invocations)</span>
-                <span class="st-sep">&middot;</span>
-                <span class="st-item"><b>MAI-Image-2e</b> art</span>
-                <span class="st-sep">&middot;</span>
-                <span class="st-item"><b>gpt-audio</b> voice &middot; Voice Live path</span>
-                <span class="st-sep">&middot;</span>
-                <span class="st-item"><b>Entra ID</b> auth</span>
-            </div>
         </footer>
     </div>
 
     <!-- Lore / tutorial intro: the game introduces itself before the first pitch.
          Fully skippable (Skip button / Esc). Append ?intro=0 to bypass on reload. -->
     <div id="intro-overlay" aria-hidden="false">
-        <div id="intro-art-a" class="intro-art"></div>
-        <div id="intro-art-b" class="intro-art"></div>
-        <div id="intro-shade"></div>
+        <div id="intro-bg-a" class="intro-bg"></div>
+        <div id="intro-bg-b" class="intro-bg"></div>
+        <div id="intro-scrim"></div>
         <button id="intro-skip" class="intro-skip">Skip intro</button>
         <div id="intro-card" class="intro-card"></div>
         <div id="intro-hint" class="intro-hint"></div>
         <div id="intro-dots" class="intro-dots"></div>
     </div>
 
-    <!-- Stack page: every Microsoft capability in this build and its job.
-         Opened by clicking the footer strip; Esc or Close dismisses. -->
-    <div id="stack-overlay" role="dialog" aria-label="What powers this build">
-        <div class="stack-card">
-            <h2>What powers this build</h2>
-            <div class="sc-sub">Everything that reasons runs on Microsoft Foundry. The shell is forkable browser tech, so it still runs after a fresh <code>git clone</code>.</div>
-            <div class="stack-grid">
-                <div class="stack-item"><b>Foundry model deployments <span class="si-tag live">live</span></b><span>gpt-5.5 family runs every reasoning agent: Org Designer, World Designer, and each digital worker. Cross-deployment fallback keeps the demo alive through rate limits.</span></div>
-                <div class="stack-item"><b>Multi-agent orchestration <span class="si-tag live">live</span></b><span>Org Designer designs the workforce, World Designer decomposes the venture, the Worker Factory executes each chapter with the right worker - one visible chain.</span></div>
-                <div class="stack-item"><b>Foundry IQ retrieval <span class="si-tag live">live</span></b><span>Each chapter recalls curated playbooks (discovery, GTM, org design) so workers ground their reasoning instead of inventing facts. Production path: Azure AI Search index.</span></div>
-                <div class="stack-item"><b>Code interpreter gates <span class="si-tag live">live</span></b><span>Deterministic validators score every artifact 0-100 before the human gate - checks the model cannot fake. Foundry's hosted code interpreter is the managed version.</span></div>
-                <div class="stack-item"><b>Hosted agents (invocations) <span class="si-tag">scaffolded</span></b><span>The Master Narrator ships as a deployable Foundry hosted agent speaking the invocations protocol - other agents and apps can call it, A2A-style.</span></div>
-                <div class="stack-item"><b>Reasoning visibility <span class="si-tag live">live</span></b><span>Thinking-token counts and scrubbed chain-of-thought previews stream into the trace, so the audience sees the model genuinely reasoning.</span></div>
-                <div class="stack-item"><b>MAI-Image-2e art <span class="si-tag live">live</span></b><span>Microsoft's efficient MAI image model painted the agent portraits and the full-screen lore scenes. Generated art is MIT-redistributable - forkers get the art and the generator.</span></div>
-                <div class="stack-item"><b>gpt-audio voice + Voice Live path <span class="si-tag live">live</span></b><span>Azure neural voices narrate every beat with a distinct voice per character; browser TTS is the offline net. Voice Live API is the production real-time upgrade.</span></div>
-                <div class="stack-item"><b>Foundry Memory pattern <span class="si-tag live">live</span></b><span>CompanyState + a replay log record every agent action and gate decision - the forkable equivalent of Foundry Agent Service Memory.</span></div>
-                <div class="stack-item"><b>Entra ID auth <span class="si-tag live">live</span></b><span>DefaultAzureCredential with token scope, API-key fallback for quick local dev. No secrets in source; .env is gitignored.</span></div>
-            </div>
-            <button id="stack-close" class="btn stack-close">Close</button>
-        </div>
-    </div>
-    <script>
-        // Stack page wiring (plain script: works even if modules fail).
-        (function () {
-            var strip = document.getElementById("stack-strip");
-            var overlay = document.getElementById("stack-overlay");
-            var close = document.getElementById("stack-close");
-            if (!strip || !overlay) return;
-            function setOpen(on) { overlay.classList.toggle("open", !!on); }
-            strip.addEventListener("click", function () { setOpen(true); });
-            if (close) close.addEventListener("click", function () { setOpen(false); });
-            overlay.addEventListener("click", function (e) { if (e.target === overlay) setOpen(false); });
-            document.addEventListener("keydown", function (e) {
-                if (e.key === "Escape" && overlay.classList.contains("open")) setOpen(false);
-            });
-        })();
-    </script>
-
-    <script src="/game/vendor/mermaid.min.js?v=1"></script>
-    <script src="/game/game/audio.js?v=4"></script>
-    <script type="module" src="/game/game/story.js?v=10"></script>
-    <script src="/game/game/intro.js?v=6"></script>
+    <script src="/game/game/audio.js?v=6"></script>
+    <script type="module" src="/game/game/story.js?v=8"></script>
+    <script src="/game/game/intro.js?v=9"></script>
 </body>
 </html>

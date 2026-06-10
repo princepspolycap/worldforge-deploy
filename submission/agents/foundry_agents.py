@@ -13,23 +13,14 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
-from agents.model_config import (
-    get_foundry_client,
-    model_for,
-    is_live,
-    create_chat_completion,
-    reasoning_from_response,
-)
+from agents.model_config import get_foundry_client, model_for, is_live, create_chat_completion
 
 
-def _chat_json(role: str, system: str, user: str, fallback: Any,
-               sink: Optional[Dict[str, Any]] = None) -> Any:
+def _chat_json(role: str, system: str, user: str, fallback: Any) -> Any:
     """Call the role's Foundry deployment and parse a JSON response.
 
     Returns `fallback` if anything is missing (no client, no deployment, bad
-    JSON, network error). This keeps the demo always-runnable. When `sink` is
-    provided, the model's visible "thinking" signal (reasoning-token count and a
-    scrubbed chain-of-thought preview) is recorded into it for the trace.
+    JSON, network error). This keeps the demo always-runnable.
     """
     client = get_foundry_client()
     deployment = model_for(role)
@@ -52,11 +43,6 @@ def _chat_json(role: str, system: str, user: str, fallback: Any,
                 response_format=extra.get("response_format"),
                 temperature=extra.get("temperature"),
             )
-            if sink is not None:
-                try:
-                    sink.update(reasoning_from_response(resp))
-                except Exception:
-                    pass
             return resp.choices[0].message.content or ""
         except Exception:
             return None
@@ -111,12 +97,11 @@ def _chat_json(role: str, system: str, user: str, fallback: Any,
 
 
 def _chat_text(role: str, system: str, user: str, fallback: str,
-               max_tokens: int = 2000, sink: Optional[Dict[str, Any]] = None) -> str:
+               max_tokens: int = 2000) -> str:
     """Call a Foundry deployment for a short plain-text reply (no JSON).
 
     Used for narration/lore where we want prose, not a structured artifact.
-    Returns `fallback` on any failure so the experience never stalls. When
-    `sink` is provided, the model's visible reasoning signal is recorded into it.
+    Returns `fallback` on any failure so the experience never stalls.
     """
     client = get_foundry_client()
     deployment = model_for(role)
@@ -138,11 +123,6 @@ def _chat_text(role: str, system: str, user: str, fallback: str,
                 max_completion_tokens=max_tokens,
                 temperature=extra.get("temperature"),
             )
-            if sink is not None:
-                try:
-                    sink.update(reasoning_from_response(resp))
-                except Exception:
-                    pass
             return resp.choices[0].message.content or ""
         except Exception:
             return None
@@ -181,14 +161,8 @@ def generate_lore(pitch: str, company: str = "") -> Dict[str, str]:
         "Every great company starts as one bold sentence; now your agent workforce "
         "must turn yours into something real, one verified step at a time."
     )
-    sink: Dict[str, Any] = {}
-    text = _chat_text("narrator", system, user, fallback, max_tokens=2000, sink=sink)
-    return {
-        "lore": text,
-        "mode": "live" if is_live() else "simulation",
-        "reasoning_tokens": int(sink.get("reasoning_tokens", 0) or 0),
-        "reasoning_preview": sink.get("reasoning_preview", "") or "",
-    }
+    text = _chat_text("narrator", system, user, fallback, max_tokens=2000)
+    return {"lore": text, "mode": "live" if is_live() else "simulation"}
 
 
 # Canonical quest line: role, artifact_type, default id/title/xp. Order is fixed
@@ -237,9 +211,6 @@ class BaseFoundryAgent:
         self.name = name
         self.role = role
         self.system_instructions = system_instructions
-        # Populated after a live call with {reasoning_tokens, reasoning_preview}
-        # so callers can surface the model's visible "thinking" in the trace.
-        self.last_reasoning: Dict[str, Any] = {}
 
     @property
     def deployment(self) -> Optional[str]:
@@ -293,8 +264,7 @@ class MasterNarrator(BaseFoundryAgent):
             "Exactly 3 steps. assigned_to must be one of: strategist, designer, marketer (in that order). "
             "artifact_type must be one of: doc, url, email. xp_reward is an integer 10-30."
         )
-        out = _chat_json(self.role, self.system_instructions, user, {"steps": fallback},
-                         sink=self.last_reasoning)
+        out = _chat_json(self.role, self.system_instructions, user, {"steps": fallback})
         steps = out.get("steps") if isinstance(out, dict) else None
         return _normalize_steps(steps, pitch)
 
@@ -320,8 +290,7 @@ class StrategistAgent(BaseFoundryAgent):
             "Return JSON with keys: target_audience, core_problem, value_proposition, primary_benefit. "
             "Each value is a single concise sentence."
         )
-        out = _chat_json(self.role, self.system_instructions, user, fallback,
-                         sink=self.last_reasoning)
+        out = _chat_json(self.role, self.system_instructions, user, fallback)
         return out if isinstance(out, dict) else fallback
 
 
@@ -349,8 +318,7 @@ class DesignerAgent(BaseFoundryAgent):
             "features (string with 3 numbered features separated by '; '), url (string starting with https://). "
             f"Reflect this primary benefit: {benefit}"
         )
-        out = _chat_json(self.role, self.system_instructions, user, fallback,
-                         sink=self.last_reasoning)
+        out = _chat_json(self.role, self.system_instructions, user, fallback)
         return out if isinstance(out, dict) else fallback
 
 
@@ -388,6 +356,5 @@ class MarketerAgent(BaseFoundryAgent):
             "Return JSON with keys: subject (string under 80 chars), body (multi-paragraph string "
             f"that includes the URL {url} as a CTA). Tone: confident, friendly, no emoji."
         )
-        out = _chat_json(self.role, self.system_instructions, user, fallback,
-                         sink=self.last_reasoning)
+        out = _chat_json(self.role, self.system_instructions, user, fallback)
         return out if isinstance(out, dict) else fallback

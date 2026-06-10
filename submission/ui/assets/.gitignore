@@ -16,3 +16,9 @@ local/
 !generated/CREDITS.md
 !generated/lore/
 !generated/lore/*.png
+# Veo motion clips are a local-only progressive enhancement - too heavy to
+# commit. The committed MAI stills are the baseline every fork gets.
+generated/lore/video/
+*.mp4
+*.webm
+*.mov

@@ -36,45 +36,54 @@ each word was chosen, where it came from, and how the build grew to support it.
 
 ## 2. The lore (the art piece)
 
-The intro is not decoration. It is the argument, delivered as lore so the
+The intro is not decoration. It is the argument, delivered as a short film -
+Veo motion backdrops, neural narration, an intertitle per scene - so the
 presenter does not have to narrate the reasoning out loud on stage. The game
-explains itself. The arc, card by card, lives in
+explains itself. The arc is a hero's journey: it opens by **inviting the
+player into the story** instead of describing the product, and the title -
+"your company is the dungeon" - is earned at the end of the arc as the way the
+player enters that story. The scenes, card by card, live in
 [ui/game/intro.js](../ui/game/intro.js):
 
-1. **The premise - every company is two companies.** One is the handful of
-   people who decide. The other is all the work that has to get done. For the
-   first time, that second company can be made of agents.
-2. **Your seat - you are the CEO, and you want the impossible.** Terraform the
-   Sahara. Build new cities where there is only sand. It is too big to command
-   into existence - so how could anyone actually do it?
-3. **The only way - you cannot command a billion people, you align them.**
-   Automate the production and distribution of basic needs (food, water,
-   energy, shelter) and a billion humans, and their AI, finally have a reason
-   to pull the same way.
-4. **The mechanism - so you build an agency of digital workers.** Every person
-   with a skill binds it to a digital worker that does the execution. Their
-   experience becomes a business that runs while they sleep - income they earn,
-   not income they wait for. This is UBI-by-construction, not UBI-by-handout.
-5. **The flywheel - and everyone gets paid, fairly.** The platform learns from
-   real people doing real work, paid evenly - not scraped the way today's
-   models were. Even a superintelligence still needs the grassroots: a million
-   humans who know what it cannot, and who can tell it what to do when it
-   hallucinates or hits the edge of its training.
-6. **How it thinks - every agent that reasons runs on Foundry.** Foundry IQ for
-   memory, a code interpreter for checks it cannot fake, and multi-agent
-   orchestration that turns them into a team.
-7. **Why you can trust it - a human stays at the root of everything.** No
-   artifact counts until you approve it at a verification gate. That one rule
-   is the difference between a colleague and a slop machine.
-8. **Your turn - the vision is the CEO's, the path is yours.** You bring the
-   skill and the judgment. Your agent workforce brings the execution. Pick the
-   front you want to carve, and make it yours.
+1. **The invitation - welcome to your hero's journey.** You are here to chart
+   a path through a world that terraforms the Sahara and automates the basic
+   needs of every sentient being. At your disposal: an agency of reasoning
+   agents, competing in the Agents League. The journey is ambitious - and it
+   is taken care of. What it needs is you.
+2. **The catch - it is too big to command.** No one can command a desert
+   green or hire a billion hands. Our daily lives are suspended in a web of
+   social contracts between a multitude of institutions - chaotic, complex,
+   overdue for an update. A vision this size is never commanded into
+   existence; it is aligned.
+3. **The vow - align a billion people.** No belly goes hungry. No head goes
+   without a roof. No back is unclad. And no soul is enslaved to survival.
+   Automate the basics - food, water, energy, shelter - and a billion humans,
+   and their AI, finally pull the same way. (The vow is from the 2021 Poly186
+   whitepaper - this game is its playable form.)
+4. **The mechanism - an agency of digital workers.** Bind your real skill to
+   a worker that executes, and your experience becomes a business that runs
+   while you sleep. UBI-by-construction, not UBI-by-handout.
+5. **The flywheel - everyone gets paid, fairly.** The platform learns from
+   real, consented work, paid evenly - not scraped. Even a superintelligence
+   needs the grassroots.
+6. **How it thinks - reasoning runs on Foundry.** Memory it can cite, a code
+   interpreter for checks it cannot fake, orchestration that turns lone
+   agents into a team.
+7. **The law of this world - a human holds the seal.** Nothing counts until a
+   human presses the seal. Every artifact stops at the gate and waits for you.
+8. **The game - your company is the dungeon.** This is how you enter the
+   story: found a company on one front of the mission, take the CEO's chair,
+   and clear it room by room with your workforce.
 
-The closing card is a **choice screen**, not a wall of text. See section 4.
+The closing card is **character creation as the choice screen** - "What do
+you bring?" - where the player answers the narrator for the first time: their
+real skill (the starting gear) plus the front they want to carve. The first
+interaction of the game is the player completing the story. See section 4.
 
 ### The tightened arc (if the clock is short)
 
-Eight cards is the full cut. The three beats that must land, in order, are:
+Eight scenes plus the choice is the full cut. The three beats that must land,
+in order, are:
 **(1) the vision is too big to command -> (2) so you build an agency of digital
 workers -> (3) and a human stays at the root of every result.** Premise,
 flywheel, and Foundry detail are support; if time is tight, cut to these three.

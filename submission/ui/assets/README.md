@@ -41,6 +41,36 @@ MIT**, so forkers get both the art and the generator.
 - Commit generated art under `submission/ui/assets/generated/` with a note that
   it is AI-generated (responsible-AI disclosure) and which model produced it.
 
+## Motion backdrops (Veo) - local-only progressive enhancement
+
+The intro lore cards upgrade themselves from stills to motion: if a clip named
+`generated/lore/video/<scene>.mp4` exists for a scene (same base name as the
+PNG - `sahara.mp4` next to `sahara.png`), the intro plays the looping clip as
+the full-bleed backdrop instead of the Ken Burns still. Clips are **local-only
+and gitignored** (too heavy for the repo); the committed MAI stills are the
+baseline every fork gets, so nothing breaks without them.
+
+Format: ~8s loopable, 16:9 (1280x720 or better), muted (the game supplies its
+own narration and score), no text or logos in frame.
+
+Scene prompts (generated with Google Veo 3 in Flow; one clip per lore card,
+same house palette as the stills - dark navy night, teal and gold light):
+
+| Scene file | Prompt |
+|---|---|
+| `sahara.mp4` | Slow aerial push over golden Sahara dunes at dawn; thin channels of water spread through the sand, green growth following them toward a distant glowing new city; minimal flat geometric vector style, dark navy sky, teal and gold light accents, no text, seamless loop |
+| `premise.mp4` | Slow vertical drift down a glowing business tower at night: one small warm-lit boardroom of few silhouettes at the top, vast luminous lattice of working agent nodes pulsing below; flat geometric vector style, dark navy, teal and gold, no text, seamless loop |
+| `needs.mp4` | Aerial glide over an automated landscape lighting up at night: greenhouse rows, water channels, solar microgrids and modular shelters connecting one by one with glowing logistics lines; flat geometric vector style, dark navy, teal and gold, no text, seamless loop |
+| `workforce.mp4` | One human silhouette at a desk; above them a constellation of glowing digital worker avatars fans out, each tethered by a thread of light that pulses as work flows; flat geometric vector style, dark navy, teal and gold, no text, seamless loop |
+| `flywheel.mp4` | A great luminous wheel of many small human figures and AI nodes slowly turning, light flowing evenly between them in a fair circular exchange; flat geometric vector style, dark navy, teal and gold, no text, seamless loop |
+| `foundry.mp4` | A vast glowing foundry core like a reactor of reasoning, deep geometric machinery slowly rotating, orbited by small agent lights; flat geometric vector style, dark navy, teal and gold, no text, seamless loop |
+| `gate.mp4` | A single human hand slowly pressing a glowing approval seal onto a monumental gate; light ripples across the gate as agent silhouettes wait behind it; flat geometric vector style, dark navy, teal and gold, no text, seamless loop |
+| `title.mp4` | Slow descent into a glowing business-tower dungeon sinking into the earth, floors lit like circuit boards igniting one by one, tiny founder silhouette at the entrance; flat geometric vector style, dark navy, teal and gold, no text, seamless loop |
+
+Drop the exported MP4s into `generated/lore/video/` and reload - the intro
+picks them up automatically (and upgrades a scene mid-play once its clip
+finishes loading). Disclosure: clips are AI-generated with Google Veo 3.
+
 ## Redistributable alternatives (if you want art committed to the repo)
 
 To ship art *inside* a public MIT fork, use assets whose license permits
