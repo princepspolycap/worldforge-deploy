@@ -1,13 +1,24 @@
-# Environment variables
+# Environment variables and local credentials
 .env
+.env.*
 .env.local
 .env.*.local
-submission/docs/llm_smoke_test_results*.json
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+
+# Maintainer-only working notes (deployment names, quota numbers, demo-day
+# logistics, draft blogs). Never committed - this is an open-source repo.
+submission/private/
 
 # API keys and secrets
 **/secrets/
 **/config/secrets.*
 **/.secrets
+*.pem
+*.key
+*.pfx
 
 # Dependencies
 node_modules/
@@ -44,6 +55,10 @@ __pycache__/
 .coverage
 htmlcov/
 .nyc_output
+submission/docs/llm_smoke_test_results*.json
+submission/docs/*smoke*results*.json
+submission/docs/*eval*results*.json
+submission/evals/results/
 
 # Logs
 logs/
@@ -59,11 +74,16 @@ Thumbs.db
 # Azure
 .azure/
 
-# Temp files
+# Local demo state, replay exports, and generated media
 *.tmp
 *.temp
 .cache/
 submission/state/*.json
+submission/replay/*.json
+submission/replay/*.jsonl
+submission/replay/*.log
+submission/ui/assets/local/
+submission/ui/assets/generated/lore/video/
 
 # Build outputs
 dist/
