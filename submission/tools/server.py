@@ -1052,6 +1052,193 @@ def record_decision(payload: DecisionRequest):
     }
 
 
+class StandupRequest(BaseModel):
+    chapter_id: Optional[str] = None
+
+
+_ROLE_DISPLAY = {
+    "strategist": "Strategist",
+    "designer": "Designer",
+    "marketer": "Marketer",
+    "ops": "Operations",
+    "narrator": "World Designer",
+    "orgdesigner": "Org Designer",
+}
+
+
+def _worker_title_for_chapter(chapter: Optional[Chapter]) -> str:
+    if not chapter:
+        return "the next worker"
+    return chapter.assigned_worker_title or _ROLE_DISPLAY.get(chapter.owner_role, chapter.owner_role)
+
+
+def _standup_turn(
+    speaker: str,
+    role: str,
+    worker_id: str,
+    tool: str,
+    message: str,
+    handoff_to: str = "",
+) -> Dict[str, Any]:
+    return {
+        "speaker": speaker,
+        "role": role,
+        "worker_id": worker_id or role,
+        "tool_call": {"tool": tool, "status": "completed"},
+        "message": message,
+        "handoff_to": handoff_to,
+    }
+
+
+def _build_standup_turns(
+    state: CompanyState,
+    chapter: Chapter,
+    decision: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    world = state.world
+    chapters = world.chapters if world else []
+    idx = chapters.index(chapter) if chapter in chapters else -1
+    next_chapter = chapters[idx + 1] if idx >= 0 and idx + 1 < len(chapters) else None
+    consequence = decision.get("consequence") or {}
+    economics = consequence.get("after") or {}
+    org_delta = consequence.get("org_delta") or {}
+    rule_id = consequence.get("rule_id") or decision.get("rule_id") or "decision.custom"
+    summary = consequence.get("summary") or "The CEO choice is now binding direction."
+    option = decision.get("option") or "the chosen option"
+    owner_title = _worker_title_for_chapter(chapter)
+    next_title = _worker_title_for_chapter(next_chapter)
+    next_role = next_chapter.owner_role if next_chapter else "narrator"
+
+    turns: List[Dict[str, Any]] = [
+        _standup_turn(
+            speaker=owner_title,
+            role=chapter.owner_role,
+            worker_id=chapter.assigned_worker_id or chapter.owner_role,
+            tool="calculate_consequence",
+            message=(
+                f"I read the CEO call as '{option}'. {summary} "
+                "I am updating the handoff so the next room inherits the constraint, not just the pitch."
+            ),
+            handoff_to=next_title if next_chapter else "",
+        )
+    ]
+
+    added_title = org_delta.get("added_role_title")
+    if added_title:
+        turns.append(_standup_turn(
+            speaker=added_title,
+            role=chapter.owner_role,
+            worker_id=str(org_delta.get("added_role_id") or added_title).lower().replace(" ", "_"),
+            tool="render_org_graph",
+            message=(
+                "I am now on the org graph. My first job is to absorb the tradeoff and create evidence "
+                "the existing party could not produce alone."
+            ),
+            handoff_to=next_title if next_chapter else "",
+        ))
+
+    turns.append(_standup_turn(
+        speaker=next_title,
+        role=next_role,
+        worker_id=(next_chapter.assigned_worker_id if next_chapter else "narrator") or next_role,
+        tool="read_memory",
+        message=(
+            f"My next brief starts from {rule_id}, current proof {economics.get('proof', state.economics.proof)}, "
+            f"velocity {economics.get('velocity', state.economics.velocity)}, and burn pressure "
+            f"{economics.get('burn_pressure', state.economics.burn_pressure)}. I will not reset the story."
+        ),
+        handoff_to="founder",
+    ))
+
+    if state.economics:
+        turns.append(_standup_turn(
+            speaker="Runway Steward",
+            role="ops",
+            worker_id="runway_steward",
+            tool="watch_burn",
+            message=(
+                f"Operating numbers changed: {state.economics.digital_worker_count} digital workers, "
+                f"${state.economics.monthly_burn_usd:,}/mo burn, {state.economics.runway_months} months runway. "
+                "I am keeping the party honest about cost."
+            ),
+            handoff_to=next_title if next_chapter else "",
+        ))
+
+    context = {
+        "chapter_id": chapter.id,
+        "next_chapter_id": next_chapter.id if next_chapter else "",
+        "next_worker_title": next_title if next_chapter else "",
+        "rule_id": rule_id,
+        "summary": summary,
+    }
+    return turns[:4], context
+
+
+@app.post("/api/world/standup")
+def world_standup(payload: StandupRequest):
+    """Return a short manager-directed agent stand-up after a CEO decision.
+
+    This is the simulation-safe surface for the AutoGen-style group-chat beat.
+    The response shape can later be backed by Microsoft Agent Framework Group
+    Chat without changing the Story Mode renderer.
+    """
+    state = store.load()
+    if not state or not state.world:
+        raise HTTPException(status_code=400, detail="No world graph.")
+    world = state.world
+    if not world.decisions:
+        raise HTTPException(status_code=400, detail="No CEO decision to react to.")
+    decision = None
+    if payload.chapter_id:
+        decision = next((d for d in reversed(world.decisions) if d.get("chapter_id") == payload.chapter_id), None)
+    decision = decision or world.decisions[-1]
+    chapter_id = decision.get("chapter_id")
+    chapter = next((ch for ch in world.chapters if ch.id == chapter_id), None)
+    if not chapter:
+        raise HTTPException(status_code=404, detail=f"Unknown chapter: {chapter_id}")
+
+    turns, context = _build_standup_turns(state, chapter, decision)
+    packet = {
+        "chapter_id": chapter.id,
+        "source": "simulation",
+        "orchestration": {
+            "pattern": "group_chat",
+            "framework_target": "Microsoft Agent Framework Group Chat",
+            "manager": "standup_orchestrator",
+            "selection": "manager-directed",
+        },
+        "trigger": {
+            "option": decision.get("option", ""),
+            "tradeoff": decision.get("tradeoff", ""),
+            "rule_id": context["rule_id"],
+            "summary": context["summary"],
+        },
+        "tool_plan": [
+            {"tool": "calculate_consequence", "owner": _worker_title_for_chapter(chapter)},
+            {"tool": "read_memory", "owner": context.get("next_worker_title") or "next worker"},
+            {"tool": "watch_burn", "owner": "Runway Steward"},
+        ],
+        "turns": turns,
+        "next_brief_delta": (
+            f"{context['rule_id']} is binding in the next brief. "
+            f"{context['summary']}"
+        ),
+    }
+    store.log_event(
+        "AGENT_STANDUP",
+        "standup_orchestrator",
+        f"Agents reacted to {context['rule_id']} after '{chapter.title}'.",
+        {
+            "chapter_id": chapter.id,
+            "orchestration": packet["orchestration"],
+            "trigger": packet["trigger"],
+            "turns": turns,
+        },
+    )
+    store.save()
+    return packet
+
+
 @app.post("/api/world/run-next")
 def run_next_chapter():
     """Execute the next pending chapter via the Worker Factory."""

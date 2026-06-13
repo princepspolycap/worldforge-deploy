@@ -1155,6 +1155,39 @@ async function revealSelfOrganization() {
     await sleep(700);
 }
 
+function standupToolMarkup(turn) {
+    const call = turn && turn.tool_call ? turn.tool_call : {};
+    const tool = call.tool || "agent_turn";
+    const status = call.status || "completed";
+    return `<div class="standup-tool"><code>${esc(tool)}</code><span>${esc(status)}</span></div>`;
+}
+
+async function renderAgentStandup(standup) {
+    const turns = standup && Array.isArray(standup.turns) ? standup.turns : [];
+    if (!turns.length) return;
+    const trigger = standup.trigger || {};
+    setSceneHead("Agent stand-up", "The party reacts to your call",
+        `group chat orchestration - ${esc(trigger.rule_id || "decision")}`);
+    const members = turns.map((turn, i) => {
+        const role = turn.role || "narrator";
+        const portrait = ROLE_PORTRAIT[role] || "narrator";
+        const handoff = turn.handoff_to ? `<div class="standup-handoff">handoff: ${esc(turn.handoff_to)}</div>` : "";
+        return `<div class="council-member standup-member" style="animation-delay:${i * 90}ms">`
+            + `<div class="council-top"><img class="council-face" src="/game/assets/generated/${portrait}.png" alt="" onerror="this.style.display='none'" />`
+            + `<div><div class="council-name">${esc(turn.speaker || ROLE_NAME[role] || role)}</div><div class="council-role">${esc(ROLE_NAME[role] || role)}</div></div></div>`
+            + standupToolMarkup(turn)
+            + `<div class="council-says">&ldquo;${esc(turn.message || "")}&rdquo;</div>`
+            + handoff
+            + `</div>`;
+    }).join("");
+    $("diagram").innerHTML = `<div class="council fade-scene">${members}</div>`;
+    setParty(turns[0].worker_id || turns[0].role, "reacting to the CEO decision", turns[0].speaker);
+    const line = standup.next_brief_delta || trigger.summary || "The next worker brief now carries the choice.";
+    lens("reasoning", `Agent group chat: ${turns.length} turns reacted to ${trigger.rule_id || "the CEO decision"}`);
+    await narrate(`Stand-up. ${line}`);
+    await sleep(600);
+}
+
 async function revealVentureGraph() {
     setSceneHead("Beat 4", "The venture, decomposed",
         "\u2692 drawn live from the World Designer's chapter graph (JSON \u2192 Mermaid)");
@@ -1545,6 +1578,12 @@ async function runDilemmaGate(chapter, auto) {
             if (state.org) {
                 await renderMermaid(orgBlueprintMermaid(state.org));
                 await sleep(500);
+            }
+            try {
+                const standup = await api("/api/world/standup", { chapter_id: chapter.id });
+                await renderAgentStandup(standup);
+            } catch (_) {
+                lens("reasoning", "Agent stand-up skipped; decision state is still committed");
             }
         } else {
             nudgeResources(resourceDeltaForDecision(option, tradeoff));

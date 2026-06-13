@@ -347,6 +347,37 @@ Let workers hand off within a room:
 - The strategist can call the designer, marketer, or operator into the scene.
 - The player still commits exactly one explicit decision at the dilemma gate.
 
+### Phase 1.5 - Agent Stand-Up After Choices
+
+Implemented baseline. After `/api/decision` applies a consequence, Story Mode
+calls `/api/world/standup` and renders a short manager-directed group-chat beat:
+
+- the owning worker explains how the choice changes the handoff;
+- a new org role can speak if the consequence added one;
+- the next worker reads memory and operating metrics before its brief;
+- the Runway Steward reacts to burn, runway, and digital-worker count.
+
+The endpoint returns `orchestration.pattern = "group_chat"` plus turns, tool
+calls, and handoffs. It is deterministic in simulation, but the contract is
+shaped to be replaced by Microsoft Agent Framework Group Chat later.
+
+Microsoft Agent Framework has the equivalent of the AutoGen group-chat concept.
+The official orchestration docs list Group Chat as a built-in multi-agent
+pattern where agents collaborate in a shared conversation, and the Python API
+documents `GroupChatBuilder` as a high-level builder for manager-directed group
+chat workflows:
+
+- https://learn.microsoft.com/en-us/agent-framework/workflows/orchestrations/
+- https://learn.microsoft.com/en-us/agent-framework/workflows/orchestrations/group-chat
+- https://learn.microsoft.com/en-us/python/api/agent-framework-core/agent_framework.groupchatbuilder
+
+That means our migration path should be:
+
+1. Keep `/api/world/standup` as the game contract.
+2. Replace the deterministic turn builder with a `GroupChatBuilder` workflow
+   when the local runtime and credentials are ready.
+3. Stream the same turn/tool/handoff events into the realtime scene contract.
+
 ### Phase 5 - Full Realtime Campaign
 
 Only after the above works:
@@ -367,6 +398,7 @@ Recommended server additions:
 | `state/character_casting.py` | Deterministic voice/avatar assignment from org workers and locale pools. |
 | `tools/server.py:/api/dilemma` | Return authored/generated scene packet with deterministic rule ids. |
 | `tools/server.py:/api/decision` | Accept `rule_id`; reject unknown or stale scene ids; return full updated state. |
+| `tools/server.py:/api/world/standup` | Return post-choice group-chat turns, tool calls, and handoffs for Story Mode. |
 | `tools/server.py:/ws/game/realtime` | Game event stream and simulation replay path. |
 | `tools/realtime_voice.py` | Voice Live session adapter, hidden behind simulation fallback. |
 | `tools/game_tools.py` | Allowlisted tools callable by realtime agents. |
