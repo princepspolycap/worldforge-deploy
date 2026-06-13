@@ -23,6 +23,7 @@ import base64
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -71,20 +72,26 @@ Disclosure: AI-generated content. Model: {model}.
 
 # Wide cinematic key art for the intro lore cards (16:9-ish; w*h <= 1,048,576).
 # One scene per lore beat, same house palette so the sequence reads as one film.
+# Wide cinematic key art for the intro lore cards (16:9-ish; w*h <= 1,048,576).
+# One scene per lore beat. Style cues distilled from the maintainer's original
+# Poly186 vision boards (terraformed-Sahara concept art): cinematic painterly
+# realism, ground-level or aerial vistas, golden-hour or moonlit light, vast
+# scale - unified with the game's navy/teal/gold palette so UI chrome still fits.
 KEYART_STYLE = (
-    "cinematic wide establishing shot, minimal flat geometric vector art, dark "
-    "navy night palette with teal and gold light accents, vast scale, no text, "
-    "no border, no frame, full bleed edge to edge"
+    "epic cinematic concept art, painterly photorealism, vast establishing "
+    "shot, volumetric golden-hour light against deep navy-blue night shadows, "
+    "teal and gold accent lighting, atmospheric haze, breathtaking scale, "
+    "no text, no border, no frame, full bleed edge to edge"
 )
 KEYART = {
-    "title": "a glowing business-tower dungeon descending into the earth, floors lit like circuit boards, tiny founder silhouette at the entrance",
-    "premise": "split scene: a small lit boardroom of a few human silhouettes above, and below it a vast luminous lattice of working agent nodes doing the labor",
-    "sahara": "terraforming the sahara desert at dawn, green growth and water channels spreading through golden dunes toward a new city on the horizon",
-    "needs": "an automated landscape of food greenhouses, water channels, solar microgrids and modular shelters connected by glowing logistics lines",
-    "workforce": "a human silhouette at a desk with a constellation of glowing digital worker avatars fanned out above, each tethered by a thread of light",
-    "flywheel": "a great luminous wheel of many small human figures and AI nodes exchanging light evenly, energy flowing in a fair circular loop",
-    "foundry": "a vast glowing foundry core like a reactor of reasoning, orbited by smaller agent lights, deep geometric machinery",
-    "gate": "a single human hand pressing a glowing approval seal on a monumental gate, agent silhouettes waiting behind it",
+    "title": "a colossal business-tower dungeon descending into the earth beneath a desert city at dusk, its underground floors glowing like circuit boards through the cutaway, a tiny founder silhouette at the gate above",
+    "premise": "split vista at twilight: a small warmly lit boardroom of human silhouettes on a mesa top, and beneath it a vast luminous lattice of agent lights working through the rock like a living circuit cavern",
+    "sahara": "ground-level view of a terraformed Sahara at sunrise, dew on new grasslands spreading through golden dunes, water channels catching first light, pyramids on the horizon watching over green growth and a distant gleaming city",
+    "needs": "aerial view of an automated oasis settlement at golden hour: geodesic greenhouses, solar microgrids, water channels and modular homes threaded together by glowing logistics lines across reclaimed green desert",
+    "workforce": "a lone founder at a desk on an open dune at night, a constellation of glowing digital worker avatars fanned out across the starry sky above, each tethered to the desk by a thread of golden light",
+    "flywheel": "a great luminous wheel turning over a moonlit green valley, many small human figures and AI nodes around its rim exchanging light evenly, energy flowing in a fair circular loop down into villages below",
+    "foundry": "a vast glowing foundry core like a reactor of reasoning rising from desert rock at night, orbited by small agent lights, monumental geometric machinery breathing teal and gold fire",
+    "gate": "a single human hand pressing a glowing approval seal onto a monumental stone gate at dawn, agent silhouettes waiting respectfully behind with artifacts of light, long shadows across the sand",
 }
 
 
@@ -156,11 +163,22 @@ def main() -> int:
             prompt = f"{STYLE}, {catalog[role]}"
             width, height = 1024, 1024
         print(f"generating {out.name} on {IMAGE_DEPLOYMENT} ...")
-        try:
-            png = _request_image(prompt, width=width, height=height)
-        except (urllib.error.URLError, urllib.error.HTTPError, ValueError, OSError) as exc:
-            print(f"  FAILED {role}: {exc}")
-            failures += 1
+        png = None
+        for attempt in range(4):
+            try:
+                png = _request_image(prompt, width=width, height=height)
+                break
+            except (urllib.error.URLError, urllib.error.HTTPError, ValueError, OSError) as exc:
+                is_429 = isinstance(exc, urllib.error.HTTPError) and exc.code == 429
+                if is_429 and attempt < 3:
+                    wait = 30 * (attempt + 1)
+                    print(f"  rate limited; retrying in {wait}s ...")
+                    time.sleep(wait)
+                    continue
+                print(f"  FAILED {role}: {exc}")
+                failures += 1
+                break
+        if png is None:
             continue
         out.write_bytes(png)
         print(f"  wrote {out} ({len(png) // 1024} KB)")

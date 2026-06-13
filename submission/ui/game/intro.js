@@ -2,9 +2,10 @@
 //
 // This is deliberately additive and fully skippable. It never touches the main
 // story flow in story.js - it only paints a fixed overlay on top, then removes
-// it. The presenter can let it auto-play, click / press space to move faster,
-// or skip entirely (Esc or the Skip button). During practice, append ?intro=0
-// to the URL to bypass it on reload.
+// it. The presenter can opt into the old cinematic lore with ?intro=1, click /
+// press space to move faster, or skip entirely (Esc or the Skip button). The
+// default path now starts at founder creation so the experience is a game first,
+// not a film.
 //
 // The lore here carries the reasoning behind the build - why Foundry, why a
 // human stays at the root, why it is a game - so the presenter does not have to
@@ -16,8 +17,9 @@
     const overlay = document.getElementById("intro-overlay");
     if (!overlay) return;
 
-    // Practice escape hatch: ?intro=0 dismisses immediately on load.
-    if (new URLSearchParams(location.search).get("intro") === "0") {
+    // The lore film is now opt-in. It is still useful for a staged talk, but a
+    // normal player should reach choices immediately.
+    if (new URLSearchParams(location.search).get("intro") !== "1") {
         overlay.style.display = "none";
         return;
     }
@@ -220,7 +222,7 @@
     // one phrase - it's a game rule, not a story beat.)
     const cards = [
         {
-            kicker: "Microsoft Agents League - Battle 2 - Reasoning Agents",
+            kicker: "A POLY186 experience",
             h2: "Welcome to your hero's journey.",
             sub: "Chart your path: terraform the Sahara. Automate basic needs.",
             vo: "Welcome to your hero's journey. You are to chart a path within a world that terraforms the Sahara desert and automates basic needs. At your disposal: a league of reasoning agents - your digital workers. The journey is ambitious. What it needs - is you.",
@@ -447,11 +449,14 @@
         setBackdrop(cards[0].img, true); // dimmed first frame as the poster
         cardEl.innerHTML =
             '<div class="intro-anim">' +
-            '<div class="kicker">' + cards[0].kicker + "</div>" +
-            "<h2>Your Company Is the Dungeon</h2>" +
-            '<p>A short film opens the descent. Sound on.</p>' +
+            '<div class="kicker">A POLY186 experience</div>' +
+            "<h2>Gamifying World Improvement</h2>" +
+            "<p>A hero's journey where you automate basic needs.</p>" +
             '<span class="intro-begin">&#9654;&ensp;Begin</span>' +
             "</div>";
-        hintEl.textContent = "click anywhere to begin - esc to skip";
+        hintEl.innerHTML =
+            '<span class="ih-credit">Microsoft Agents League &middot; Battle 2 &middot; Reasoning Agents</span>' +
+            '<span class="ih-sep">&middot;</span>' +
+            '<span class="ih-hint">sound on &middot; esc to skip</span>';
     }
 })();

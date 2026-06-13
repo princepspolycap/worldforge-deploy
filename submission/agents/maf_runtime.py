@@ -128,12 +128,26 @@ def run_maf_agent(
         async def before_run(self, *, agent, session, context, state) -> None:  # noqa: ANN001
             lines: List[str] = []
             for d in (decisions or [])[-3:]:
+                after = ((d.get("consequence") or {}).get("after") or {})
+                econ = ""
+                if after:
+                    econ = (
+                        f" Current state: burn ${after.get('monthly_burn_usd', 0)}/mo, "
+                        f"{after.get('digital_worker_count', 0)} digital workers, "
+                        f"proof {after.get('proof', 0)}, trust {after.get('trust', 0)}, "
+                        f"velocity {after.get('velocity', 0)}."
+                    )
                 lines.append(
                     f"CEO decision after '{d.get('chapter_title', d.get('chapter_id', ''))}': "
                     f"chose \"{d.get('option', '')}\""
                     + (f" (tradeoff accepted: {d.get('tradeoff', '')})" if d.get("tradeoff") else "")
+                    + (f". Company consequence: {d.get('consequence_summary', '')}" if d.get("consequence_summary") else "")
+                    + econ
                 )
-                meta["maf_memory"].append({"kind": "ceo_decision", "text": str(d.get("option", ""))[:120]})
+                meta["maf_memory"].append({
+                    "kind": "ceo_decision",
+                    "text": (str(d.get("option", "")) + " -> " + str(d.get("consequence_summary", "")))[:120],
+                })
             for h in (retrieval_hits or [])[:2]:
                 lines.append(f"Knowledge base ({h.get('source', 'kb')}): {str(h.get('content', ''))[:400]}")
                 meta["maf_memory"].append({"kind": "iq_recall", "text": str(h.get("source", ""))[:120]})

@@ -16,6 +16,7 @@ from pydantic import BaseModel
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from state.schema import StateStore, QuestState, QuestStep, CompanyState, WorldGraph, Chapter, OrgBlueprint
+from state.consequences import apply_decision_consequence, initialize_economics_from_org
 from state.api_contract import state_response, step_response, chapter_response, reset_response
 from agents.foundry_agents import MasterNarrator, StrategistAgent, DesignerAgent, MarketerAgent, generate_lore
 from agents.model_config import model_for, is_live, get_foundry_client, create_chat_completion
@@ -27,6 +28,7 @@ from agents.memory import remember, recall_memories, memory_snapshot
 from agents.company_analyst import analyze_company as analyze_company_url
 from tools.code_interpreter_wrappers import validate_positioning, validate_landing_page, validate_marketing_email
 from tools.toolbox import tools_list, tools_call, tools_for_role
+from tools.export_org_blueprint import org_to_workforce_bundle
 
 app = FastAPI(
     title="Your Company Is the Dungeon - Server",
@@ -645,6 +647,7 @@ def analyze_company(payload: AnalyzeRequest):
 
     blueprint = design_org(brief, source=source, source_ref=source_ref, summary_hint=summary_hint)
     state.org = OrgBlueprint(**blueprint)
+    state.economics = initialize_economics_from_org(state.org)
 
     # Simple game mechanic: chartering the org rewards XP scaled by how much
     # leverage the digital workforce gives the single human operator.
@@ -678,6 +681,33 @@ def analyze_company(payload: AnalyzeRequest):
     }
 
 
+@app.get("/api/org/export")
+def export_org():
+    """Export the chartered org as a platform-neutral Workforce Bundle.
+
+    The bundle (workers with generated briefs, team composition, KPI wishes,
+    Mermaid org chart) is the bridge out of the game: any digital-worker
+    platform can ingest it and provision the org for real - behind its own
+    human approval gate. No platform-specific code lives in this repo.
+    """
+    state = store.load()
+    if not state.org or not state.org.roles:
+        raise HTTPException(status_code=404, detail="No chartered org to export. Charter an org first.")
+    bundle = org_to_workforce_bundle(state.org.model_dump())
+    store.log_event(
+        "ORG_EXPORTED", "org_designer",
+        f"Exported workforce bundle: {len(bundle['workers'])} digital workers + "
+        f"{len(bundle['humans'])} human seat(s), pending human approval downstream.",
+        {"format": bundle["format"], "version": bundle["version"],
+         "workers": len(bundle["workers"]), "humans": len(bundle["humans"])},
+    )
+    store.save()
+    return JSONResponse(
+        content=bundle,
+        headers={"Content-Disposition": 'attachment; filename="workforce_bundle.json"'},
+    )
+
+
 @app.post("/api/world/design")
 def design_world_endpoint(payload: AutoplayRequest):
     """Uses the WorldDesigner to produce a full venture graph.
@@ -702,6 +732,7 @@ def design_world_endpoint(payload: AutoplayRequest):
     # Carry forward a prior analyze session (org + earned XP + flags).
     if prev and prev.org:
         state.org = prev.org
+        state.economics = prev.economics or initialize_economics_from_org(state.org)
         state.xp = prev.xp
         state.level = prev.level
         state.business_flags = prev.business_flags
@@ -866,12 +897,16 @@ def record_decision(payload: DecisionRequest):
     if not chapter:
         raise HTTPException(status_code=404, detail=f"Unknown chapter: {payload.chapter_id}")
 
+    old_entry = next((d for d in world.decisions if d.get("chapter_id") == chapter.id), None)
     choice = {
         "prompt": (payload.prompt or "")[:300],
         "option": payload.option[:200],
         "tradeoff": (payload.tradeoff or "")[:200],
         "custom": bool(payload.custom),
     }
+    consequence = apply_decision_consequence(state, chapter, choice, old_entry=old_entry)
+    choice["consequence"] = consequence
+    choice["consequence_summary"] = consequence["summary"]
     chapter.dilemma_choice = choice
     entry = {"chapter_id": chapter.id, "chapter_title": chapter.title, **choice}
     world.decisions = [d for d in world.decisions if d.get("chapter_id") != chapter.id]
@@ -881,7 +916,8 @@ def record_decision(payload: DecisionRequest):
     # from every gate decision - recalled in all later worker briefs.
     mem_entry = remember("procedural",
              f"CEO chose '{choice['option']}' at the '{chapter.title}' gate"
-             + (f" accepting tradeoff: {choice['tradeoff']}" if choice["tradeoff"] else ""),
+             + (f" accepting tradeoff: {choice['tradeoff']}" if choice["tradeoff"] else "")
+             + f". Consequence: {choice['consequence_summary']}",
              {"chapter_id": chapter.id})
     if mem_entry:
         store.log_event("MEMORY_WRITTEN", "memory",
@@ -892,8 +928,16 @@ def record_decision(payload: DecisionRequest):
         f"Gate decision after '{chapter.title}': {choice['option']}",
         {"chapter_id": chapter.id, "option": choice["option"],
          "tradeoff": choice["tradeoff"], "custom": choice["custom"]})
+    store.log_event("CONSEQUENCE_APPLIED", "system",
+        f"{consequence['rule_id']} changed the company: {consequence['summary']}",
+        {"chapter_id": chapter.id, **consequence})
     store.save()
-    return {"recorded": entry, "decisions": world.decisions}
+    return {
+        "recorded": entry,
+        "decisions": world.decisions,
+        "consequence": consequence,
+        "state": state.model_dump(),
+    }
 
 
 @app.post("/api/world/run-next")
@@ -996,6 +1040,7 @@ def autoplay_world(payload: AutoplayRequest):
     # runs in simulation too.
     org_blueprint = design_org(brief, source="pitch", source_ref=brief)
     state.org = OrgBlueprint(**org_blueprint)
+    state.economics = initialize_economics_from_org(state.org)
     store.log_event(
         "ORG_CHARTERED", "org_designer",
         f"Chartered a {state.org.headcount}-seat org: 1 operator + "

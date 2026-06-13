@@ -8,20 +8,53 @@
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
         :root {
+            /* surfaces */
             --bg: #0a0e1a;
             --bg-2: #070a14;
+            /* text ramp */
             --ink: #e8ecf6;
             --ink-dim: #9aa6c0;
             --ink-faint: #586079;
+            --ink-on-accent: #06101f;   /* text on bright accent buttons */
+            /* lines */
             --line: #1d2740;
+            --line-bright: #2c3a5e;     /* hover border */
+            /* brand + seal */
             --blue: #5b8cff;
+            --blue-bright: #7aa6ff;     /* gradient top of primary buttons */
+            --blue-soft: #7fb0ff;       /* MAF / platform accents */
+            --gold: #f5c87a;      /* the seal - warm amber for begin/approve moments */
+            --gold-deep: #d9a34a;
+            --gold-soft: #f4c95d;       /* lens counters, trace latency, countdowns */
+            /* roles */
             --strategist: #5b8cff;
             --designer: #c084fc;
+            --designer-soft: #c9b8ff;
             --marketer: #f59e0b;
             --ops: #2dd4bf;
             --narrator: #94a3b8;
+            /* semantic */
             --good: #34d399;
+            --good-soft: #8ee6b8;
             --bad: #fb7185;
+            /* diagram (mermaid + SVG charts read these via game/tokens.js) */
+            --diagram-node: #16233f;
+            --diagram-node-border: #3a4a72;
+            --diagram-text: #eaf0ff;
+            --diagram-line: #4a5f8f;
+            /* type - the three voices of the UI */
+            --font-display: 'Fraunces', serif;
+            --font-body: 'Inter', system-ui, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            /* shape */
+            --radius-sm: 9px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-xl: 22px;
+            --radius-pill: 999px;
+            /* controls */
+            --control-h: 34px;          /* square icon buttons */
+            --title-grad: linear-gradient(180deg, #ffffff, #b9c6e8);
         }
 
         * { box-sizing: border-box; }
@@ -33,7 +66,7 @@
                 radial-gradient(1100px 600px at 50% -20%, rgba(91, 140, 255, 0.10), transparent 60%),
                 linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
             color: var(--ink);
-            font-family: 'Inter', system-ui, sans-serif;
+            font-family: var(--font-body);
             overflow: hidden;
         }
 
@@ -54,14 +87,14 @@
             backdrop-filter: blur(10px);
         }
         .brand {
-            font-family: 'Fraunces', serif;
+            font-family: var(--font-display);
             font-size: 18px;
             letter-spacing: 0.2px;
             color: var(--ink);
         }
         .brand small {
             display: block;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
             font-size: 10px;
             letter-spacing: 0.28em;
             text-transform: uppercase;
@@ -72,7 +105,7 @@
             display: flex;
             align-items: center;
             gap: 18px;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
             font-size: 12px;
             color: var(--ink-dim);
         }
@@ -83,7 +116,7 @@
             gap: 7px;
             padding: 5px 11px;
             border: 1px solid var(--line);
-            border-radius: 999px;
+            border-radius: var(--radius-pill);
             background: rgba(255,255,255,0.02);
         }
         .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-dim); }
@@ -92,13 +125,13 @@
             border: 1px solid var(--line);
             background: rgba(255,255,255,0.02);
             color: var(--ink-dim);
-            border-radius: 8px;
-            width: 34px; height: 34px;
+            border-radius: var(--radius-sm);
+            width: var(--control-h); height: var(--control-h);
             cursor: pointer;
             font-size: 15px;
             transition: 140ms ease;
         }
-        .iconbtn:hover { color: var(--ink); border-color: #2c3a5e; }
+        .iconbtn:hover { color: var(--ink); border-color: var(--line-bright); }
 
         /* ---- Stage: full-bleed cinema. The scene IS the screen; header,
            rail and footer float above it as glass overlays, so gameplay
@@ -137,7 +170,7 @@
         #diagram .node polygon,
         #diagram .node circle,
         #diagram .node path {
-            fill: #16233f !important;
+            fill: var(--diagram-node) !important;
             stroke-width: 1.6px !important;
         }
         #diagram .node .label,
@@ -146,30 +179,30 @@
         #diagram .node text,
         #diagram text.nodeLabel,
         #diagram .label text {
-            color: #eaf0ff !important;
-            fill: #eaf0ff !important;
+            color: var(--diagram-text) !important;
+            fill: var(--diagram-text) !important;
             font-size: 16px !important;
             font-weight: 500;
         }
-        #diagram .edgeLabel rect { fill: #0a0e1a !important; opacity: 0.85; }
-        #diagram .cluster rect { fill: rgba(255,255,255,0.02) !important; stroke: #2c3a5e !important; }
-        #diagram .flowchart-link, #diagram .edgePath path { stroke: #4a5f8f !important; stroke-width: 1.6px !important; }
+        #diagram .edgeLabel rect { fill: var(--bg) !important; opacity: 0.85; }
+        #diagram .cluster rect { fill: rgba(255,255,255,0.02) !important; stroke: var(--line-bright) !important; }
+        #diagram .flowchart-link, #diagram .edgePath path { stroke: var(--diagram-line) !important; stroke-width: 1.6px !important; }
 
         /* Title beat - compact enough to fit one screen; scrolls as the net. */
         .title-card { text-align: center; max-width: 720px; max-height: 100%;
             overflow-y: auto; padding: 4px 8px; scrollbar-width: thin; }
         .title-card .kicker {
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
             font-size: 11px; letter-spacing: 0.34em; text-transform: uppercase;
             color: var(--blue); margin-bottom: 10px;
         }
         .title-card h1 {
-            font-family: 'Fraunces', serif;
+            font-family: var(--font-display);
             font-weight: 600;
             font-size: clamp(28px, 3.6vw, 44px);
             line-height: 1.04;
             margin: 0 0 12px;
-            background: linear-gradient(180deg, #ffffff, #b9c6e8);
+            background: var(--title-grad);
             -webkit-background-clip: text; background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -240,7 +273,7 @@
         .creator-section + .creator-section { margin-top: 12px; }
         .creator-section .field:last-child { margin-bottom: 0; }
         .creator-action { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; }
-        .creator-hint { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; line-height: 1.55; color: var(--ink-faint); }
+        .creator-hint { font-family: var(--font-mono); font-size: 10.5px; line-height: 1.55; color: var(--ink-faint); }
         body.prestart .field { max-width: none; }
         body.prestart .intro-choices.compact { max-width: none; grid-template-columns: 1fr 1fr; }
         body.prestart .intro-choices.compact .intro-choice { min-height: 116px; }
@@ -260,30 +293,30 @@
         /* Founding scene: replaces the form the moment the descent begins. */
         .founding { text-align: center; }
         .founding .kicker {
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
             font-size: 11px; letter-spacing: 0.34em; text-transform: uppercase;
             color: var(--blue); margin-bottom: 18px;
         }
         .founding h1 {
-            font-family: 'Fraunces', serif; font-weight: 600;
+            font-family: var(--font-display); font-weight: 600;
             font-size: clamp(34px, 5vw, 56px); line-height: 1.05; margin: 0 0 14px;
-            background: linear-gradient(180deg, #ffffff, #b9c6e8);
+            background: var(--title-grad);
             -webkit-background-clip: text; background-clip: text;
             -webkit-text-fill-color: transparent;
         }
-        .founding .founding-arch { color: var(--ink-dim); font-size: 14px; font-family: 'JetBrains Mono', monospace; }
+        .founding .founding-arch { color: var(--ink-dim); font-size: 14px; font-family: var(--font-mono); }
 
         .field { text-align: left; margin: 0 auto 11px; max-width: 540px; }
         .field label {
-            display: block; font-family: 'JetBrains Mono', monospace;
+            display: block; font-family: var(--font-mono);
             font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
             color: var(--ink-dim); margin-bottom: 5px;
         }
         .field input, .field textarea {
             width: 100%; background: rgba(255,255,255,0.03);
-            border: 1px solid var(--line); border-radius: 10px;
+            border: 1px solid var(--line); border-radius: var(--radius-sm);
             color: var(--ink); padding: 9px 13px; font-size: 14px;
-            font-family: 'Inter', sans-serif; outline: none; transition: 140ms ease;
+            font-family: var(--font-body); outline: none; transition: 140ms ease;
             resize: none;
         }
         .field input:focus, .field textarea:focus { border-color: var(--blue); background: rgba(91,140,255,0.06); }
@@ -291,10 +324,10 @@
         .cta {
             margin-top: 8px;
             display: inline-flex; align-items: center; gap: 10px;
-            font-family: 'Inter', sans-serif; font-weight: 600; font-size: 15px;
-            color: #06101f;
-            background: linear-gradient(180deg, #7aa6ff, #5b8cff);
-            border: none; border-radius: 11px; padding: 13px 26px;
+            font-family: var(--font-body); font-weight: 600; font-size: 15px;
+            color: var(--ink-on-accent);
+            background: linear-gradient(180deg, var(--blue-bright), var(--blue));
+            border: none; border-radius: var(--radius-md); padding: 13px 26px;
             cursor: pointer; transition: 160ms ease;
             box-shadow: 0 16px 40px -18px rgba(91,140,255,0.8);
         }
@@ -310,22 +343,22 @@
         }
         #scene-head.show { opacity: 1; }
         .beat-pill {
-            font-family: 'JetBrains Mono', monospace; font-size: 10px;
+            font-family: var(--font-mono); font-size: 10px;
             letter-spacing: 0.2em; text-transform: uppercase;
-            padding: 4px 10px; border-radius: 999px;
+            padding: 4px 10px; border-radius: var(--radius-pill);
             border: 1px solid rgba(91,140,255,0.45); color: var(--blue);
             background: rgba(91,140,255,0.08);
         }
         #scene-title {
-            font-family: 'Fraunces', serif; font-size: 20px; color: var(--ink);
+            font-family: var(--font-display); font-size: 20px; color: var(--ink);
             text-shadow: 0 1px 12px rgba(5,8,16,0.9);
         }
         /* Provenance chip: names WHO made the diagram on stage and HOW - the
            audience should never wonder where an artifact came from. */
         .prov-chip {
-            font-family: 'JetBrains Mono', monospace; font-size: 10px;
+            font-family: var(--font-mono); font-size: 10px;
             letter-spacing: 0.06em; color: var(--ink-dim);
-            border: 1px solid var(--line); border-radius: 999px;
+            border: 1px solid var(--line); border-radius: var(--radius-pill);
             padding: 4px 10px; background: rgba(7,10,20,0.55);
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             max-width: 46%;
@@ -347,15 +380,15 @@
         #stage.rail-hidden #rail { transform: translateX(396px); opacity: 0; pointer-events: none; }
         #rail-toggle {
             position: fixed; top: 76px; right: 16px; z-index: 19;
-            width: 34px; height: 34px; border-radius: 9px;
+            width: var(--control-h); height: var(--control-h); border-radius: var(--radius-sm);
             border: 1px solid var(--line); background: rgba(7,10,20,0.7);
             color: var(--ink-dim); cursor: pointer; font-size: 14px;
             backdrop-filter: blur(8px); transition: 140ms ease;
         }
-        #rail-toggle:hover { color: var(--ink); border-color: #2c3a5e; }
+        #rail-toggle:hover { color: var(--ink); border-color: var(--line-bright); }
         #stage:not(.rail-hidden) #rail-toggle { right: 388px; }
         .rail-h {
-            font-family: 'JetBrains Mono', monospace; font-size: 10px;
+            font-family: var(--font-mono); font-size: 10px;
             letter-spacing: 0.24em; text-transform: uppercase; color: var(--ink-dim);
             margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
         }
@@ -365,17 +398,17 @@
         .maf-run { border: 1px solid var(--line); border-radius: 10px; padding: 10px 11px;
             background: rgba(127,176,255,0.04); animation: sceneIn 400ms ease; }
         .maf-run + .maf-run { margin-top: 8px; }
-        .maf-run-head { font-family: 'JetBrains Mono', monospace; font-size: 10px;
-            letter-spacing: 0.08em; color: #7fb0ff; margin-bottom: 7px; display: flex;
+        .maf-run-head { font-family: var(--font-mono); font-size: 10px;
+            letter-spacing: 0.08em; color: var(--blue-soft); margin-bottom: 7px; display: flex;
             justify-content: space-between; align-items: center; }
         .maf-run-head .maf-live { color: var(--marketer); }
         .maf-row { font-size: 11px; color: var(--ink-dim); margin-top: 5px; line-height: 1.7; }
         .maf-row b { color: var(--ink); font-weight: 600; font-size: 10.5px; }
-        .maf-chip { display: inline-block; font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
-            border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; margin: 2px 3px 0 0;
+        .maf-chip { display: inline-block; font-family: var(--font-mono); font-size: 9.5px;
+            border: 1px solid var(--line); border-radius: var(--radius-pill); padding: 2px 8px; margin: 2px 3px 0 0;
             color: var(--ink-dim); background: rgba(255,255,255,0.03); }
-        .maf-chip.called { color: #8ee6b8; border-color: rgba(52,211,153,0.35); }
-        .maf-chip.mem { color: #c9b8ff; border-color: rgba(192,132,252,0.35); }
+        .maf-chip.called { color: var(--good-soft); border-color: rgba(52,211,153,0.35); }
+        .maf-chip.mem { color: var(--designer-soft); border-color: rgba(192,132,252,0.35); }
         /* Under the Hood: accuracy / reasoning / reliability made visible as
            the game plays. Each row keeps a counter + the most recent piece of
            real run evidence - the player can always answer "is it grounded,
@@ -384,11 +417,11 @@
             background: rgba(244,201,93,0.03); margin-bottom: 6px; position: relative; }
         .lens-row.dim { opacity: 0.55; }
         .lens-row.lit { border-color: rgba(244,201,93,0.4); }
-        .lens-name { font-family: 'JetBrains Mono', monospace; font-size: 10px;
+        .lens-name { font-family: var(--font-mono); font-size: 10px;
             letter-spacing: 0.06em; color: var(--ink); }
-        .lens-name i { font-style: normal; color: #f4c95d; opacity: 0.85; margin-left: 4px; }
+        .lens-name i { font-style: normal; color: var(--gold-soft); opacity: 0.85; margin-left: 4px; }
         .lens-count { position: absolute; top: 8px; right: 10px;
-            font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #f4c95d; }
+            font-family: var(--font-mono); font-size: 11px; color: var(--gold-soft); }
         .lens-evidence { font-size: 10.5px; color: var(--ink-dim); margin-top: 4px; line-height: 1.5; }
         .worker-card {
             border: 1px solid var(--line); border-radius: 12px; padding: 14px;
@@ -398,18 +431,18 @@
         .worker-portrait { width: 46px; height: 46px; border-radius: 10px; object-fit: cover;
             border: 1px solid var(--line); flex: 0 0 46px; }
         .worker-id-text { min-width: 0; }
-        .worker-ms { margin-top: 9px; font-family: 'JetBrains Mono', monospace; font-size: 10px;
-            letter-spacing: 0.06em; color: #7fb0ff; display: flex; align-items: center; gap: 6px; }
+        .worker-ms { margin-top: 9px; font-family: var(--font-mono); font-size: 10px;
+            letter-spacing: 0.06em; color: var(--blue-soft); display: flex; align-items: center; gap: 6px; }
         .worker-ms .ms-logo { width: 11px; height: 11px; flex: 0 0 11px; display: inline-grid;
             grid-template-columns: 1fr 1fr; gap: 1px; }
-        .worker-ms .ms-logo i { background: #7fb0ff; opacity: 0.9; }
+        .worker-ms .ms-logo i { background: var(--blue-soft); opacity: 0.9; }
         .worker-role {
-            font-family: 'Fraunces', serif; font-size: 17px; margin-bottom: 3px;
+            font-family: var(--font-display); font-size: 17px; margin-bottom: 3px;
             display: flex; align-items: center; gap: 9px;
         }
         .role-orb { width: 11px; height: 11px; border-radius: 50%; box-shadow: 0 0 12px currentColor; }
         .worker-deploy {
-            font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--ink-dim);
+            font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim);
             word-break: break-all;
         }
         .worker-state { margin-top: 9px; font-size: 12px; color: var(--ink-dim); display: flex; align-items: center; gap: 7px; }
@@ -421,12 +454,12 @@
             font-size: 11px; color: var(--ink-dim); line-height: 1.5;
         }
         .worker-reasoning .rz-head {
-            font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.16em;
+            font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.16em;
             text-transform: uppercase; color: var(--strategist); margin-bottom: 5px;
             display: flex; align-items: center; gap: 6px;
         }
         .worker-reasoning .rz-tokens {
-            font-family: 'JetBrains Mono', monospace; color: var(--ink); background: rgba(91,140,255,0.12);
+            font-family: var(--font-mono); color: var(--ink); background: rgba(91,140,255,0.12);
             border-radius: 5px; padding: 1px 6px;
         }
         .worker-reasoning .rz-text { font-style: italic; color: var(--ink-faint); }
@@ -437,12 +470,12 @@
             font-size: 11px; color: var(--ink-dim); line-height: 1.9;
         }
         .worker-tools .rz-head {
-            font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.16em;
+            font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.16em;
             text-transform: uppercase; color: var(--ops); margin-bottom: 5px;
             display: flex; align-items: center; gap: 6px;
         }
         .tool-chip {
-            font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--ink);
+            font-family: var(--font-mono); font-size: 10px; color: var(--ink);
             background: rgba(45,212,191,0.10); border: 1px solid rgba(45,212,191,0.25);
             border-radius: 6px; padding: 2px 7px; margin-right: 5px; white-space: nowrap;
         }
@@ -450,17 +483,17 @@
         /* tools/call trace: terminal-style receipts of every real toolbox call. */
         .worker-trace {
             margin-top: 11px; padding-top: 10px; border-top: 1px dashed var(--line);
-            font-family: 'JetBrains Mono', monospace; font-size: 10px; line-height: 1.6;
+            font-family: var(--font-mono); font-size: 10px; line-height: 1.6;
         }
         .worker-trace .rz-head {
             font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase;
-            color: #8ee6b8; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;
+            color: var(--good-soft); margin-bottom: 6px; display: flex; align-items: center; gap: 6px;
         }
         .trace-line { margin-bottom: 6px; word-break: break-all; }
-        .trace-line .tr-call { color: #8ee6b8; margin-right: 6px; }
+        .trace-line .tr-call { color: var(--good-soft); margin-right: 6px; }
         .trace-line .tr-args { color: var(--ink-faint); }
         .trace-line .tr-res { color: var(--ink-dim); padding-left: 12px; }
-        .trace-line .tr-ms { color: #f4c95d; opacity: 0.8; }
+        .trace-line .tr-ms { color: var(--gold-soft); opacity: 0.8; }
 
         /* Character sheet: RPG stat bars driven by REAL run telemetry
            (reasoning tokens, output tokens, memory injected, latency). */
@@ -468,19 +501,19 @@
             margin-top: 11px; padding-top: 10px; border-top: 1px dashed var(--line);
         }
         .worker-stats .rz-head {
-            font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.16em;
-            text-transform: uppercase; color: #e8b85f; margin-bottom: 6px;
+            font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.16em;
+            text-transform: uppercase; color: var(--gold-soft); margin-bottom: 6px;
             display: flex; align-items: center; gap: 6px;
         }
         .stat-row { display: grid; grid-template-columns: 30px 1fr auto; gap: 8px;
             align-items: center; margin-top: 5px; }
-        .stat-k { font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
+        .stat-k { font-family: var(--font-mono); font-size: 9.5px;
             letter-spacing: 0.1em; color: var(--ink-dim); }
         .stat-bar { height: 5px; border-radius: 999px; background: rgba(255,255,255,0.07);
             overflow: hidden; }
         .stat-fill { height: 100%; border-radius: 999px; width: 0;
             transition: width 900ms cubic-bezier(.2,.7,.2,1); box-shadow: 0 0 8px currentColor; }
-        .stat-v { font-family: 'JetBrains Mono', monospace; font-size: 9px;
+        .stat-v { font-family: var(--font-mono); font-size: 9px;
             color: var(--ink-faint); white-space: nowrap; }
         /* Skill-cast flash: a FunctionTool the model actually invoked lights up. */
         @keyframes skillCast {
@@ -498,13 +531,13 @@
             animation: memIn 420ms ease forwards;
         }
         @keyframes memIn { to { opacity: 1; transform: none; } }
-        .mem-src { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--ops); margin-bottom: 5px; }
+        .mem-src { font-family: var(--font-mono); font-size: 10px; color: var(--ops); margin-bottom: 5px; }
         .mem-body { font-size: 11.5px; color: var(--ink-dim); line-height: 1.5; }
         .mem-empty { font-size: 12px; color: var(--ink-faint); font-style: italic; }
 
         /* ---- Digital Workforce panel (dynamic org) ---- */
         .org-stat {
-            font-family: 'JetBrains Mono', monospace; font-size: 11px;
+            font-family: var(--font-mono); font-size: 11px;
             color: var(--ink); margin-bottom: 8px; line-height: 1.55;
             border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px;
             background: rgba(192,132,252,0.05);
@@ -514,13 +547,152 @@
         .org-role { margin-bottom: 10px; padding-left: 15px; position: relative; }
         .org-orb { position: absolute; left: 0; top: 5px; width: 8px; height: 8px; border-radius: 50%; }
         .org-role b { font-size: 12px; color: var(--ink); font-weight: 600; }
-        .org-kind { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); margin-left: 6px; }
+        .org-kind { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); margin-left: 6px; }
         .org-why { font-size: 11px; color: var(--ink-dim); line-height: 1.45; margin-top: 2px; }
+        .org-export {
+            display: block; width: 100%; margin-top: 10px; padding: 8px 10px;
+            font-family: var(--font-mono); font-size: 10.5px;
+            letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer;
+            color: var(--designer); background: rgba(192,132,252,0.07);
+            border: 1px solid var(--line); border-radius: 8px;
+        }
+        .org-export:hover { background: rgba(192,132,252,0.14); }
+        .org-export:disabled { opacity: 0.6; cursor: default; }
 
         .gate {
             margin-top: 2px; border: 1px solid var(--line); border-radius: 12px;
             padding: 13px 14px; background: rgba(255,255,255,0.02);
         }
+
+        /* ---- Agent party: characters first, evidence second ---- */
+        #party {
+            position: fixed; left: 44px; right: 420px; top: 124px; z-index: 18;
+            display: flex; align-items: flex-start; gap: 10px;
+            pointer-events: none;
+        }
+        body.prestart #party { display: none; }
+        #stage.rail-hidden #party { right: 44px; }
+        .party-agent {
+            width: 108px; min-height: 108px;
+            border: 1px solid rgba(44,58,94,0.62);
+            border-radius: 14px;
+            background: linear-gradient(180deg, rgba(12,18,32,0.78), rgba(7,10,20,0.48));
+            box-shadow: 0 18px 48px -32px rgba(0,0,0,0.8);
+            backdrop-filter: blur(9px);
+            padding: 8px;
+            opacity: 0.62;
+            transform: translateY(0);
+            transition: opacity 180ms ease, border-color 180ms ease, transform 180ms ease, background 180ms ease;
+        }
+        .party-agent.active {
+            opacity: 1;
+            border-color: rgba(91,140,255,0.75);
+            background: linear-gradient(180deg, rgba(91,140,255,0.16), rgba(7,10,20,0.54));
+            transform: translateY(4px);
+        }
+        .party-agent.done { opacity: 0.78; border-color: rgba(52,211,153,0.5); }
+        .party-face {
+            width: 36px; height: 36px; border-radius: 10px; object-fit: cover;
+            border: 1px solid var(--line);
+            display: block; margin-bottom: 7px;
+        }
+        .party-name {
+            font-family: var(--font-display); font-size: 12px; line-height: 1.1;
+            color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .party-role {
+            margin-top: 3px; font-family: var(--font-mono); font-size: 8.5px;
+            letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .party-line {
+            margin-top: 6px; color: var(--ink-dim); font-size: 10px; line-height: 1.3;
+            min-height: 28px;
+        }
+        .party-agent.active .party-line { color: var(--ink); }
+
+        /* ---- Game pressure meters: decisions move these, so it feels playable ---- */
+        #resources {
+            display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        }
+        .meter {
+            width: 120px;
+            font-family: var(--font-mono);
+            font-size: 9.5px;
+            color: var(--ink-dim);
+        }
+        .meter-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+        .meter b { color: var(--ink); font-weight: 500; }
+        .meter-track {
+            height: 4px; border-radius: 999px; overflow: hidden;
+            background: rgba(255,255,255,0.07);
+        }
+        .meter-fill {
+            display: block; height: 100%; width: 0%; border-radius: inherit;
+            background: var(--blue);
+            transition: width 500ms ease, background 500ms ease;
+        }
+
+        /* ---- Self-organization beat: the party claims the work ---- */
+        .council {
+            width: min(920px, 100%);
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 12px;
+            align-self: center;
+        }
+        .council-member {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: rgba(255,255,255,0.025);
+            padding: 14px;
+            min-height: 150px;
+            opacity: 0; transform: translateY(8px);
+            animation: memIn 420ms ease forwards;
+        }
+        .council-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .council-face { width: 42px; height: 42px; border-radius: 12px; object-fit: cover; border: 1px solid var(--line); }
+        .council-name { font-family: var(--font-display); font-size: 15px; color: var(--ink); line-height: 1.15; }
+        .council-role { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); }
+        .council-says { color: var(--ink-dim); font-size: 12.5px; line-height: 1.5; }
+
+        /* ---- Consequence receipt: CEO choice changes the company state ---- */
+        .consequence-board {
+            width: min(760px, 100%);
+            border: 1px solid rgba(244,201,93,0.34);
+            border-radius: 14px;
+            background: linear-gradient(180deg, rgba(14,20,36,0.84), rgba(7,10,20,0.68));
+            padding: 22px;
+            box-shadow: 0 24px 70px -42px rgba(244,201,93,0.65);
+        }
+        .consequence-kicker {
+            font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.18em;
+            text-transform: uppercase; color: var(--gold-soft); margin-bottom: 9px;
+        }
+        .consequence-board h2 {
+            font-family: var(--font-display); font-size: 24px; line-height: 1.25;
+            margin: 0 0 10px; color: var(--ink);
+        }
+        .consequence-role {
+            color: var(--ink-dim); font-size: 12.5px; margin-bottom: 14px;
+        }
+        .consequence-role b { color: var(--ink); }
+        .effect-grid {
+            display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .effect-row {
+            display: grid; grid-template-columns: minmax(100px, 1fr) auto 14px auto;
+            align-items: center; gap: 8px;
+            border: 1px solid var(--line); border-radius: 9px;
+            background: rgba(255,255,255,0.025); padding: 9px 10px;
+            font-family: var(--font-mono); font-size: 10.5px;
+        }
+        .effect-row span { color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .effect-row b { color: var(--ink-faint); font-weight: 500; }
+        .effect-row i { color: var(--gold-soft); font-style: normal; text-align: center; }
+        .effect-row strong { color: var(--ink); font-weight: 600; }
+        @media (max-width: 720px) { .effect-grid { grid-template-columns: 1fr; } }
 
         /* ---- Reasoning theater: the agent's plan, center stage ---- */
         #theater {
@@ -532,13 +704,13 @@
         }
         #theater[hidden] { display: none; }
         .th-head {
-            font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.2em;
+            font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.2em;
             text-transform: uppercase; color: var(--strategist); margin-bottom: 6px;
             display: flex; align-items: center; gap: 9px;
         }
         .th-head .pulse { width: 8px; height: 8px; }
-        .th-worker { font-family: 'Fraunces', serif; font-size: 26px; color: var(--ink); margin-bottom: 2px; }
-        .th-deploy { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--ink-faint); margin-bottom: 16px; }
+        .th-worker { font-family: var(--font-display); font-size: 26px; color: var(--ink); margin-bottom: 2px; }
+        .th-deploy { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); margin-bottom: 16px; }
         .th-steps { width: 100%; max-width: 660px; display: flex; flex-direction: column; gap: 10px; }
         .th-step {
             display: flex; gap: 12px; align-items: flex-start;
@@ -549,7 +721,7 @@
         }
         .th-step .th-ico { font-size: 14px; line-height: 1.4; width: 20px; text-align: center; flex: none; }
         .th-step .th-k {
-            font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.14em;
+            font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.14em;
             text-transform: uppercase; color: var(--ink-faint); display: block; margin-bottom: 3px;
         }
         .th-step .th-v { font-size: 13px; color: var(--ink-dim); line-height: 1.5; }
@@ -562,31 +734,34 @@
             opacity: 0; transform: translateY(8px); animation: memIn 500ms ease forwards;
         }
         .th-quote .th-k {
-            font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.16em;
+            font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em;
             text-transform: uppercase; color: var(--strategist); margin-bottom: 8px;
             display: flex; align-items: center; gap: 8px;
         }
         .th-quote .rz-tokens {
-            font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--ink);
+            font-family: var(--font-mono); font-size: 10px; color: var(--ink);
             background: rgba(91,140,255,0.16); border-radius: 5px; padding: 1px 7px;
         }
         .th-quote .th-cot { font-size: 14.5px; color: var(--ink); line-height: 1.65; font-style: italic; }
         .gate-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
         .gate-label { font-size: 12px; color: var(--ink-dim); }
-        .score-num { font-family: 'Fraunces', serif; font-size: 26px; color: var(--ink); }
+        .score-num { font-family: var(--font-display); font-size: 26px; color: var(--ink); }
         .score-bar { height: 7px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden; }
         .score-fill { height: 100%; width: 0%; border-radius: 999px; background: linear-gradient(90deg, var(--marketer), var(--good)); transition: width 900ms cubic-bezier(.2,.7,.2,1); }
         .gate-verdict { margin-top: 9px; font-size: 12px; font-weight: 600; }
         .gate-verdict.pass { color: var(--good); }
         .gate-verdict.review { color: var(--marketer); }
-        .arch-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        .arch-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
         .arch-card { background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 10px;
-            padding: 9px 8px; cursor: pointer; text-align: left; color: var(--ink);
+            min-height: 92px; padding: 12px 13px; cursor: pointer; text-align: left; color: var(--ink);
             font-family: inherit; transition: border-color 150ms ease, background 150ms ease; }
-        .arch-card b { display: block; font-size: 12px; margin-bottom: 3px; }
-        .arch-card span { display: block; font-size: 10.5px; color: var(--ink-dim); }
+        .arch-card b { display: block; font-size: 13px; margin-bottom: 5px; }
+        .arch-card span { display: block; font-size: 11.5px; color: var(--ink-dim); line-height: 1.35; }
+        .arch-card em { display: block; margin-top: 8px; font-style: normal; font-family: var(--font-mono);
+            font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); }
         .arch-card:hover { border-color: var(--blue); }
         .arch-card.sel { border-color: var(--blue); background: rgba(91,140,255,0.12); }
+        .field-help { margin: -4px 0 10px; color: var(--ink-dim); font-size: 12px; line-height: 1.45; }
         #dilemma-overlay { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center;
             justify-content: center; background: rgba(5,8,16,0.72); backdrop-filter: blur(6px); }
         #dilemma-overlay[hidden] { display: none; }
@@ -600,15 +775,15 @@
             border: 1px solid var(--line); flex: 0 0 44px; }
         .dilemma-head-text { min-width: 0; }
         .dilemma-trail { margin-top: 6px; line-height: 1.9; }
-        .dilemma-trail .tchip { display: inline-block; font-family: 'JetBrains Mono', monospace;
-            font-size: 9.5px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px;
+        .dilemma-trail .tchip { display: inline-block; font-family: var(--font-mono);
+            font-size: 9.5px; border: 1px solid var(--line); border-radius: var(--radius-pill); padding: 2px 8px;
             margin: 0 4px 0 0; color: var(--ink-dim); background: rgba(255,255,255,0.03); }
-        .dilemma-trail .tchip.gold { color: #f4c95d; border-color: rgba(244,201,93,0.35); }
-        .dilemma-countdown { margin-top: 10px; font-family: 'JetBrains Mono', monospace; font-size: 12px;
-            color: #f4c95d; letter-spacing: 0.04em; text-align: center; }
-        .dilemma-kicker { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.18em;
+        .dilemma-trail .tchip.gold { color: var(--gold-soft); border-color: rgba(244,201,93,0.35); }
+        .dilemma-countdown { margin-top: 10px; font-family: var(--font-mono); font-size: 12px;
+            color: var(--gold-soft); letter-spacing: 0.04em; text-align: center; }
+        .dilemma-kicker { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.18em;
             text-transform: uppercase; color: var(--marketer); margin-bottom: 10px; }
-        .dilemma-prompt { font-family: 'Fraunces', serif; font-size: 22px; line-height: 1.35; margin-bottom: 18px; }
+        .dilemma-prompt { font-family: var(--font-display); font-size: 22px; line-height: 1.35; margin-bottom: 18px; }
         .dilemma-options { display: flex; flex-direction: column; gap: 10px; }
         .dilemma-opt { background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 12px;
             padding: 13px 16px; cursor: pointer; text-align: left; color: var(--ink); font-family: inherit;
@@ -623,15 +798,15 @@
             border-radius: 10px; color: var(--ink); padding: 10px 12px; font-family: inherit; font-size: 13px; }
         .income-beat { display: flex; flex-direction: column; align-items: center; gap: 22px; width: min(560px, 90%); }
         .income-num { text-align: center; }
-        #income-counter { display: block; font-family: 'Fraunces', serif; font-size: 56px; color: var(--good);
+        #income-counter { display: block; font-family: var(--font-display); font-size: 56px; color: var(--good);
             font-variant-numeric: tabular-nums; line-height: 1; }
-        .income-label { display: block; margin-top: 8px; font-family: 'JetBrains Mono', monospace;
+        .income-label { display: block; margin-top: 8px; font-family: var(--font-mono);
             font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-dim); }
         .income-feed { width: 100%; display: flex; flex-direction: column; gap: 7px; max-height: 220px; overflow: hidden; }
         .income-line { font-size: 12.5px; color: var(--ink-dim); background: rgba(255,255,255,0.025);
             border: 1px solid var(--line); border-radius: 9px; padding: 8px 12px; animation: incomeIn 400ms ease; }
         .income-who { color: var(--ink); font-weight: 600; }
-        .income-gate { float: right; font-family: 'JetBrains Mono', monospace; font-size: 9.5px;
+        .income-gate { float: right; font-family: var(--font-mono); font-size: 9.5px;
             letter-spacing: 0.1em; text-transform: uppercase; color: var(--good); }
         @keyframes incomeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
         #rubric { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
@@ -654,7 +829,7 @@
         }
         #narration-text {
             max-width: 760px;
-            font-family: 'Fraunces', serif; font-size: clamp(16px, 1.9vw, 22px);
+            font-family: var(--font-display); font-size: clamp(16px, 1.9vw, 22px);
             line-height: 1.5; color: var(--ink);
             min-height: 1.5em;
             text-shadow: 0 1px 10px rgba(5,8,16,0.85);
@@ -672,22 +847,23 @@
             backdrop-filter: blur(10px);
         }
         .progress { display: flex; align-items: center; gap: 7px; }
+        .footer-left { display: flex; align-items: center; gap: 18px; min-width: 0; }
         .seg { width: 30px; height: 4px; border-radius: 999px; background: rgba(255,255,255,0.08); transition: background 300ms ease; }
         .seg.done { background: var(--blue); }
         .seg.active { background: linear-gradient(90deg, var(--blue), var(--designer)); box-shadow: 0 0 12px rgba(91,140,255,0.6); }
         .controls { display: flex; align-items: center; gap: 10px; }
         .btn {
-            font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500;
+            font-family: var(--font-body); font-size: 13px; font-weight: 500;
             color: var(--ink); background: rgba(255,255,255,0.03);
-            border: 1px solid var(--line); border-radius: 9px; padding: 9px 16px;
+            border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 9px 16px;
             cursor: pointer; transition: 140ms ease;
         }
-        .btn:hover:not(:disabled) { border-color: #2c3a5e; background: rgba(255,255,255,0.06); }
+        .btn:hover:not(:disabled) { border-color: var(--line-bright); background: rgba(255,255,255,0.06); }
         .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-        .btn.primary { color: #06101f; background: linear-gradient(180deg, #7aa6ff, #5b8cff); border: none; font-weight: 600; }
+        .btn.primary { color: var(--ink-on-accent); background: linear-gradient(180deg, var(--blue-bright), var(--blue)); border: none; font-weight: 600; }
         .btn.ghost { color: var(--ink-dim); }
 
-        .hint { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--ink-faint); }
+        .hint { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); }
 
         /* Mermaid node entrance: fade only. NEVER animate transform here -
            mermaid uses transform:translate(x,y) to POSITION each node, so
@@ -702,7 +878,7 @@
         .fade-scene { animation: sceneIn 500ms ease; }
         @keyframes sceneIn { from { opacity: 0; transform: scale(0.985); } to { opacity: 1; transform: none; } }
 
-        a.switch { color: var(--ink-faint); font-size: 11px; text-decoration: none; font-family: 'JetBrains Mono', monospace; }
+        a.switch { color: var(--ink-faint); font-size: 11px; text-decoration: none; font-family: var(--font-mono); }
         a.switch:hover { color: var(--ink-dim); }
 
         /* ---- Intro / lore overlay (the game introduces itself; skippable) ---- */
@@ -745,28 +921,33 @@
         }
         .intro-skip {
             position: absolute; top: 22px; right: 26px; z-index: 2;
-            font-family: 'JetBrains Mono', monospace; font-size: 11px;
-            letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-faint);
-            background: rgba(255,255,255,0.03); border: 1px solid var(--line);
-            border-radius: 8px; padding: 8px 14px; cursor: pointer; transition: 140ms ease;
+            min-width: 136px; height: 38px;
+            font-family: var(--font-body); font-weight: 700; font-size: 12px;
+            letter-spacing: 0.12em; text-transform: uppercase;
+            color: var(--ink-dim);
+            background: linear-gradient(135deg, rgba(45,212,191,0.08), rgba(255,255,255,0.02));
+            border: 1px solid rgba(45,212,191,0.28); padding: 0 24px; cursor: pointer;
+            clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 28px -18px rgba(45,212,191,0.9);
+            transition: 160ms ease;
         }
-        .intro-skip:hover { color: var(--ink); border-color: #2c3a5e; }
-        .intro-card { max-width: 780px; position: relative; z-index: 2; }
+        .intro-skip:hover { color: var(--ink); border-color: rgba(45,212,191,0.62); background: linear-gradient(135deg, rgba(45,212,191,0.13), rgba(255,255,255,0.03)); }
+        .intro-card { max-width: min(980px, calc(100vw - 96px)); position: relative; z-index: 2; }
         .intro-card .kicker {
-            font-family: 'JetBrains Mono', monospace; font-size: 11px;
+            font-family: var(--font-mono); font-size: 11px;
             letter-spacing: 0.32em; text-transform: uppercase; color: var(--blue);
             margin-bottom: 20px; text-shadow: 0 1px 10px rgba(5,8,16,0.95);
         }
         .intro-card h2 {
-            font-family: 'Fraunces', serif; font-weight: 600;
-            font-size: clamp(30px, 4.6vw, 56px); line-height: 1.07; margin: 0 0 22px;
-            background: linear-gradient(180deg, #ffffff, #b9c6e8);
+            font-family: var(--font-display); font-weight: 600;
+            font-size: clamp(34px, 5vw, 68px); line-height: 0.98; margin: 0 0 22px;
+            background: var(--title-grad);
             -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
             filter: drop-shadow(0 2px 20px rgba(5,8,16,0.9));
         }
         .intro-card p {
-            color: #ccd6ec; font-size: clamp(15px, 1.7vw, 19px); line-height: 1.62;
-            margin: 0 auto; max-width: 620px;
+            color: #d9e5ec; font-size: clamp(16px, 1.6vw, 20px); line-height: 1.5;
+            margin: 0 auto; max-width: 680px;
             text-shadow: 0 1px 14px rgba(5,8,16,0.95), 0 0 3px rgba(5,8,16,0.85);
         }
         .intro-card .accent { color: var(--ink); font-weight: 500; }
@@ -789,22 +970,57 @@
         #intro-overlay.film-mode .intro-hint {
             left: auto; right: 54px; bottom: 48px; text-align: right;
         }
-        /* Start gate: the press-start frame that unlocks audio for the film. */
-        #intro-overlay.gate .intro-begin { animation: gatePulse 2.2s ease-in-out infinite; }
-        @keyframes gatePulse { 0%, 100% { box-shadow: 0 18px 44px -18px rgba(91,140,255,0.85); } 50% { box-shadow: 0 18px 58px -12px rgba(91,140,255,1); } }
+        /* Start gate: the press-start frame that unlocks audio for the film.
+           The buttons now read as a solarpunk console: warm seal core, teal
+           circuitry edge, chamfered geometry instead of generic rounded pills. */
+        #intro-overlay.gate .intro-begin { animation: gatePulse 2.6s ease-in-out infinite; }
+        @keyframes gatePulse {
+            0%, 100% { box-shadow: 0 0 0 1px rgba(245,200,122,0.38), 0 0 0 2px rgba(45,212,191,0.08), 0 12px 42px -14px rgba(217,163,74,0.58), inset 0 1px 0 rgba(255,255,255,0.16); }
+            50%      { box-shadow: 0 0 0 1px rgba(245,200,122,0.74), 0 0 0 2px rgba(45,212,191,0.18), 0 16px 64px -12px rgba(217,163,74,0.95), inset 0 1px 0 rgba(255,255,255,0.24); }
+        }
         .intro-begin {
-            margin-top: 34px; display: inline-flex; align-items: center; gap: 10px;
-            font-family: 'Inter', sans-serif; font-weight: 600; font-size: 16px; color: #06101f;
-            background: linear-gradient(180deg, #7aa6ff, #5b8cff);
-            border: none; border-radius: 12px; padding: 14px 30px; cursor: pointer;
-            box-shadow: 0 18px 44px -18px rgba(91,140,255,0.85); transition: 160ms ease;
+            margin-top: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 12px;
+            min-width: 174px; height: 54px;
+            font-family: var(--font-body); font-weight: 800; font-size: 13px;
+            letter-spacing: 0.16em; text-transform: uppercase;
+            color: #ffe8bd;
+            background:
+                linear-gradient(90deg, rgba(45,212,191,0.16), transparent 18%, transparent 82%, rgba(45,212,191,0.14)),
+                linear-gradient(180deg, rgba(245,200,122,0.24), rgba(217,163,74,0.08));
+            border: 1px solid rgba(245,200,122,0.62); padding: 0 34px; cursor: pointer;
+            clip-path: polygon(13px 0, 100% 0, 100% calc(100% - 13px), calc(100% - 13px) 100%, 0 100%, 0 13px);
+            text-shadow: 0 1px 12px rgba(217,163,74,0.5);
+            box-shadow: 0 0 0 1px rgba(245,200,122,0.38), 0 0 0 2px rgba(45,212,191,0.08), 0 12px 42px -14px rgba(217,163,74,0.58), inset 0 1px 0 rgba(255,255,255,0.16);
+            transition: 180ms ease;
         }
-        .intro-begin:hover { transform: translateY(-1px); }
+        .intro-begin:hover {
+            transform: translateY(-1px); color: #fff2d4;
+            border-color: rgba(245,200,122,0.85);
+            background:
+                linear-gradient(90deg, rgba(45,212,191,0.22), transparent 18%, transparent 82%, rgba(45,212,191,0.2)),
+                linear-gradient(180deg, rgba(245,200,122,0.32), rgba(217,163,74,0.12));
+        }
+        /* Gate-card type system below the title: note = functional whisper,
+           credit = the league credit, smallest voice on the card. */
+        .intro-note {
+            margin-top: 14px; font-family: var(--font-mono); font-size: 11px;
+            letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-dim);
+            text-shadow: 0 1px 10px rgba(5,8,16,0.95);
+        }
+        .intro-credit {
+            margin-top: 40px; font-family: var(--font-mono); font-size: 10px;
+            letter-spacing: 0.3em; text-transform: uppercase; color: var(--ink-faint);
+            text-shadow: 0 1px 10px rgba(5,8,16,0.95);
+        }
         .intro-hint {
-            position: absolute; bottom: 50px; left: 0; right: 0; text-align: center;
-            font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.16em;
-            text-transform: uppercase; color: var(--ink-faint); z-index: 2;
+            position: absolute; bottom: 40px; left: 0; right: 0; z-index: 2;
+            display: flex; align-items: center; justify-content: center; gap: 12px;
+            font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em;
+            text-transform: uppercase;
         }
+        .intro-hint .ih-credit { color: var(--ink-faint); letter-spacing: 0.3em; }
+        .intro-hint .ih-sep { color: var(--ink-faint); opacity: 0.5; }
+        .intro-hint .ih-hint { color: var(--ink-dim); }
         .intro-dots { position: absolute; bottom: 30px; left: 0; right: 0; display: flex; justify-content: center; gap: 8px; z-index: 2; }
         .intro-dots .d { width: 26px; height: 4px; border-radius: 999px; background: rgba(255,255,255,0.1); transition: background 300ms ease; }
         .intro-dots .d.on { background: var(--blue); }
@@ -812,21 +1028,21 @@
         /* ---- Intro: two-mission choice screen ---- */
         .intro-arch { display: flex; gap: 9px; justify-content: center; margin: 20px auto 4px; flex-wrap: wrap; }
         .intro-arch-chip {
-            font-family: 'JetBrains Mono', monospace; font-size: 11.5px; letter-spacing: 0.08em;
+            font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em;
             color: var(--ink-dim); background: rgba(255,255,255,0.04); border: 1px solid var(--line);
-            border-radius: 999px; padding: 8px 18px; cursor: pointer; transition: 140ms ease;
+            border-radius: var(--radius-pill); padding: 8px 18px; cursor: pointer; transition: 140ms ease;
         }
         .intro-arch-chip:hover { color: var(--ink); border-color: var(--blue); }
         .intro-arch-chip.sel { color: var(--ink); border-color: var(--blue); background: rgba(91,140,255,0.16); }
         .intro-skill { max-width: 540px; margin: 10px auto 16px; text-align: left; }
         .intro-skill label {
-            display: block; font-family: 'JetBrains Mono', monospace; font-size: 10px;
+            display: block; font-family: var(--font-mono); font-size: 10px;
             letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-dim); margin-bottom: 6px;
         }
         .intro-skill input {
             width: 100%; background: rgba(255,255,255,0.03); border: 1px solid var(--line);
-            border-radius: 10px; color: var(--ink); padding: 11px 13px; font-size: 14px;
-            font-family: 'Inter', sans-serif; outline: none; transition: 140ms ease;
+            border-radius: var(--radius-sm); color: var(--ink); padding: 11px 13px; font-size: 14px;
+            font-family: var(--font-body); outline: none; transition: 140ms ease;
         }
         .intro-skill input:focus { border-color: var(--blue); background: rgba(91,140,255,0.06); }
         .intro-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 720px; margin: 0 auto; }
@@ -841,10 +1057,10 @@
             transform: translateY(-2px); box-shadow: 0 18px 40px -22px rgba(91,140,255,0.7);
         }
         .intro-choice .ic-tag {
-            font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.2em;
+            font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.2em;
             text-transform: uppercase; color: var(--blue);
         }
-        .intro-choice .ic-title { font-family: 'Fraunces', serif; font-size: 21px; color: var(--ink); }
+        .intro-choice .ic-title { font-family: var(--font-display); font-size: 21px; color: var(--ink); }
         .intro-choice .ic-sub { font-size: 12.5px; color: var(--ink-dim); line-height: 1.5; }
         .intro-choice.b .ic-tag { color: var(--ops); }
         .intro-choice.b:hover {
@@ -858,6 +1074,26 @@
         .intro-choices.compact .ic-sub { font-size: 11.5px; }
         .intro-choice.sel { border-color: var(--blue); background: rgba(91,140,255,0.10); }
         .intro-choice.b.sel { border-color: var(--ops); background: rgba(45,212,191,0.10); }
+        .source-card {
+            border: 1px solid rgba(91,140,255,0.28);
+            border-radius: 12px;
+            background: rgba(91,140,255,0.06);
+            padding: 13px 14px;
+            margin-bottom: 10px;
+        }
+        .source-card b {
+            display: block;
+            font-family: var(--font-display);
+            font-size: 16px;
+            color: var(--ink);
+            margin-bottom: 4px;
+        }
+        .source-card span {
+            display: block;
+            font-size: 12.5px;
+            color: var(--ink-dim);
+            line-height: 1.45;
+        }
         .intro-freeform { margin-top: 18px; font-size: 12px; color: var(--ink-faint); }
         .linklike {
             background: none; border: none; color: var(--ink-dim); font: inherit;
@@ -868,8 +1104,8 @@
         /* ---- Voice input (browser speech-to-text) ---- */
         .pitch-wrap { position: relative; }
         .mic-btn {
-            position: absolute; right: 8px; bottom: 8px; width: 34px; height: 34px;
-            border-radius: 9px; border: 1px solid var(--line); background: rgba(255,255,255,0.04);
+            position: absolute; right: 8px; bottom: 8px; width: var(--control-h); height: var(--control-h);
+            border-radius: var(--radius-sm); border: 1px solid var(--line); background: rgba(255,255,255,0.04);
             color: var(--ink-dim); cursor: pointer; font-size: 15px; line-height: 1;
             transition: 140ms ease;
         }
@@ -884,7 +1120,7 @@
             50% { box-shadow: 0 0 0 7px rgba(251,113,133,0); }
         }
         .mic-status {
-            min-height: 14px; margin-top: 6px; font-family: 'JetBrains Mono', monospace;
+            min-height: 14px; margin-top: 6px; font-family: var(--font-mono);
             font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint);
         }
         .mic-status.live { color: var(--bad); }
@@ -898,7 +1134,6 @@
                 <small>Story Mode</small>
             </div>
             <div class="hud">
-                <span class="chip"><span id="mode-dot" class="dot"></span><span id="mode-label">simulation</span></span>
                 <span>Level <b id="hud-level">1</b></span>
                 <span><b id="hud-xp">0</b> XP</span>
                 <button id="mute" class="iconbtn" title="Toggle audio">&#9834;</button>
@@ -918,13 +1153,14 @@
                      whole stage - tools drawn, IQ recalls, then the model's own
                      chain-of-thought. The judged thing, made the centerpiece. -->
                 <div id="theater" hidden></div>
+                <div id="party" aria-hidden="true"></div>
 
                 <div id="diagram">
                     <div class="title-card fade-scene">
                         <div class="founder-hero">
                             <div class="kicker">Founder Creation</div>
                             <h1>Name the company. Build the workforce.</h1>
-                            <p>Choose the front you want to fight on, then take the one human seat. Microsoft Foundry designs the digital workforce, decomposes the venture, and stops at every gate for your decision.</p>
+                            <p>Start from a real company or URL, then take the one human seat. Microsoft Foundry reads the venture, designs the digital workforce, decomposes the work, and stops at every gate for your decision.</p>
                             <div class="founder-promise">
                                 <div class="promise-row"><span class="promise-dot"></span><span><b>Game Master:</b> World Designer turns your brief into chapters.</span></div>
                                 <div class="promise-row"><span class="promise-dot" style="background:var(--designer)"></span><span><b>Party:</b> specialist workers build artifacts with tools and memory.</span></div>
@@ -935,28 +1171,21 @@
                         <div class="founder-creator">
                             <div class="creator-section">
                                 <div class="field">
-                                    <label>Step 1 &middot; Choose a world problem</label>
-                                    <div id="mission-row" class="intro-choices compact">
-                                        <button type="button" class="intro-choice a" data-company="The Commons Project" data-pitch="An agency of digital workers that automates the production and distribution of basic needs - food, water, energy, and shelter logistics - so a community can meet essential demand with a small human crew and an aligned AI workforce.">
-                                            <span class="ic-tag">Mission A</span>
-                                            <span class="ic-title">Automate basic needs</span>
-                                            <span class="ic-sub">Food, water, energy, shelter - run by an aligned human and AI workforce.</span>
-                                        </button>
-                                        <button type="button" class="intro-choice b" data-company="Sahara Forge" data-pitch="An agency of digital workers that plans and coordinates terraforming the Sahara - water routing, solar microgrids, soil regeneration, and new-city logistics - turning uninhabitable desert into livable cities.">
-                                            <span class="ic-tag">Mission B</span>
-                                            <span class="ic-title">Terraform the Sahara</span>
-                                            <span class="ic-sub">Water, solar, soil, new-city logistics - desert into cities.</span>
-                                        </button>
+                                    <label>Step 1 &middot; Source company</label>
+                                    <div class="source-card">
+                                        <b>Microsoft Planetary Computer</b>
+                                        <span>A Microsoft sustainability venture that provides planetary-scale environmental data and APIs so teams can work with Earth observation, climate, land, water, and biodiversity signals.</span>
                                     </div>
+                                    <input id="in-url" value="https://planetarycomputer.microsoft.com/" />
                                 </div>
                                 <div class="field">
                                     <label>Step 2 &middot; Name the venture</label>
-                                    <input id="in-company" value="Planetary Computer" />
+                                    <input id="in-company" value="Microsoft Planetary Computer" />
                                 </div>
                                 <div class="field">
-                                    <label>Step 3 &middot; Describe what the workforce builds</label>
+                                    <label>Step 3 &middot; Venture brief from this source</label>
                                     <div class="pitch-wrap">
-                                        <textarea id="in-pitch" rows="4">A planetary-scale environmental intelligence venture: a digital workforce that turns Earth observation data - climate, land, water, biodiversity - into actionable products for sustainability teams, under human approval gates.</textarea>
+                                        <textarea id="in-pitch" rows="4">Microsoft Planetary Computer is the real-world company vehicle for this run: a Microsoft environmental intelligence platform that turns Earth observation, climate, land, water, and biodiversity data into actionable products for sustainability teams, under human approval gates.</textarea>
                                         <button id="mic" class="mic-btn" type="button" title="Speak your idea" aria-label="Speak your idea">&#127908;</button>
                                     </div>
                                     <div id="mic-status" class="mic-status"></div>
@@ -965,23 +1194,20 @@
 
                             <div class="creator-section">
                                 <div class="field">
-                                    <label>Step 4 &middot; Pick your founder class</label>
+                                    <label>Step 4 &middot; Pick your CEO class</label>
+                                    <div class="field-help">Your background defines what the human seat owns. The digital workers self-organize around everything you do not personally cover.</div>
                                     <div id="arch-row" class="arch-row">
-                                        <button type="button" class="arch-card" data-arch="Builder" data-skill="building product: shipping software, prototypes, systems"><b>1 &middot; Builder</b><span>You ship product</span></button>
-                                        <button type="button" class="arch-card" data-arch="Seller" data-skill="selling: closing deals, partnerships, growth conversations"><b>2 &middot; Seller</b><span>You close deals</span></button>
-                                        <button type="button" class="arch-card" data-arch="Designer" data-skill="design: brand, product experience, storytelling"><b>3 &middot; Designer</b><span>You shape the story</span></button>
-                                        <button type="button" class="arch-card" data-arch="Operator" data-skill="operations: process, logistics, keeping the machine running"><b>4 &middot; Operator</b><span>You run the machine</span></button>
+                                        <button type="button" class="arch-card" data-arch="Builder" data-skill="building product: shipping software, prototypes, systems"><b>1 &middot; Builder CEO</b><span>You own product judgment, prototypes, and what is worth shipping.</span><em>Workers cover market, growth, ops</em></button>
+                                        <button type="button" class="arch-card" data-arch="Seller" data-skill="selling: closing deals, partnerships, growth conversations"><b>2 &middot; Seller CEO</b><span>You own customers, partnerships, and the revenue conversation.</span><em>Workers cover product, proof, ops</em></button>
+                                        <button type="button" class="arch-card" data-arch="Designer" data-skill="design: brand, product experience, storytelling"><b>3 &middot; Designer CEO</b><span>You own taste, narrative, and the user-facing experience.</span><em>Workers cover build, sales, ops</em></button>
+                                        <button type="button" class="arch-card" data-arch="Operator" data-skill="operations: process, logistics, keeping the machine running"><b>4 &middot; Operator CEO</b><span>You own process, constraints, and whether the machine actually runs.</span><em>Workers cover product, story, growth</em></button>
                                     </div>
-                                </div>
-                                <div class="field">
-                                    <label>Optional &middot; Map an existing company URL</label>
-                                    <input id="in-url" placeholder="planetarycomputer.microsoft.com &middot; anthropic.com &middot; any company" />
                                 </div>
                             </div>
 
                             <div class="creator-action">
-                                <div class="creator-hint">First gate: name the venture, choose the front, and enter as the human operator.</div>
-                                <button id="begin" class="cta">Begin the descent &rarr;</button>
+                                <div class="creator-hint">First gate: confirm the source, choose your CEO seat, and let the workers organize around you.</div>
+                                <button id="begin" class="cta">Begin the journey &rarr;</button>
                             </div>
                         </div>
                     </div>
@@ -1009,7 +1235,7 @@
                 </div>
 
                 <div>
-                    <div class="rail-h"><span class="dot" style="background:#7fb0ff"></span> Agent Framework</div>
+                    <div class="rail-h"><span class="dot" style="background:var(--blue-soft)"></span> Agent Framework</div>
                     <div id="maf-panel"><div class="mem-empty">Each worker runs as a Microsoft Agent Framework Agent. Its session memory and the tools the model calls appear here, per run.</div></div>
                 </div>
 
@@ -1024,7 +1250,7 @@
                 </div>
 
                 <div>
-                    <div class="rail-h"><span class="dot" style="background:#c084fc"></span> Agent Memory &mdash; learned</div>
+                    <div class="rail-h"><span class="dot" style="background:var(--designer)"></span> Agent Memory &mdash; learned</div>
                     <div id="learned"><div class="mem-empty">What the workers learn from you &mdash; your operating patterns, profile, and shipped work &mdash; accumulates here (Foundry Agent Service memory; local ledger offline).</div></div>
                 </div>
 
@@ -1042,7 +1268,7 @@
                 </div>
 
                 <div>
-                    <div class="rail-h"><span class="dot" style="background:#f4c95d"></span> Under the Hood &mdash; live evidence</div>
+                    <div class="rail-h"><span class="dot" style="background:var(--gold-soft)"></span> Under the Hood &mdash; live evidence</div>
                     <div id="lens">
                         <div class="lens-row" id="lens-accuracy"><span class="lens-name">Accuracy <i>is it grounded?</i></span><span class="lens-count">&mdash;</span><div class="lens-evidence">every artifact must cite its knowledge and pass deterministic checks</div></div>
                         <div class="lens-row" id="lens-reasoning"><span class="lens-name">Reasoning <i>is it thinking?</i></span><span class="lens-count">&mdash;</span><div class="lens-evidence">decomposition, memory chains, and the tools the model chose to call</div></div>
@@ -1057,7 +1283,10 @@
         </section>
 
         <footer>
-            <div class="progress" id="progress"></div>
+            <div class="footer-left">
+                <div class="progress" id="progress"></div>
+                <div id="resources"></div>
+            </div>
             <div class="controls">
                 <span id="hint" class="hint">Enter a pitch to begin</span>
                 <button id="auto" class="btn ghost" disabled>Auto-play</button>
@@ -1104,7 +1333,7 @@
     </div>
 
     <script src="/game/game/audio.js?v=8"></script>
-    <script type="module" src="/game/game/story.js?v=112"></script>
-    <script src="/game/game/intro.js?v=21"></script>
+    <script type="module" src="/game/game/story.js?v=114"></script>
+    <script src="/game/game/intro.js?v=25"></script>
 </body>
 </html>

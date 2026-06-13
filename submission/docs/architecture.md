@@ -141,5 +141,6 @@ Where to read next, by question:
 | How do the Org Designer and digital workforce work? | [org_designer_and_digital_workforce.md](org_designer_and_digital_workforce.md) |
 | How do the World Designer and Worker Factory work? | [world_designer_and_worker_factory.md](world_designer_and_worker_factory.md) |
 | How does the game speak (TTS pipeline)? | [narration_pipeline.md](narration_pipeline.md) |
+| How do realtime voice, avatars, captions, scene images, and dilemma tools fit together? | [realtime_avatar_dilemma_system.md](realtime_avatar_dilemma_system.md) |
 | What do we show in the demo? | [demo_script.md](demo_script.md) |
 | Which Microsoft docs, submission pages, and optional surfaces should we cite? | [microsoft_platform_references.md](microsoft_platform_references.md) |

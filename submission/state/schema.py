@@ -49,6 +49,24 @@ class OrgBlueprint(BaseModel):
     notes: List[str] = Field(default_factory=list)
 
 
+class CompanyEconomics(BaseModel):
+    """Durable operating metrics that CEO decisions can move.
+
+    The UI renders the 0-100 pressure meters, while the actual org burn stays
+    as dollars on OrgBlueprint. Keeping both in state lets later worker briefs
+    cite the company that now exists, not only the original pitch.
+    """
+    proof: int = 24
+    trust: int = 38
+    velocity: int = 42
+    burn_pressure: int = 12
+    autonomy: int = 8
+    monthly_burn_usd: int = 0
+    runway_months: int = 9
+    digital_worker_count: int = 0
+    leverage_ratio: float = 0.0
+
+
 # ---------------------------------------------------------------------------
 # World graph: the richer structure produced by WorldDesigner.
 # ---------------------------------------------------------------------------
@@ -162,6 +180,7 @@ class CompanyState(BaseModel):
     active_quest: Optional[QuestState] = None
     world: Optional[WorldGraph] = None
     org: Optional[OrgBlueprint] = None
+    economics: CompanyEconomics = Field(default_factory=CompanyEconomics)
     agents: Dict[str, CharacterState] = Field(default_factory=dict)
     business_flags: Dict[str, bool] = Field(default_factory=dict)
     streak: int = 0

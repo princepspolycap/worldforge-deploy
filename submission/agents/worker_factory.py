@@ -496,6 +496,39 @@ def _mock_artifact(role: str, chapter: Chapter, brief: str) -> Dict[str, Any]:
     }
 
 
+def _apply_decision_context_to_artifact(artifact: Dict[str, Any], decisions: Optional[List[Dict]]) -> None:
+    """Make simulation artifacts reflect the changed company state.
+
+    Live workers receive the same material in their prompt/context provider.
+    Offline runs need the visible artifact to move too, so the story stays
+    faithful after a fresh clone with no Foundry credentials.
+    """
+    if not artifact or not decisions:
+        return
+    latest = decisions[-1]
+    consequence = latest.get("consequence") or {}
+    after = consequence.get("after") or {}
+    summary = latest.get("consequence_summary") or consequence.get("summary") or ""
+    artifact["decision_context"] = {
+        "latest_ceo_choice": latest.get("option", ""),
+        "company_consequence": summary,
+        "current_economics": after,
+    }
+    fin = artifact.get("financial_plan")
+    if isinstance(fin, dict) and after.get("monthly_burn_usd"):
+        fin["burn_usd_per_month"] = int(after["monthly_burn_usd"])
+        fin["runway_months"] = int(after.get("runway_months") or 0)
+        fin["assumption_from_ceo_choice"] = summary
+    if "okrs_q1" in artifact and summary:
+        artifact["okrs_q1"].append({
+            "objective": "Execute the CEO consequence deliberately",
+            "key_results": [
+                summary,
+                f"Operate with {after.get('digital_worker_count', '?')} digital workers at ${after.get('monthly_burn_usd', '?')}/mo burn",
+            ],
+        })
+
+
 def execute_chapter(
     chapter: Chapter,
     brief: str,
@@ -592,7 +625,10 @@ def execute_chapter(
     # The MAF path overwrites this with what its ContextProvider actually did.
     injected: List[Dict[str, str]] = []
     for d in (decisions or [])[-3:]:
-        injected.append({"kind": "ceo_decision", "text": str(d.get("option", ""))[:120]})
+        text = str(d.get("option", ""))
+        if d.get("consequence_summary"):
+            text += f" -> {d.get('consequence_summary')}"
+        injected.append({"kind": "ceo_decision", "text": text[:120]})
     for h in retrieval_hits[:2]:
         injected.append({"kind": "iq_recall", "text": str(h.get("source", ""))[:120]})
     for m in memories[:3]:
@@ -609,9 +645,19 @@ def execute_chapter(
             user_direct += (f"- After '{d.get('chapter_title', d.get('chapter_id', ''))}': "
                             f"chose \"{d.get('option', '')}\""
                             + (f" (tradeoff accepted: {d.get('tradeoff', '')})" if d.get('tradeoff') else "")
+                            + (f". Consequence now in company state: {d.get('consequence_summary', '')}" if d.get("consequence_summary") else "")
                             + "\n")
-        user_direct += ("Your artifact MUST visibly follow the most recent decision - "
-                        "reference it where relevant.\n")
+        latest = decisions[-1].get("consequence") or {}
+        after = latest.get("after") or {}
+        if after:
+            user_direct += (
+                "Current company economics after those choices: "
+                f"burn ${after.get('monthly_burn_usd', 0)}/mo, "
+                f"{after.get('digital_worker_count', 0)} digital workers, "
+                f"proof {after.get('proof', 0)}, trust {after.get('trust', 0)}, "
+                f"velocity {after.get('velocity', 0)}, autonomy {after.get('autonomy', 0)}.\n")
+        user_direct += ("Your artifact MUST visibly follow the most recent decision and the changed "
+                        "company state - reference it where relevant.\n")
     if retrieval_hits:
         user_direct += "\n\nFoundry IQ context snippets:\n"
         for hit in retrieval_hits:
@@ -625,6 +671,7 @@ def execute_chapter(
         # Simulation fallback: rich, diagram-ready artifacts so the story
         # renders org charts / integration maps / financials offline.
         artifact = _mock_artifact(role, chapter, brief)
+        _apply_decision_context_to_artifact(artifact, decisions)
         invocation.status = "completed"
         invocation.completed_at = time.time()
         invocation.latency_s = 0.1

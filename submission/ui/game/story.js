@@ -6,23 +6,15 @@
 // and folded into a company graph that grows as the venture comes alive.
 
 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+import { T, ROLE_COLOR, mermaidThemeVariables } from "./tokens.js";
 
 mermaid.initialize({
     startOnLoad: false,
     theme: "base",
     securityLevel: "loose",
     htmlLabels: false,
-    fontFamily: "Inter, sans-serif",
-    themeVariables: {
-        background: "transparent",
-        primaryColor: "#16233f",
-        primaryBorderColor: "#3a4a72",
-        primaryTextColor: "#eaf0ff",
-        lineColor: "#4a5f8f",
-        secondaryColor: "#16203a",
-        tertiaryColor: "#0e1626",
-        fontSize: "16px",
-    },
+    fontFamily: T.fontBody,
+    themeVariables: mermaidThemeVariables(),
     flowchart: { curve: "basis", padding: 22, nodeSpacing: 52, rankSpacing: 66, useMaxWidth: false, htmlLabels: false },
 });
 
@@ -30,14 +22,6 @@ const A = window.DungeonAudio || {};
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const ROLE_COLOR = {
-    strategist: "#5b8cff",
-    designer: "#c084fc",
-    marketer: "#f59e0b",
-    ops: "#2dd4bf",
-    narrator: "#94a3b8",
-    orgdesigner: "#c084fc",
-};
 const ROLE_NAME = {
     strategist: "Strategist",
     designer: "Designer",
@@ -123,7 +107,7 @@ async function renderMermaid(def) {
     try {
         ({ svg } = await mermaid.render(id, def));
     } catch (e) {
-        host.innerHTML = `<div style="color:#fb7185;font-family:monospace;font-size:12px">diagram error: ${e.message}</div>`;
+        host.innerHTML = `<div style="color:${T.bad};font-family:${T.fontMono};font-size:12px">diagram error: ${e.message}</div>`;
         return;
     }
     const wrap = document.createElement("div");
@@ -308,23 +292,23 @@ function financialSvg(artifact) {
         const x = pad + i * bw + 6;
         const y = H - pad - h;
         const isBE = breakeven && i === breakeven - 1;
-        bars += `<rect x="${x}" y="${H - pad}" width="${bw - 12}" height="0" rx="4" fill="${isBE ? "#34d399" : "#f59e0b"}">
+        bars += `<rect x="${x}" y="${H - pad}" width="${bw - 12}" height="0" rx="4" fill="${isBE ? T.good : T.marketer}">
             <animate attributeName="height" from="0" to="${h}" dur="0.8s" begin="${i * 0.12}s" fill="freeze" calcMode="spline" keySplines="0.2 0.7 0.2 1"/>
             <animate attributeName="y" from="${H - pad}" to="${y}" dur="0.8s" begin="${i * 0.12}s" fill="freeze" calcMode="spline" keySplines="0.2 0.7 0.2 1"/>
         </rect>`;
-        bars += `<text x="${x + (bw - 12) / 2}" y="${H - pad + 18}" fill="#9aa6c0" font-size="11" font-family="JetBrains Mono, monospace" text-anchor="middle">M${i + 1}</text>`;
-        bars += `<text x="${x + (bw - 12) / 2}" y="${y - 8}" fill="#e8ecf6" font-size="11" font-family="JetBrains Mono, monospace" text-anchor="middle" opacity="0">$${(v / 1000).toFixed(1)}k<animate attributeName="opacity" from="0" to="1" dur="0.4s" begin="${i * 0.12 + 0.6}s" fill="freeze"/></text>`;
+        bars += `<text x="${x + (bw - 12) / 2}" y="${H - pad + 18}" fill="${T.inkDim}" font-size="11" font-family="${T.fontMono}" text-anchor="middle">M${i + 1}</text>`;
+        bars += `<text x="${x + (bw - 12) / 2}" y="${y - 8}" fill="${T.ink}" font-size="11" font-family="${T.fontMono}" text-anchor="middle" opacity="0">$${(v / 1000).toFixed(1)}k<animate attributeName="opacity" from="0" to="1" dur="0.4s" begin="${i * 0.12 + 0.6}s" fill="freeze"/></text>`;
     });
     const burn = fin.burn_usd_per_month || fin.burn;
     const burnY = burn ? H - pad - ((H - pad * 2) * burn) / max : null;
     let burnLine = "";
     if (burnY != null) {
-        burnLine = `<line x1="${pad}" y1="${burnY}" x2="${W - pad}" y2="${burnY}" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="5 5" opacity="0"><animate attributeName="opacity" from="0" to="0.8" dur="0.5s" begin="1s" fill="freeze"/></line>
-        <text x="${W - pad}" y="${burnY - 6}" fill="#fb7185" font-size="10" font-family="JetBrains Mono, monospace" text-anchor="end" opacity="0">burn $${(burn / 1000).toFixed(1)}k/mo<animate attributeName="opacity" from="0" to="1" dur="0.5s" begin="1.1s" fill="freeze"/></text>`;
+        burnLine = `<line x1="${pad}" y1="${burnY}" x2="${W - pad}" y2="${burnY}" stroke="${T.bad}" stroke-width="1.5" stroke-dasharray="5 5" opacity="0"><animate attributeName="opacity" from="0" to="0.8" dur="0.5s" begin="1s" fill="freeze"/></line>
+        <text x="${W - pad}" y="${burnY - 6}" fill="${T.bad}" font-size="10" font-family="${T.fontMono}" text-anchor="end" opacity="0">burn $${(burn / 1000).toFixed(1)}k/mo<animate attributeName="opacity" from="0" to="1" dur="0.5s" begin="1.1s" fill="freeze"/></text>`;
     }
     return `<svg viewBox="0 0 ${W} ${H}" style="max-width:620px;width:100%">
-        <line x1="${pad}" y1="${H - pad}" x2="${W - pad}" y2="${H - pad}" stroke="#1d2740" stroke-width="1"/>
-        <text x="${pad}" y="${pad - 14}" fill="#9aa6c0" font-size="12" font-family="Fraunces, serif">MRR ramp - months 1 to ${vals.length}</text>
+        <line x1="${pad}" y1="${H - pad}" x2="${W - pad}" y2="${H - pad}" stroke="${T.line}" stroke-width="1"/>
+        <text x="${pad}" y="${pad - 14}" fill="${T.inkDim}" font-size="12" font-family="${T.fontDisplay}">MRR ramp - months 1 to ${vals.length}</text>
         ${bars}${burnLine}
     </svg>`;
 }
@@ -391,7 +375,7 @@ const completedChapters = [];
 function companyGraphDef() {
     let def = "graph TD\n  FOUNDER([\"Founder\"])\n";
     completedChapters.forEach((c, i) => {
-        const color = ROLE_COLOR[c.role] || "#5b8cff";
+        const color = ROLE_COLOR[c.role] || T.blue;
         def += `  FOUNDER --> CH${i}["${san(c.title)}"]\n`;
         def += `  style CH${i} stroke:${color},stroke-width:2px\n`;
     });
@@ -414,7 +398,100 @@ const state = {
     idx: 0,
     phase: "title", // title | designed | running | done
     live: false,
+    resources: {
+        proof: 18,
+        trust: 35,
+        velocity: 42,
+        burn: 12,
+        autonomy: 8,
+    },
 };
+
+const RESOURCE_SPEC = {
+    proof: { label: "Proof", color: T.good },
+    trust: { label: "Trust", color: T.blueSoft },
+    velocity: { label: "Velocity", color: T.marketer },
+    burn: { label: "Burn", color: T.bad },
+    autonomy: { label: "Autonomy", color: T.ops },
+};
+
+function clamp(n, min = 0, max = 100) {
+    return Math.max(min, Math.min(max, Math.round(Number(n) || 0)));
+}
+
+function renderResources() {
+    const host = $("resources");
+    if (!host) return;
+    host.innerHTML = Object.entries(RESOURCE_SPEC).map(([key, spec]) => {
+        const val = clamp(state.resources[key]);
+        return `<div class="meter" title="${spec.label}: ${val}/100">`
+            + `<div class="meter-top"><span>${spec.label}</span><b>${val}</b></div>`
+            + `<div class="meter-track"><span class="meter-fill" style="width:${val}%;background:${spec.color}"></span></div>`
+            + `</div>`;
+    }).join("");
+}
+
+function nudgeResources(delta) {
+    Object.entries(delta || {}).forEach(([k, v]) => {
+        if (k in state.resources) state.resources[k] = clamp(state.resources[k] + v);
+    });
+    renderResources();
+}
+
+function setResourcesFromOrg(org) {
+    const workerCount = Number(org && org.digital_worker_count) || 0;
+    const burn = Number(org && org.monthly_burn_usd) || 0;
+    state.resources = {
+        proof: 24,
+        trust: 38,
+        velocity: clamp(38 + workerCount * 5),
+        burn: clamp(10 + burn / 95),
+        autonomy: clamp(14 + workerCount * 10),
+    };
+    renderResources();
+}
+
+function setResourcesFromEconomics(economics, org) {
+    if (!economics) {
+        if (org) setResourcesFromOrg(org);
+        return;
+    }
+    state.resources = {
+        proof: clamp(economics.proof),
+        trust: clamp(economics.trust),
+        velocity: clamp(economics.velocity),
+        burn: clamp(economics.burn_pressure),
+        autonomy: clamp(economics.autonomy),
+    };
+    renderResources();
+}
+
+function resourceDeltaForDecision(option, tradeoff) {
+    const text = `${option || ""} ${tradeoff || ""}`.toLowerCase();
+    const delta = { proof: 4 };
+    if (/ship|70|fast|breadth|adoption|volume|automate support fully/.test(text)) {
+        delta.velocity = (delta.velocity || 0) + 10;
+        delta.autonomy = (delta.autonomy || 0) + 5;
+        delta.trust = (delta.trust || 0) - 3;
+    }
+    if (/depth|niche|polish|95|runway|human in the loop|protect the promise/.test(text)) {
+        delta.trust = (delta.trust || 0) + 9;
+        delta.proof = (delta.proof || 0) + 4;
+        delta.velocity = (delta.velocity || 0) - 4;
+        delta.burn = (delta.burn || 0) + 5;
+    }
+    if (/rough|thin margins|higher burn|margin pressure/.test(text)) {
+        delta.burn = (delta.burn || 0) + 5;
+    }
+    if (/deeper moat|real users|protect|willingness|proof/.test(text)) {
+        delta.proof = (delta.proof || 0) + 5;
+    }
+    return delta;
+}
+
+function fmtMoney(n) {
+    return `$${Number(n || 0).toLocaleString()}`;
+}
 
 // Character creation: the archetype the founder picks is their starting gear.
 // It seeds the human lane of the org design (game_design.md section 9.3).
@@ -431,19 +508,6 @@ document.querySelectorAll("#arch-row .arch-card").forEach((card) => {
     });
 });
 
-// Mission cards on the founding screen: picking a front fills the company +
-// pitch (still editable - the front is a starting point, not a lock).
-document.querySelectorAll("#mission-row .intro-choice").forEach((card) => {
-    card.addEventListener("click", () => {
-        document.querySelectorAll("#mission-row .intro-choice").forEach((c) => c.classList.remove("sel"));
-        card.classList.add("sel");
-        $("in-company").value = card.dataset.company || "";
-        $("in-pitch").value = card.dataset.pitch || "";
-        $("in-url").value = "";
-        const beginBtn = $("begin");
-        if (beginBtn) beginBtn.focus();
-    });
-});
 document.addEventListener("keydown", (e) => {
     if (state.phase !== "title") return;
     if (document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName)) return;
@@ -469,13 +533,80 @@ const ROLE_MS = {
     ops: "Azure AI Foundry &middot; fast-reasoning deployment",
 };
 
+function roleForStage(stage) {
+    const s = String(stage || "").toLowerCase();
+    if (/mvp|build|product|design/.test(s)) return "designer";
+    if (/gtm|growth|market|sales/.test(s)) return "marketer";
+    if (/retention|ops|support|finance/.test(s)) return "ops";
+    return "strategist";
+}
+
+function partyMembers() {
+    if (state.chapters.length) {
+        const seen = new Set();
+        return state.chapters.map((ch) => {
+            const name = ch.assigned_worker_title || ROLE_NAME[ch.owner_role] || ch.owner_role;
+            return {
+                key: name,
+                role: ch.owner_role || "strategist",
+                name,
+                chapterId: ch.id,
+                title: ch.title,
+                status: ch.status,
+            };
+        }).filter((m) => {
+            if (seen.has(m.key)) return false;
+            seen.add(m.key);
+            return true;
+        }).slice(0, 6);
+    }
+    if (state.org && Array.isArray(state.org.roles)) {
+        return state.org.roles
+            .filter((r) => r.kind !== "human")
+            .slice(0, 6)
+            .map((r) => ({
+                key: r.id || r.title,
+                role: roleForStage(r.lifecycle_stage || r.deployment_hint || r.title),
+                name: r.title,
+                title: r.mandate || r.why,
+                status: "waiting",
+            }));
+    }
+    return [
+        { key: "orgdesigner", role: "orgdesigner", name: "Org Designer", title: "designs the workforce", status: "waiting" },
+        { key: "narrator", role: "narrator", name: "World Designer", title: "maps the dungeon", status: "waiting" },
+    ];
+}
+
+function setParty(activeKey, line, activeName) {
+    const host = $("party");
+    if (!host) return;
+    const members = partyMembers();
+    host.innerHTML = members.map((m) => {
+        const active = m.key === activeKey || m.role === activeKey || m.name === activeName || m.name === activeKey;
+        const done = m.status === "completed";
+        const portrait = ROLE_PORTRAIT[m.role] || "narrator";
+        const statusLine = active
+            ? (line || "working with you")
+            : done
+                ? "sealed their room"
+                : (m.title || "waiting for the brief");
+        return `<div class="party-agent${active ? " active" : ""}${done ? " done" : ""}">`
+            + `<img class="party-face" src="/game/assets/generated/${portrait}.png" alt="" onerror="this.style.display='none'" />`
+            + `<div class="party-name">${esc(m.name)}</div>`
+            + `<div class="party-role">${esc(ROLE_NAME[m.role] || m.role || "agent")}</div>`
+            + `<div class="party-line">${esc(statusLine).slice(0, 88)}</div>`
+            + `</div>`;
+    }).join("");
+}
+
 function setWorker(role, deployLabel, stateText, thinking, displayName) {
     // Switch the narration voice to this worker's so each character sounds
     // distinct. Unknown roles keep the narrator voice.
     currentVoice = VOICE_BY_ROLE[role] || NARRATOR_VOICE;
     $("worker-name").textContent = displayName || ROLE_NAME[role] || role;
     const orb = document.querySelector(".role-orb");
-    if (orb) orb.style.color = ROLE_COLOR[role] || "#94a3b8";
+    if (orb) orb.style.color = ROLE_COLOR[role] || T.narrator;
     const portrait = $("worker-portrait");
     if (portrait) {
         portrait.style.display = "";
@@ -493,6 +624,7 @@ function setWorker(role, deployLabel, stateText, thinking, displayName) {
     $("worker-state").innerHTML = thinking
         ? `<span class="pulse"></span> ${stateText}`
         : stateText;
+    setParty(role, stateText, displayName);
 }
 
 // Show the model's visible "thinking": reasoning-token count and, when the
@@ -682,6 +814,9 @@ function esc(s) {
     ));
 }
 
+renderResources();
+setParty("narrator", "waiting for your founding brief");
+
 // Dynamic org blueprint -> Mermaid org chart. The human operator is the root;
 // digital workers (the execution layer) hang beneath, colored by kind.
 function orgBlueprintMermaid(org) {
@@ -689,7 +824,7 @@ function orgBlueprintMermaid(org) {
         return 'graph TD\n  X["No org designed"]';
     }
     const nid = (id) => `n_${String(id).replace(/[^a-zA-Z0-9_]/g, "")}`;
-    const kindColor = (k) => (k === "human" ? "#5b8cff" : k === "hybrid" ? "#c084fc" : "#2dd4bf");
+    const kindColor = (k) => (k === "human" ? T.blue : k === "hybrid" ? T.designer : T.ops);
     let def = "graph TD\n";
     org.roles.forEach((r) => {
         const w = r.kind === "human" ? 3 : 2;
@@ -700,6 +835,37 @@ function orgBlueprintMermaid(org) {
         if (r.reports_to) def += `  ${nid(r.reports_to)} --> ${nid(r.id)}\n`;
     });
     return def;
+}
+
+function renderConsequenceEffect(consequence) {
+    const host = $("diagram");
+    if (!host || !consequence) return;
+    const before = consequence.before || {};
+    const after = consequence.after || {};
+    const orgDelta = consequence.org_delta || {};
+    const rows = [
+        ["Digital workers", before.digital_worker_count, after.digital_worker_count],
+        ["Monthly burn", fmtMoney(before.monthly_burn_usd), fmtMoney(after.monthly_burn_usd)],
+        ["Leverage", `${before.leverage_ratio || 0}x`, `${after.leverage_ratio || 0}x`],
+        ["Proof", before.proof, after.proof],
+        ["Trust", before.trust, after.trust],
+        ["Velocity", before.velocity, after.velocity],
+        ["Autonomy", before.autonomy, after.autonomy],
+        ["Burn pressure", before.burn_pressure, after.burn_pressure],
+    ];
+    host.innerHTML = `<div class="consequence-board fade-scene">`
+        + `<div class="consequence-kicker">Consequence rule &middot; ${esc(consequence.rule_id || "decision")}</div>`
+        + `<h2>${esc(consequence.summary || "The company changes.")}</h2>`
+        + (orgDelta.added_role_title ? `<div class="consequence-role">Org graph gains: <b>${esc(orgDelta.added_role_title)}</b> (${fmtMoney(orgDelta.monthly_cost_usd)}/mo)</div>` : "")
+        + `<div class="effect-grid">${rows.map(([label, a, b]) => `
+            <div class="effect-row">
+                <span>${esc(label)}</span>
+                <b>${esc(a)}</b>
+                <i>&rarr;</i>
+                <strong>${esc(b)}</strong>
+            </div>`).join("")}</div>`
+        + `</div>`;
+    if (A.chime) { try { A.chime(); } catch (_) {} }
 }
 
 // Populate the persistent "Digital Workforce" rail: stats + operating model +
@@ -714,6 +880,9 @@ function setOrgPanel(org) {
     let html = `<div class="org-stat">Founder + <b>${org.digital_worker_count}</b> digital workers`
         + ` &middot; <b>$${burn}</b>/mo &middot; <b>${org.leverage_ratio}&times;</b> leverage</div>`;
     if (org.operating_model) html += `<div class="org-model">${esc(org.operating_model)}</div>`;
+    if (Array.isArray(org.notes) && org.notes.length) {
+        html += `<div class="org-model"><b style="color:var(--gold-soft);font-style:normal">Latest consequence:</b> ${esc(org.notes[org.notes.length - 1])}</div>`;
+    }
     org.roles.forEach((r) => {
         const c = r.kind === "human" ? "var(--strategist)" : r.kind === "hybrid" ? "var(--designer)" : "var(--ops)";
         const kindLabel = r.kind === "digital_worker" ? "digital" : r.kind;
@@ -721,7 +890,31 @@ function setOrgPanel(org) {
             + `<b>${esc(r.title)}</b><span class="org-kind">${esc(kindLabel)}</span>`
             + `<div class="org-why">${esc(r.why || r.mandate)}</div></div>`;
     });
+    // Bridge out of the game: download the org as a platform-neutral
+    // Workforce Bundle any digital-worker platform can ingest and provision
+    // (behind its own human approval gate).
+    html += `<button id="org-export-btn" class="org-export" type="button">Export workforce bundle</button>`;
     host.innerHTML = html;
+    const exportBtn = $("org-export-btn");
+    if (exportBtn) exportBtn.addEventListener("click", async () => {
+        exportBtn.disabled = true;
+        exportBtn.textContent = "Exporting...";
+        try {
+            const res = await fetch("/api/org/export");
+            if (!res.ok) throw new Error(`export failed (${res.status})`);
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "workforce_bundle.json";
+            a.click();
+            URL.revokeObjectURL(url);
+            exportBtn.textContent = "Bundle downloaded";
+        } catch (err) {
+            exportBtn.textContent = "Export failed - retry";
+            exportBtn.disabled = false;
+        }
+    });
 }
 
 function setGate(score, rubric) {
@@ -792,6 +985,7 @@ async function beginStory() {
     document.body.classList.remove("prestart");
     const stageEl = document.getElementById("stage");
     if (stageEl) stageEl.classList.remove("prestart", "rail-hidden");
+    setParty("narrator", "walking with you");
 
     $("begin").disabled = true;
     $("reset").disabled = false;
@@ -851,6 +1045,7 @@ async function beginStory() {
         org = ares.org;
         profile = ares.profile || null;
         state.org = org;
+        setResourcesFromEconomics(ares.state && ares.state.economics, org);
         setHud(ares.state);
         if (!state.pitch) state.pitch = org.company_summary || ares.brief || "";
     } catch (e) {
@@ -911,6 +1106,8 @@ async function beginStory() {
     const world = res.state.world || {};
     state.chapters = world.chapters || [];
     state.decisions = world.decisions || [];
+    if (res.state && res.state.org) state.org = res.state.org;
+    setResourcesFromEconomics(res.state && res.state.economics, state.org);
     state.idx = 0;
     state.phase = "designed";
     setHud(res.state);
@@ -918,6 +1115,7 @@ async function beginStory() {
     buildProgress(state.chapters.length);
     setWorker("narrator", "NARRATOR_MODEL (Foundry)", `Produced ${state.chapters.length} chapters`, false);
 
+    await revealSelfOrganization();
     await revealVentureGraph();
 
     $("next").disabled = false;
@@ -925,8 +1123,33 @@ async function beginStory() {
     $("hint").textContent = "Press Next to run the first chapter";
 }
 
+async function revealSelfOrganization() {
+    setSceneHead("Beat 3", "The party self-organizes",
+        "\u2692 chapter ownership bound from the designed org to the worker party");
+    const chapters = state.chapters || [];
+    if (!chapters.length) return;
+    const members = chapters.slice(0, 6).map((ch, i) => {
+        const role = ch.owner_role || "strategist";
+        const portrait = ROLE_PORTRAIT[role] || "narrator";
+        const owner = ch.assigned_worker_title || ROLE_NAME[role] || role;
+        const shortTitle = String(ch.title || "").split(":")[0] || ch.title;
+        const line = i === 0
+            ? `I will open with ${shortTitle.toLowerCase()} so the rest of the party has evidence.`
+            : `I take ${shortTitle.toLowerCase()} after ${chapters[i - 1].assigned_worker_title || chapters[i - 1].owner_role} lands their artifact.`;
+        return `<div class="council-member" style="animation-delay:${i * 90}ms">`
+            + `<div class="council-top"><img class="council-face" src="/game/assets/generated/${portrait}.png" alt="" onerror="this.style.display='none'" />`
+            + `<div><div class="council-name">${esc(owner)}</div><div class="council-role">${esc(ROLE_NAME[role] || role)}</div></div></div>`
+            + `<div class="council-says">&ldquo;${esc(line)}&rdquo;</div>`
+            + `</div>`;
+    }).join("");
+    $("diagram").innerHTML = `<div class="council fade-scene">${members}</div>`;
+    setParty("narrator", "assigning rooms");
+    await narrate("The agents do not wait as a list. They organize as a party: each worker claims a room, names its dependency, and carries the previous artifact into the next brief. This is the workforce forming itself around your mission.");
+    await sleep(700);
+}
+
 async function revealVentureGraph() {
-    setSceneHead("Beat 3", "The venture, decomposed",
+    setSceneHead("Beat 4", "The venture, decomposed",
         "\u2692 drawn live from the World Designer's chapter graph (JSON \u2192 Mermaid)");
     // The stage is a wide cinema frame - lay the quest line LEFT-TO-RIGHT so
     // five chapters read as a path across the screen, not a column squeezed
@@ -937,7 +1160,7 @@ async function revealVentureGraph() {
     const idOf = (id) => `c_${id.replace(/[^a-zA-Z0-9_]/g, "")}`;
     const mapLabel = (t) => san(String(t || "").split(":")[0].trim() || t);
     state.chapters.forEach((ch) => {
-        const color = ROLE_COLOR[ch.owner_role] || "#5b8cff";
+        const color = ROLE_COLOR[ch.owner_role] || T.blue;
         def += `  ${idOf(ch.id)}["${mapLabel(ch.title)}"]\n`;
         def += `  style ${idOf(ch.id)} stroke:${color},stroke-width:2px\n`;
     });
@@ -991,6 +1214,11 @@ async function theaterOpen(ch, ownerName, lastDecision) {
     if (lastDecision && t === theaterToken) {
         await theaterStep(steps, "&#9670;", "CEO direction in context",
             `Your last gate decision &mdash; &ldquo;${esc(lastDecision.option)}&rdquo; &mdash; is binding direction in this brief.`);
+        if (lastDecision.consequence_summary && t === theaterToken) {
+            const after = (lastDecision.consequence && lastDecision.consequence.after) || {};
+            await theaterStep(steps, "&#9881;", "Changed company state",
+                `${esc(lastDecision.consequence_summary)} ${after.monthly_burn_usd ? `Burn is now ${fmtMoney(after.monthly_burn_usd)}/mo with ${after.digital_worker_count || 0} digital workers.` : ""}`);
+        }
     }
     // Real toolbox draw: ask the server which tools this archetype pulls.
     try {
@@ -1053,7 +1281,7 @@ async function runNextChapter() {
     const lastDecision = state.decisions && state.decisions.length
         ? state.decisions[state.decisions.length - 1] : null;
     const recallLine = lastDecision
-        ? ` Your decision at the last gate - "${lastDecision.option}" - is in its brief, as binding direction.`
+        ? ` Your decision at the last gate - "${lastDecision.option}" - is in its brief, as binding direction.${lastDecision.consequence_summary ? ` The company consequence is also in scope: ${lastDecision.consequence_summary}.` : ""}`
         : "";
     // Agent memory, spoken: once the workforce has learned from this CEO, the
     // narration credits it - memory is a mechanic the player can hear.
@@ -1091,6 +1319,7 @@ async function runNextChapter() {
     const chapter = res.chapter || {};
     const inv = res.invocation || {};
     const score = chapter.validation_score ?? 0;
+    nudgeResources({ proof: Math.max(4, Math.round(score / 10)), trust: score >= 80 ? 5 : -8, autonomy: 3 });
     // Stash this run's evidence so the dilemma gate can show its provenance.
     state.lastInv = inv;
     state.lastMemory = res.memory || [];
@@ -1251,16 +1480,39 @@ async function runDilemmaGate(chapter, auto) {
         if (!dilemmaResolve) return;
         const r = dilemmaResolve; dilemmaResolve = null;
         $("dilemma-overlay").hidden = true;
+        let consequence = null;
         try {
             const res = await api("/api/decision", {
                 chapter_id: chapter.id, option, tradeoff: tradeoff || "",
                 prompt: dilemma.prompt, custom: !!custom,
             });
             state.decisions = res.decisions || state.decisions;
+            consequence = res.consequence || (res.recorded && res.recorded.consequence) || null;
+            if (res.state) {
+                state.org = res.state.org || state.org;
+                state.chapters = (res.state.world && res.state.world.chapters) || state.chapters;
+                setHud(res.state);
+                setOrgPanel(state.org);
+                setResourcesFromEconomics(res.state.economics, state.org);
+            }
         } catch (_) { /* decision recording is additive */ }
         refreshLearned(); // the workers just learned the CEO's operating pattern
-        lens("reasoning", `CEO decision recorded - next worker's brief carries "${String(option).slice(0, 50)}" as binding direction`);
-        await narrate(`Decided: ${option}. Your workforce will execute accordingly.`);
+        const summary = consequence && consequence.summary ? consequence.summary : "The next worker receives this as binding direction.";
+        if (consequence) {
+            setSceneHead("Decision effect", "The company changes",
+                "\u2692 deterministic consequence rule updated state, org, and economics");
+            renderConsequenceEffect(consequence);
+            lens("reliability", `${consequence.rule_id} applied: org and economics mutated before the next chapter`);
+            await narrate(`Decided: ${option}. ${summary}`);
+            if (state.org) {
+                await renderMermaid(orgBlueprintMermaid(state.org));
+                await sleep(500);
+            }
+        } else {
+            nudgeResources(resourceDeltaForDecision(option, tradeoff));
+            await narrate(`Decided: ${option}. Your workforce will execute accordingly.`);
+        }
+        lens("reasoning", `CEO decision recorded - next worker's brief carries "${String(option).slice(0, 50)}" and its company consequence`);
         r({ option, tradeoff, custom });
     }
 
@@ -1485,8 +1737,10 @@ $("mute").addEventListener("click", () => {
 // Detect live mode for the HUD chip.
 fetch("/api/mode").then((r) => (r.ok ? r.json() : null)).then((d) => {
     if (d && d.live) {
-        $("mode-dot").classList.add("live");
-        $("mode-label").textContent = "live foundry";
+        const modeDot = $("mode-dot");
+        const modeLabel = $("mode-label");
+        if (modeDot) modeDot.classList.add("live");
+        if (modeLabel) modeLabel.textContent = "live foundry";
         state.live = true;
     }
 }).catch(() => {});
