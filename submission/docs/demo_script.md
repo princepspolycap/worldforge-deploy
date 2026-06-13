@@ -3,7 +3,7 @@
 ## 0-3 min: Hook
 
 - Open the narrated management-RPG experience (`/story`).
-- Show the title: Your Company Is the Dungeon.
+- Show the title: Gamifying World Improvement.
 - Point out the player, NPC agents, XP bar, quest log, and reasoning drawer.
 
 ## 3-10 min: Live Play
@@ -34,7 +34,7 @@
 
 - Show how the repo can be cloned.
 - Show where new quest definitions live.
-- Close with the community build path: author a new business dungeon.
+- Close with the community build path: author a new world-improvement campaign.
 
 ---
 

@@ -74,7 +74,7 @@ Disclosure: AI-generated content. Model: {model}.
 # One scene per lore beat, same house palette so the sequence reads as one film.
 # Wide cinematic key art for the intro lore cards (16:9-ish; w*h <= 1,048,576).
 # One scene per lore beat. Style cues distilled from the maintainer's original
-# Poly186 vision boards (terraformed-Sahara concept art): cinematic painterly
+# World-Improvement vision boards (terraformed-Sahara concept art): cinematic painterly
 # realism, ground-level or aerial vistas, golden-hour or moonlit light, vast
 # scale - unified with the game's navy/teal/gold palette so UI chrome still fits.
 KEYART_STYLE = (
@@ -84,8 +84,8 @@ KEYART_STYLE = (
     "no text, no border, no frame, full bleed edge to edge"
 )
 KEYART = {
-    "title": "a colossal business-tower dungeon descending into the earth beneath a desert city at dusk, its underground floors glowing like circuit boards through the cutaway, a tiny founder silhouette at the gate above",
-    "premise": "split vista at twilight: a small warmly lit boardroom of human silhouettes on a mesa top, and beneath it a vast luminous lattice of agent lights working through the rock like a living circuit cavern",
+    "title": "a monumental world-improvement campaign command center rising above a greening desert city at dusk, its logistics screens glowing like star maps, a tiny founder silhouette at the main gate above",
+    "premise": "split vista at twilight: a small warmly lit command desk of human silhouettes on a mesa top, and beneath it a vast luminous lattice of agent nodes working to coordinate irrigation and clean energy networks",
     "sahara": "ground-level view of a terraformed Sahara at sunrise, dew on new grasslands spreading through golden dunes, water channels catching first light, pyramids on the horizon watching over green growth and a distant gleaming city",
     "needs": "aerial view of an automated oasis settlement at golden hour: geodesic greenhouses, solar microgrids, water channels and modular homes threaded together by glowing logistics lines across reclaimed green desert",
     "workforce": "a lone founder at a desk on an open dune at night, a constellation of glowing digital worker avatars fanned out across the starry sky above, each tethered to the desk by a thread of golden light",

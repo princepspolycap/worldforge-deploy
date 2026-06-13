@@ -154,7 +154,7 @@ runs while you sleep" while a slideshow advances is dissonant. The rule:
 | Foundry IQ | "we have RAG" | memory citations surface in the rail *as the worker reasons*, quoted in its handover |
 | Memory | "agents have memory" | chapter N's brief visibly references the player's chapter N-1 dilemma choice |
 | Routine + Poly | "agents can run on timers" | the final beat: the screen goes quiet, the org runs, the income counter ticks - a real Poly worker did real work |
-| ACS | "we follow the spec" | the quest's ACS YAML is shown as *the law of the dungeon* - the five checkpoints are the five things the player watched happen |
+| ACS | "we follow the spec" | the quest's ACS YAML is shown as *the law of the campaign graph* - the five checkpoints are the five things the player watched happen |
 | Hosted agents | "it's deployed" | the demo itself is played against the hosted endpoint, and we say so once |
 
 If a piece cannot be made diegetic by demo time, it goes in the roadmap

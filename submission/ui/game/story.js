@@ -45,6 +45,15 @@ async function api(path, body) {
     return res.json();
 }
 
+async function apiGet(path) {
+    const res = await fetch(path);
+    if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(`${path} ${res.status} ${detail}`);
+    }
+    return res.json();
+}
+
 // --- Narration typewriter --------------------------------------------------
 // Multi-voice cast: each agent speaks with a distinct Azure neural voice so the
 // party feels like different characters, not one narrator. Voices are real
@@ -58,14 +67,87 @@ const VOICE_BY_ROLE = {
     marketer: "verse",      // Maddox - energetic
     ops: "alloy",           // Operations - steady
 };
+const VOICE_PROFILES = [
+    { id: "onyx", label: "Onyx", locale: "en-US", stack: "core_openai", tone: "Deep, warm narrator" },
+    { id: "alloy", label: "Alloy", locale: "en-US", stack: "core_openai", tone: "Crisp professional" },
+    { id: "echo", label: "Echo", locale: "en-US", stack: "core_openai", tone: "Soft, reflective" },
+    { id: "fable", label: "Fable", locale: "en-US", stack: "core_openai", tone: "Expressive storyteller" },
+    { id: "nova", label: "Nova", locale: "en-US", stack: "core_openai", tone: "Bright, clean" },
+    { id: "shimmer", label: "Shimmer", locale: "en-US", stack: "core_openai", tone: "Clear, detailed" },
+];
 const NARRATOR_VOICE = "onyx";
-const DEFAULT_COMPANY = "Microsoft Planetary Computer";
-const DEFAULT_URL = "https://planetarycomputer.microsoft.com/";
-const DEFAULT_PITCH = "Microsoft Planetary Computer is the real-world company vehicle for this run: a Microsoft environmental intelligence platform that turns Earth observation, climate, land, water, and biodiversity data into actionable products for sustainability teams, under human approval gates.";
+const DEFAULT_COMPANY = "World Improvement Mission";
+const DEFAULT_URL = "";
+const DEFAULT_PITCH = "A founder-led world improvement mission: use a reasoning-agent workforce to turn personal strengths, public profile signals, and a concrete social need into verified artifacts, operating loops, and human-approved next steps.";
+const ARCHETYPE_SKILL = {
+    Builder: "building product: shipping software, prototypes, systems",
+    Seller: "selling: closing deals, partnerships, growth conversations",
+    Designer: "design: brand, product experience, storytelling",
+    Operator: "operations: process, logistics, keeping the machine running",
+};
+const STANDUP_SELECTION = new URLSearchParams(location.search).get("standup") === "random"
+    ? "random"
+    : "round_robin";
 let currentVoice = NARRATOR_VOICE;
+
+function getVoiceProfile(voiceId) {
+    return VOICE_PROFILES.find((profile) => profile.id === voiceId)
+        || { id: voiceId || NARRATOR_VOICE, locale: "en-US", stack: "core_openai", tone: "Core voice" };
+}
+
+function selectedFounderVoiceProfile() {
+    const voiceId = ($("in-founder-voice") && $("in-founder-voice").value) || "onyx";
+    return getVoiceProfile(voiceId);
+}
+
+function founderNameFromProfileUrl(url) {
+    try {
+        const parsed = new URL(url);
+        const parts = parsed.pathname.split("/").filter(Boolean);
+        const inIdx = parts.indexOf("in");
+        const raw = inIdx >= 0 ? parts[inIdx + 1] : parts[0];
+        if (!raw) return "Founder";
+        return raw
+            .replace(/[-_]+/g, " ")
+            .replace(/\b\w/g, (m) => m.toUpperCase())
+            .slice(0, 40);
+    } catch (_) {
+        return "Founder";
+    }
+}
+
+function setInferredArchetype(name, skill) {
+    const cleanName = ARCHETYPE_SKILL[name] ? name : "Builder";
+    const cleanSkill = skill || ARCHETYPE_SKILL[cleanName] || ARCHETYPE_SKILL.Builder;
+    state.archetype = { name: cleanName, skill: cleanSkill };
+    document.querySelectorAll("#arch-row .arch-card").forEach((c) => {
+        c.classList.toggle("sel", c.dataset.arch === cleanName);
+    });
+}
 
 let typeToken = 0;
 let lastSpeech = Promise.resolve(); // completion of the previous narrated line
+
+// The dialogue nameplate: who is speaking this line. Pulls the active agent's
+// role color, in-world name, and portrait so every line reads like a character
+// speaking (visual-novel style) instead of a faceless caption.
+function setNarrationSpeaker() {
+    const line = $("narration-line");
+    const chip = $("narration-speaker");
+    const nameEl = $("narration-speaker-name");
+    const portrait = $("narration-portrait");
+    if (!line || !chip) return;
+    const aw = state.activeWorker || {};
+    const role = aw.role || "narrator";
+    const color = ROLE_COLOR[role] || T.narrator;
+    const portraitKey = ROLE_PORTRAIT[role] || "narrator";
+    const heroName = CAST_NAME[role] || ROLE_NAME[role] || role;
+    line.style.setProperty("--spk", color);
+    if (nameEl) nameEl.textContent = heroName;
+    if (portrait) { portrait.style.display = ""; portrait.src = `/game/assets/generated/${portraitKey}.png`; }
+    chip.hidden = false;
+}
+
 async function narrate(text, speed = 18) {
     const el = $("narration-text");
     const myToken = ++typeToken;
@@ -80,6 +162,12 @@ async function narrate(text, speed = 18) {
     let speechP = Promise.resolve();
     if (A.speak) { try { speechP = A.speak(text, { voice: currentVoice }) || Promise.resolve(); } catch (e) { /* narration optional */ } }
     lastSpeech = speechP;
+    // The live transcription lives in exactly one place - the narration track.
+    // It reads as a game DIALOGUE LINE: a colored speaker nameplate + a tight
+    // line of text, not a big floating caption block.
+    setNarrationSpeaker();
+    const track = $("narration");
+    if (track) track.classList.add("show");
     el.innerHTML = "";
     const caret = document.createElement("span");
     caret.className = "caret";
@@ -114,7 +202,7 @@ async function renderMermaid(def) {
         return;
     }
     const wrap = document.createElement("div");
-    wrap.className = "draw fade-scene";
+    wrap.className = "draw fade-scene world-canvas";
     wrap.style.width = "100%";
     wrap.style.display = "flex";
     wrap.style.justifyContent = "center";
@@ -319,13 +407,43 @@ function financialSvg(artifact) {
 function renderSvg(svgString) {
     const host = $("diagram");
     const wrap = document.createElement("div");
-    wrap.className = "fade-scene";
+    wrap.className = "fade-scene world-canvas";
     wrap.style.width = "100%";
     wrap.style.display = "flex";
     wrap.style.justifyContent = "center";
     wrap.innerHTML = svgString;
     host.innerHTML = "";
     host.appendChild(wrap);
+}
+
+// The world canvas as a SCENARIO surface: before a worker's artifact renders,
+// the center shows what this room is about - the chapter goal, the success
+// metric the agent is aiming for, and who owns it. This is the "show the player
+// information about the scenario" beat - the middle is a stage, not a blank gap.
+function renderScenarioCanvas(ch, ownerName) {
+    const host = $("diagram");
+    if (!host || !ch) return;
+    const role = ch.owner_role || "narrator";
+    const color = ROLE_COLOR[role] || T.narrator;
+    const portrait = ROLE_PORTRAIT[role] || "narrator";
+    const goal = esc(ch.goal || ch.title || "");
+    const metric = esc(ch.success_metric || "");
+    const tools = Array.isArray(ch.suggested_tools) ? ch.suggested_tools.slice(0, 5) : [];
+    const toolChips = tools.length
+        ? tools.map((t) => `<span class="sc-tool">${esc(t)}</span>`).join("")
+        : "";
+    host.innerHTML = `<div class="world-canvas scenario-canvas fade-scene" style="--sc-color:${color}">`
+        + `<div class="scenario-card">`
+        + `<div class="scenario-top">`
+        + `<img class="scenario-face" src="/game/assets/generated/${portrait}.png" alt="" onerror="this.style.display='none'" />`
+        + `<div><div class="scenario-kicker">Chapter ${state.idx + 1} &middot; ${esc(ROLE_NAME[role] || role)}</div>`
+        + `<div class="scenario-owner">${esc(ownerName || ROLE_NAME[role] || role)}</div></div></div>`
+        + `<div class="scenario-title">${esc(ch.title || "")}</div>`
+        + (goal ? `<div class="scenario-row"><span class="sc-h">Goal</span><span class="sc-v">${goal}</span></div>` : "")
+        + (metric ? `<div class="scenario-row"><span class="sc-h">Success metric</span><span class="sc-v">${metric}</span></div>` : "")
+        + (toolChips ? `<div class="scenario-row"><span class="sc-h">Toolbox</span><span class="sc-tools">${toolChips}</span></div>` : "")
+        + `<div class="scenario-foot">The worker is reasoning on Microsoft Foundry &mdash; its artifact lands here.</div>`
+        + `</div></div>`;
 }
 
 // Pick the best diagram for a chapter's artifact + role.
@@ -418,20 +536,32 @@ const RESOURCE_SPEC = {
     autonomy: { label: "Autonomy", color: T.ops },
 };
 
+const RESOURCE_BY_ROLE = {
+    narrator: ["proof", "trust"],
+    orgdesigner: ["autonomy", "burn"],
+    strategist: ["proof", "trust"],
+    designer: ["proof", "velocity"],
+    marketer: ["velocity", "trust"],
+    ops: ["autonomy", "burn"],
+    founder: ["trust", "autonomy"],
+};
+
 function clamp(n, min = 0, max = 100) {
     return Math.max(min, Math.min(max, Math.round(Number(n) || 0)));
 }
 
 function renderResources() {
     const host = $("resources");
-    if (!host) return;
-    host.innerHTML = Object.entries(RESOURCE_SPEC).map(([key, spec]) => {
-        const val = clamp(state.resources[key]);
-        return `<div class="meter" title="${spec.label}: ${val}/100">`
-            + `<div class="meter-top"><span>${spec.label}</span><b>${val}</b></div>`
-            + `<div class="meter-track"><span class="meter-fill" style="width:${val}%;background:${spec.color}"></span></div>`
-            + `</div>`;
-    }).join("");
+    if (host) {
+        host.innerHTML = Object.entries(RESOURCE_SPEC).map(([key, spec]) => {
+            const val = clamp(state.resources[key]);
+            return `<div class="meter" title="${spec.label}: ${val}/100">`
+                + `<div class="meter-top"><span>${spec.label}</span><b>${val}</b></div>`
+                + `<div class="meter-track"><span class="meter-fill" style="width:${val}%;background:${spec.color}"></span></div>`
+                + `</div>`;
+        }).join("");
+    }
+    if ($("party")) setParty(state.activePartyKey, state.activePartyLine, state.activePartyName);
 }
 
 function nudgeResources(delta) {
@@ -544,6 +674,27 @@ function roleForStage(stage) {
     return "strategist";
 }
 
+function resourceKeysForRole(role) {
+    return RESOURCE_BY_ROLE[role] || RESOURCE_BY_ROLE.strategist;
+}
+
+function resourceMeterMarkup(keys, cls) {
+    return (keys || []).map((key) => {
+        const spec = RESOURCE_SPEC[key];
+        if (!spec) return "";
+        const val = clamp(state.resources[key]);
+        return `<div class="${cls}-metric" title="${spec.label}: ${val}/100">`
+            + `<div class="${cls}-metric-top"><span>${esc(spec.label)}</span><b>${val}</b></div>`
+            + `<div class="${cls}-metric-track"><span style="width:${val}%;background:${spec.color}"></span></div>`
+            + `</div>`;
+    }).join("");
+}
+
+function partyMetricMarkup(member) {
+    const keys = resourceKeysForRole(member.role).slice(0, 2);
+    return `<div class="party-metrics">${resourceMeterMarkup(keys, "party")}</div>`;
+}
+
 function partyMembers() {
     if (state.chapters.length) {
         const seen = new Set();
@@ -577,13 +728,16 @@ function partyMembers() {
     }
     return [
         { key: "orgdesigner", role: "orgdesigner", name: "Org Designer", title: "designs the workforce", status: "waiting" },
-        { key: "narrator", role: "narrator", name: "World Designer", title: "maps the dungeon", status: "waiting" },
+        { key: "narrator", role: "narrator", name: "World Designer", title: "maps the run", status: "waiting" },
     ];
 }
 
 function setParty(activeKey, line, activeName) {
     const host = $("party");
     if (!host) return;
+    state.activePartyKey = activeKey;
+    state.activePartyLine = line;
+    state.activePartyName = activeName;
     const members = partyMembers();
     host.innerHTML = members.map((m) => {
         const active = m.key === activeKey || m.role === activeKey || m.name === activeName || m.name === activeKey;
@@ -594,20 +748,143 @@ function setParty(activeKey, line, activeName) {
             : done
                 ? "sealed their room"
                 : (m.title || "waiting for the brief");
-        return `<div class="party-agent${active ? " active" : ""}${done ? " done" : ""}">`
+        const hasCard = !!cardEvidence[m.name];
+        const score = hasCard ? clamp(cardEvidence[m.name].score) : null;
+        const gm = isGameMaster(m.role);
+        const ev = cardEvidence[m.name] || liveCardEvidence(m.name) || { role: m.role, name: m.name };
+        const flipped = flippedOwners.has(m.name);
+        // Each agent is a board piece: front = who it is + the world meters it
+        // moves + live state; tapping flips it in place to its dossier back.
+        return `<div class="party-agent${active ? " active" : ""}${done ? " done" : ""}${flipped ? " flipped" : ""}"`
+            + ` data-owner="${esc(m.name)}" role="button" tabindex="0"`
+            + ` title="${esc(m.name)} - tap to flip to its dossier">`
+            + `<div class="pa-inner">`
+            + `<div class="pa-face pa-front">`
+            + `<div class="pa-layer ${gm ? "gm" : "dw"}">${gm ? "Game Master" : "Digital Worker"}</div>`
             + `<img class="party-face" src="/game/assets/generated/${portrait}.png" alt="" onerror="this.style.display='none'" />`
             + `<div class="party-name">${esc(m.name)}</div>`
             + `<div class="party-role">${esc(ROLE_NAME[m.role] || m.role || "agent")}</div>`
-            + `<div class="party-line">${esc(statusLine).slice(0, 88)}</div>`
-            + `</div>`;
+            + partyMetricMarkup(m)
+            + `<div class="party-line">${esc(statusLine).slice(0, 110)}</div>`
+            + `<div class="party-badge">${hasCard ? `flip &middot; ${score}/100` : `tap to flip`}</div>`
+            + `</div>`
+            + `<div class="pa-face pa-back">${dossierBackHTML(ev)}</div>`
+            + `</div></div>`;
     }).join("");
+}
+
+// --- Character cards: a face AND a presence -------------------------------
+// Each on-stage party tile is a CARD. When a worker finishes a chapter we stash
+// its REAL run evidence here (keyed by the worker's display name); clicking the
+// card opens a dialog that re-presents that evidence - tool calls, reasoning,
+// memory injected, score. Same receipts as the rail, in an in-world front door.
+const cardEvidence = {};
+function recordCardEvidence(name, role, ev) {
+    if (!name) return;
+    cardEvidence[name] = Object.assign({ role: role, name: name }, ev);
+    // Refresh the party row so the just-finished card shows its "receipts"
+    // affordance immediately (without disturbing the active highlight).
+    setParty(state.activePartyKey, state.activePartyLine, state.activePartyName);
+}
+
+function liveCardEvidence(name) {
+    const member = partyMembers().find((m) => m.name === name || m.key === name);
+    if (!member) return null;
+    const active = member.key === state.activePartyKey || member.role === state.activePartyKey
+        || member.name === state.activePartyName || member.name === state.activePartyKey;
+    const currentLine = active ? (state.activePartyLine || "working with you") : (member.title || "waiting for the brief");
+    return {
+        role: member.role || "narrator",
+        name: member.name,
+        chapter: member.title || currentLine,
+        score: "--",
+        deployment: active ? "active in the current world state" : "awaiting a completed run",
+        tools: [],
+        trace: [],
+        mafTools: [],
+        mafMemory: [],
+        reasoningTokens: 0,
+        reasoningPreview: currentLine,
+        latency: 0,
+        liveOnly: true,
+    };
+}
+
+// Two kinds of pieces on the board: the Worldkeeper/game-master agents that
+// build and narrate the simulation, and the company's digital workforce that
+// executes it. The tag on each card names which layer it belongs to.
+function isGameMaster(role) {
+    return role === "narrator" || role === "orgdesigner";
+}
+
+// Which cards are currently flipped to their dossier back. Kept in a Set so the
+// flip survives the frequent setParty() re-renders (the card is the inspector;
+// there is no modal).
+const flippedOwners = new Set();
+
+// The dossier back of a card: the real receipts - tools the model called,
+// reasoning, memory injected, gate score, and the world meters it moves. Reuses
+// the cc-* receipt classes, now rendered straight onto the card's back face.
+function dossierBackHTML(ev) {
+    if (!ev) return "";
+    const color = ROLE_COLOR[ev.role] || T.narrator;
+    const roleName = ROLE_NAME[ev.role] || ev.role || "agent";
+    const score = (ev.score === undefined || ev.score === null) ? "--" : ev.score;
+    const worldStats = resourceMeterMarkup(Object.keys(RESOURCE_SPEC), "cc");
+    const toolChips = (ev.mafTools || []).length
+        ? ev.mafTools.map((t) => `<span class="cc-chip">&#9874; ${esc(t)}</span>`).join(" ")
+        : `<span class="cc-chip dim">no tool calls yet</span>`;
+    const memChips = (ev.mafMemory || []).map((m) =>
+        `<span class="cc-chip mem">${m.kind === "ceo_decision" ? "&#9819;" : m.kind === "agent_memory" ? "&#9851;" : "&#9783;"} ${esc((m.text || "").slice(0, 30))}</span>`).join(" ");
+    let traceHtml = "";
+    (ev.trace || []).forEach((t) => {
+        const argStr = t.args ? esc(JSON.stringify(t.args)).slice(0, 64) : "";
+        traceHtml += `<div class="cc-trace-line"><span class="cc-call">&rarr; ${esc(t.tool)}</span>`
+            + `<span class="cc-args">${argStr}</span>`
+            + `<div class="cc-res">&larr; ${esc(String(t.result || ""))} <span class="cc-ms">${t.ms}ms</span></div></div>`;
+    });
+    return `<div class="cc-head compact" style="--cc-color:${color}">`
+        + `<div><div class="cc-name">${esc(ev.name)}</div>`
+        + `<div class="cc-role">${esc(roleName)} &middot; receipts</div>`
+        + (ev.deployment ? `<div class="cc-deploy">${esc(ev.deployment)}</div>` : ``)
+        + `</div><div class="cc-score"><b>${score}</b><span>/100</span></div></div>`
+        + `<div class="cc-section"><div class="cc-h">Tools the model called</div><div class="cc-chips">${toolChips}</div></div>`
+        + (memChips ? `<div class="cc-section"><div class="cc-h">Memory injected</div><div class="cc-chips">${memChips}</div></div>` : ``)
+        + (traceHtml ? `<div class="cc-section"><div class="cc-h">tools/call trace</div><div class="cc-trace">${traceHtml}</div></div>` : ``)
+        + (ev.reasoningPreview ? `<div class="cc-section"><div class="cc-h">Reasoning${ev.reasoningTokens ? ` &middot; ${ev.reasoningTokens} tok` : ""}</div><div class="cc-text quote">&ldquo;${esc((ev.reasoningPreview || "").slice(0, 150))}&hellip;&rdquo;</div></div>` : ``)
+        + `<div class="cc-section"><div class="cc-h">World it moves</div><div class="cc-metric-grid">${worldStats}</div></div>`
+        + `<div class="cc-badge-back">tap to return</div>`;
+}
+
+// Flip a card to/from its dossier in place. The card itself is the inspector -
+// it lifts and scales up to read its receipts, then taps back to the board.
+function flipCard(owner) {
+    if (!owner) return;
+    const willFlip = !flippedOwners.has(owner);
+    flippedOwners.clear();
+    if (willFlip) flippedOwners.add(owner);
+    document.querySelectorAll("#party .party-agent").forEach((el) => {
+        el.classList.toggle("flipped", el.dataset.owner === owner && willFlip);
+    });
+    if (A.cardDraw) { try { A.cardDraw(); } catch (_) { /* audio optional */ } }
+}
+
+// Return every flipped card to its front (Escape / leaving the board).
+function unflipAllCards() {
+    if (!flippedOwners.size) return;
+    flippedOwners.clear();
+    document.querySelectorAll("#party .party-agent.flipped").forEach((el) => el.classList.remove("flipped"));
 }
 
 function setWorker(role, deployLabel, stateText, thinking, displayName) {
     // Switch the narration voice to this worker's so each character sounds
     // distinct. Unknown roles keep the narrator voice.
     currentVoice = VOICE_BY_ROLE[role] || NARRATOR_VOICE;
-    $("worker-name").textContent = displayName || ROLE_NAME[role] || role;
+    // Remember who is on stage so the footer mini can summon THIS agent's
+    // gorgeous dossier card on demand - core game-master agents (Org Designer,
+    // World Designer) are agents too, even though they never join the party row.
+    state.activeWorker = { role, deployLabel, stateText, displayName };
+    const nameEl = $("worker-name"); if (nameEl) nameEl.textContent = displayName || ROLE_NAME[role] || role;
     const orb = document.querySelector(".role-orb");
     if (orb) orb.style.color = ROLE_COLOR[role] || T.narrator;
     const portrait = $("worker-portrait");
@@ -623,11 +900,115 @@ function setWorker(role, deployLabel, stateText, thinking, displayName) {
             ms.hidden = false;
         } else { ms.hidden = true; ms.innerHTML = ""; }
     }
-    $("worker-deploy").textContent = deployLabel || "";
-    $("worker-state").innerHTML = thinking
+    const deployEl = $("worker-deploy"); if (deployEl) deployEl.textContent = deployLabel || "";
+    const stateEl = $("worker-state");
+    if (stateEl) stateEl.innerHTML = thinking
         ? `<span class="pulse"></span> ${stateText}`
         : stateText;
     setParty(role, stateText, displayName);
+    if (inspectorOpen) openAgentInspector();
+}
+
+// --- Active-agent inspector: the gorgeous floating card, on demand ----------
+// The footer mini names whoever is on stage (often a core game-master agent -
+// Org Designer / World Designer - that never joins the party row). Clicking it
+// summons that agent's collectible card and flips it straight to its receipts,
+// so every agent in the run is inspectable, not just the digital workforce.
+let inspectorOpen = false;
+function roleFromWorkerName(name) {
+    const clean = String(name || "").trim();
+    for (const entry of Object.entries(ROLE_NAME)) {
+        if (entry[1] === clean) return entry[0];
+    }
+    return clean === "The Architect" ? "orgdesigner" : clean === "The Worldkeeper" ? "narrator" : "narrator";
+}
+function activeWorkerSnapshot() {
+    if (state.activeWorker && state.activeWorker.role) return state.activeWorker;
+    const displayName = ($("worker-name") && $("worker-name").textContent.trim()) || ROLE_NAME.narrator;
+    const deployLabel = ($("worker-deploy") && $("worker-deploy").textContent.trim()) || "";
+    const stateText = ($("worker-state") && $("worker-state").textContent.trim()) || "";
+    return { role: roleFromWorkerName(displayName), deployLabel, stateText, displayName };
+}
+function activeAgentEv() {
+    const aw = activeWorkerSnapshot();
+    const name = aw.displayName || ROLE_NAME[aw.role] || aw.role || "Agent";
+    // If this agent already ran, show its real recorded/live receipts.
+    const recorded = cardEvidence[name] || liveCardEvidence(name);
+    if (recorded) return recorded;
+    // Otherwise synthesize a minimal dossier from its current on-stage state.
+    return {
+        role: aw.role || "narrator",
+        name,
+        deployment: aw.deployLabel || "",
+        score: "--",
+        tools: [], trace: [], mafTools: [], mafMemory: [],
+        reasoningPreview: aw.stateText || "",
+        reasoningTokens: 0,
+    };
+}
+function openAgentInspector() {
+    const stage = $("cast-stage");
+    if (!stage) return;
+    const aw = activeWorkerSnapshot();
+    const role = aw.role || "narrator";
+    const key = CAST_ROLES.has(role)
+        ? role
+        : (ROLE_PORTRAIT[role] && CAST_ROLES.has(ROLE_PORTRAIT[role]) ? ROLE_PORTRAIT[role] : "strategist");
+    const ev = activeAgentEv();
+    const color = ROLE_COLOR[role] || ROLE_COLOR[key] || T.narrator;
+    const heroName = CAST_NAME[key] || ROLE_NAME[key] || key;
+    const tag = aw.displayName && aw.displayName !== heroName ? aw.displayName : "";
+    const src = `/game/assets/generated/characters/${key}.png`;
+    stage.style.setProperty("--card-accent", hexToRgba(color, 0.9));
+    stage.style.setProperty("--cast-aura", hexToRgba(color, 0.34));
+    stage.innerHTML =
+        `<div class="cast-card">`
+        + `<div class="cast-card-art"><div class="cast-fig" style="background-image:url('${src}')"></div></div>`
+        + `<div class="cast-card-plate"><div class="cast-card-name">${esc(heroName)}</div>`
+        + `<div class="cast-card-role">${esc(ROLE_NAME[role] || role)}</div>`
+        + `<div class="cast-card-tag">${esc(tag)}</div></div>`
+        + `<button class="cast-close" type="button" aria-label="Close dossier">&times;</button>`
+        + `<div class="cast-dossier">${dossierBackHTML(ev)}</div>`
+        + `</div>`;
+    inspectorOpen = true;
+    castRole = key;
+    stage.className = "inspect show";
+    document.body.classList.add("inspecting-agent");
+    upgradeCastToClip(key, stage);
+}
+function closeAgentInspector() {
+    inspectorOpen = false;
+    const stage = $("cast-stage");
+    if (stage) {
+        stage.className = "";
+        stage.innerHTML = "";
+    }
+    castRole = null;
+    document.body.classList.remove("inspecting-agent");
+}
+function toggleAgentInspector() {
+    if (inspectorOpen) closeAgentInspector(); else openAgentInspector();
+}
+
+// Character art assets used by the on-demand footer inspector. The old
+// decorative always-on floating cast is intentionally disabled: the lower stage
+// belongs to the hand + dialogue, and the footer is the explicit doorway to the
+// full card.
+const CAST_ROLES = new Set(["narrator", "orgdesigner", "strategist", "designer", "marketer", "ops", "founder"]);
+// The cast's in-world character names (the deck's heroes). Dynamically-titled
+// workers map onto one of these archetypes and inherit its name + art, while
+// their generated job title rides along as the card's tagline.
+const CAST_NAME = {
+    narrator: "The Worldkeeper", orgdesigner: "The Architect", strategist: "Soren",
+    designer: "Dahlia", marketer: "Maddox", ops: "The Steward", founder: "You",
+};
+let castRole = null;
+
+// Small helper: a token hex (#rrggbb) -> rgba() string for inline glow colors.
+function hexToRgba(hex, alpha) {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(String(hex || "").trim());
+    if (!m) return `rgba(91,140,255,${alpha})`;
+    return `rgba(${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)},${alpha})`;
 }
 
 // Show the model's visible "thinking": reasoning-token count and, when the
@@ -664,6 +1045,7 @@ function setReasoning(inv) {
 
 function setMemory(hits) {
     const host = $("memory");
+    if (!host) return;
     if (!hits || hits.length === 0) {
         host.innerHTML = `<div class="mem-empty">No memory recalled for this chapter.</div>`;
         return;
@@ -871,10 +1253,27 @@ function renderConsequenceEffect(consequence) {
     if (A.chime) { try { A.chime(); } catch (_) {} }
 }
 
+// Footer economy HUD: the one global thing worth tracking at a glance - the
+// digital workforce headcount, the monthly burn it costs, and the leverage it
+// buys the single human operator. Everything else (proof/trust/etc.) lives on
+// the agent cards now, so the footer is economy + controls, not duplicate meters.
+function setEconHud(org) {
+    const host = $("econ-hud");
+    if (!host) return;
+    if (!org || !org.digital_worker_count) { host.innerHTML = ""; return; }
+    const burn = Number(org.monthly_burn_usd || 0).toLocaleString();
+    host.innerHTML =
+        `<span class="econ-pill" title="digital workforce"><i>&#9874;</i> Founder + <b>${org.digital_worker_count}</b> workers</span>`
+        + `<span class="econ-pill" title="monthly burn"><i>$</i><b>${burn}</b>/mo</span>`
+        + (org.leverage_ratio ? `<span class="econ-pill" title="leverage"><b>${org.leverage_ratio}&times;</b> leverage</span>` : ``);
+}
+
 // Populate the persistent "Digital Workforce" rail: stats + operating model +
 // the educational per-role rationale.
 function setOrgPanel(org) {
+    setEconHud(org);
     const host = $("org-panel");
+    if (!host) return;
     if (!org || !Array.isArray(org.roles)) {
         host.innerHTML = `<div class="mem-empty">No org designed yet.</div>`;
         return;
@@ -886,13 +1285,22 @@ function setOrgPanel(org) {
     if (Array.isArray(org.notes) && org.notes.length) {
         html += `<div class="org-model"><b style="color:var(--gold-soft);font-style:normal">Latest consequence:</b> ${esc(org.notes[org.notes.length - 1])}</div>`;
     }
-    org.roles.forEach((r) => {
-        const c = r.kind === "human" ? "var(--strategist)" : r.kind === "hybrid" ? "var(--designer)" : "var(--ops)";
-        const kindLabel = r.kind === "digital_worker" ? "digital" : r.kind;
+    // De-duplicated: the digital workers ARE the agent hand along the bottom,
+    // so the rail only details the seats the hand does NOT show (the human /
+    // hybrid operator) and collapses the digital workers into one line that
+    // points at the hand. One roster, two non-overlapping views.
+    const humanRoles = org.roles.filter((r) => r.kind === "human" || r.kind === "hybrid");
+    const digitalRoles = org.roles.filter((r) => r.kind !== "human" && r.kind !== "hybrid");
+    humanRoles.forEach((r) => {
+        const c = r.kind === "human" ? "var(--strategist)" : "var(--designer)";
         html += `<div class="org-role"><span class="org-orb" style="background:${c}"></span>`
-            + `<b>${esc(r.title)}</b><span class="org-kind">${esc(kindLabel)}</span>`
+            + `<b>${esc(r.title)}</b><span class="org-kind">${esc(r.kind)}</span>`
             + `<div class="org-why">${esc(r.why || r.mandate)}</div></div>`;
     });
+    if (digitalRoles.length) {
+        html += `<div class="org-handnote">&#9874; <b>${digitalRoles.length}</b> digital worker${digitalRoles.length === 1 ? "" : "s"} `
+            + `live in the agent hand below &mdash; tap any card to flip to its dossier.</div>`;
+    }
     // Bridge out of the game: download the org as a platform-neutral
     // Workforce Bundle any digital-worker platform can ingest and provision
     // (behind its own human approval gate).
@@ -921,12 +1329,14 @@ function setOrgPanel(org) {
 }
 
 function setGate(score, rubric) {
-    $("score").textContent = score;
-    $("score-fill").style.width = `${Math.min(100, score)}%`;
+    const scoreEl = $("score"); if (scoreEl) scoreEl.textContent = score;
+    const fillEl = $("score-fill"); if (fillEl) fillEl.style.width = `${Math.min(100, score)}%`;
     const pass = score >= 80;
     const v = $("verdict");
-    v.className = `gate-verdict ${pass ? "pass" : "review"}`;
-    v.textContent = pass ? "PASS - artifact verified, XP awarded" : "REVIEW - bronze, founder gate required";
+    if (v) {
+        v.className = `gate-verdict ${pass ? "pass" : "review"}`;
+        v.textContent = pass ? "PASS - artifact verified, XP awarded" : "REVIEW - bronze, founder gate required";
+    }
 
     // The diegetic rubric: the gate's score is the weighted sum of these
     // dimensions (Foundry rubric evaluation live, validator-derived offline),
@@ -949,6 +1359,7 @@ function setGate(score, rubric) {
 
 function buildProgress(n) {
     const host = $("progress");
+    if (!host) return;
     host.innerHTML = "";
     for (let i = 0; i < n; i++) {
         const seg = document.createElement("div");
@@ -970,13 +1381,17 @@ function markProgress(idx, status) {
 
 function setHud(s) {
     if (!s) return;
-    $("hud-level").textContent = s.level ?? 1;
-    $("hud-xp").textContent = s.xp ?? 0;
+    const lvl = $("hud-level"); if (lvl) lvl.textContent = s.level ?? 1;
+    const xp = $("hud-xp"); if (xp) xp.textContent = s.xp ?? 0;
 }
 
 // --- Beats -----------------------------------------------------------------
 async function beginStory() {
     if (A.unlock) A.unlock();
+    // The ambient pad belongs to the title moment - end it as the run begins,
+    // and mark the press with a warm confirming swell.
+    if (A.ambientStop) { try { A.ambientStop(); } catch (e) { /* audio optional */ } }
+    if (A.uiPress) { try { A.uiPress(); } catch (e) { /* audio optional */ } }
     state.company = ($("in-company") && $("in-company").value.trim()) || DEFAULT_COMPANY;
     state.pitch = ($("in-pitch") && $("in-pitch").value.trim()) || "";
     state.url = ($("in-url") && $("in-url").value || "").trim();
@@ -984,9 +1399,37 @@ async function beginStory() {
         state.pitch = DEFAULT_PITCH;
         state.url = DEFAULT_URL;
     }
-    if (!state.pitch && !state.url) { $("hint").textContent = "Enter a pitch or a company URL first"; return; }
+    if (!state.pitch && !state.url) { $("hint").textContent = "Add a LinkedIn URL or continue with the default mission"; return; }
     if (state.phase !== "title") return; // already descending
     state.phase = "founding";
+
+    // Extract founder details. Name/archetype are profile-first now: the URL
+    // handle gives us a usable display name, and /api/company/analyze can infer
+    // the archetype from public profile signals. Hidden manual cards remain as
+    // an override/fallback.
+    state.founderName = ($("in-founder-name") && $("in-founder-name").value.trim())
+        || founderNameFromProfileUrl(state.url)
+        || "Founder";
+    const founderVoiceProfile = selectedFounderVoiceProfile();
+    state.founderVoice = founderVoiceProfile.id || "onyx";
+    state.founderLocale = founderVoiceProfile.locale || "en-US";
+    state.founderVoiceStack = founderVoiceProfile.stack || "core_openai";
+    state.founderAvatar = ($("img-founder-avatar") && $("img-founder-avatar").getAttribute("src")) || "/game/assets/generated/narrator.png";
+
+    const selCard = document.querySelector("#arch-row .arch-card.sel");
+    const manualArchetype = !!selCard;
+    if (selCard) {
+        state.archetype = {
+            name: selCard.dataset.arch,
+            skill: selCard.dataset.skill
+        };
+    } else {
+        state.archetype = null;
+    }
+
+    // Wire customized settings into global voice/portrait maps
+    VOICE_BY_ROLE["founder"] = state.founderVoice;
+    ROLE_PORTRAIT["founder"] = "founder";
 
     document.documentElement.classList.remove("prestart");
     document.body.classList.remove("prestart");
@@ -998,10 +1441,7 @@ async function beginStory() {
     $("reset").disabled = false;
     refreshLearned(); // surface anything the workers already remember
 
-    // Clear the founding form off the stage immediately - the form is the
-    // door, not the room. From here the scene belongs to the narration and
-    // the artifacts (this is what kept the title page and the game looking
-    // like the same screen).
+    // Clear the founding form off the stage immediately
     $("diagram").innerHTML = `<div class="founding fade-scene">`
         + `<div class="kicker">The ascension begins</div>`
         + `<h1>${esc(state.company)}</h1>`
@@ -1009,9 +1449,9 @@ async function beginStory() {
         + `</div>`;
 
     // ---- Beat 0: the welcome ----
-    // Two doors into the dungeon, one thread of narration:
+    // Two doors into the world, one thread of narration:
     //   from the film  -> the film WAS the welcome. Its last line is "the
-    //                     dungeon takes all comers" - so the game answers it
+    //                     world takes all comers" - so the game answers it
     //                     in one breath and descends. No second cosmology.
     //   cold start     -> a personalized, LLM-narrated welcome to THIS venture
     //                     (the player skipped the film, so the lore runs here).
@@ -1035,22 +1475,40 @@ async function beginStory() {
 
     // ---- Beat 1: scrape + reason (URL) -> design the digital workforce ----
     const fromUrl = !!state.url;
-    $("hint").textContent = fromUrl ? "Reading the company URL..." : "Designing the org...";
-    setWorker(fromUrl ? "narrator" : "orgdesigner", fromUrl ? "scraper + STRATEGIST_MODEL (Foundry)" : "STRATEGIST_MODEL (Foundry)", fromUrl ? "Scraping the homepage" : "Designing the org", true, fromUrl ? "Company Analyst" : undefined);
+    $("hint").textContent = fromUrl ? "Reading the profile signal..." : "Designing the org...";
+    setWorker(fromUrl ? "narrator" : "orgdesigner", fromUrl ? "profile scraper + STRATEGIST_MODEL (Foundry)" : "STRATEGIST_MODEL (Foundry)", fromUrl ? "Reading the public profile" : "Designing the org", true, fromUrl ? "Profile Analyst" : undefined);
     if (A.thinkingStart) A.thinkingStart();
-    setSceneHead("Beat 1", fromUrl ? "Reading the company, then its org" : "The org this company needs");
+    setSceneHead("Beat 1", fromUrl ? "Reading the founder signal, then the org" : "The org this mission needs");
     await narrate(fromUrl
-        ? "Point this at any company URL. First a scraper reads the homepage - title, tagline, the sections it leads with. Then a Company Analyst agent reasons about what the business actually is, before the Org Designer proposes the team to run it."
+        ? "Point this at a LinkedIn or public profile URL. First a guarded scraper reads the public signal it can access. Then a Profile Analyst reasons about the founder's operating posture before the Org Designer proposes the digital workforce around it."
         : (state.fromFilm
             ? "First room: the org. The Org Designer reasons out who you hire - every seat exists for a reason."
-            : "Before any work happens, an Org Designer agent decides what team this company needs: one human operator, plus the digital workers that form its execution layer. Every role exists for a reason."));
+            : "Before any work happens, an Org Designer agent decides what team this mission needs: one human operator, plus the digital workers that form its execution layer. Every role exists for a reason."));
 
     let org;
     let profile = null;
     try {
-        const ares = await api("/api/company/analyze", { pitch: state.pitch + archNote, url: state.url, company_name: state.company });
+        const ares = await api("/api/company/analyze", {
+            pitch: state.pitch + archNote,
+            url: state.url,
+            company_name: state.company,
+            founder_name: state.founderName,
+            founder_archetype: state.archetype ? state.archetype.name : null,
+            founder_skill: state.archetype ? state.archetype.skill : null,
+            founder_locale: state.founderLocale,
+            founder_voice_stack: state.founderVoiceStack,
+            founder_voice: state.founderVoice,
+            founder_avatar: state.founderAvatar
+        });
         org = ares.org;
         profile = ares.profile || null;
+        if (!manualArchetype && profile && profile.founder_archetype) {
+            setInferredArchetype(profile.founder_archetype, profile.founder_skill);
+            const inferredName = founderNameFromProfileUrl(state.url);
+            if (inferredName && inferredName !== "Founder") state.founderName = inferredName;
+        } else if (!state.archetype) {
+            setInferredArchetype("Builder", ARCHETYPE_SKILL.Builder);
+        }
         state.org = org;
         setResourcesFromEconomics(ares.state && ares.state.economics, org);
         setHud(ares.state);
@@ -1072,12 +1530,13 @@ async function beginStory() {
         if (profile.scraped) {
             lens("accuracy", `homepage read via ${profile.parser === "bs4" ? "BeautifulSoup DOM walk" : "stdlib parser"} - ${sigN} evidence signals extracted from ${profile.host}`);
         }
-        lens("reasoning", `two-hop chain: scrape -> Company Analyst inferred "${String(profile.company_summary || "").slice(0, 60)}"`);
+        lens("reasoning", `two-hop chain: scrape -> Profile Analyst inferred "${String(profile.company_summary || "").slice(0, 60)}"`);
         lens("reliability", profile.scraped
             ? "scrape was SSRF-guarded; analyst output normalized before it touched the org"
             : "homepage unreachable - degraded to a domain default instead of failing");
         refreshLearned(); // the mapped company profile just landed in agent memory
-        await narrate(`Read ${profile.host}. The Analyst's verdict: ${profile.company_summary} Saved to agent memory.`);
+        const archetypeLine = profile.founder_archetype ? ` Inferred founder seat: ${profile.founder_archetype}.` : "";
+        await narrate(`Read ${profile.host}. The Analyst's verdict: ${profile.company_summary}.${archetypeLine} Saved to agent memory.`);
     }
 
     if (A.thinkingStop) A.thinkingStop();
@@ -1085,7 +1544,7 @@ async function beginStory() {
 
     setOrgPanel(org);
     setWorker("orgdesigner", "STRATEGIST_MODEL (Foundry)", `Org chartered: ${org.headcount} seats`, false);
-    setSceneHead("Beat 1", "The org this company needs",
+    setSceneHead("Beat 1", "The org this mission needs",
         "\u2692 drawn live from the Org Designer's blueprint (agent JSON \u2192 Mermaid)");
     await renderMermaid(orgBlueprintMermaid(org));
     await narrate(`${org.company_summary} The operating model: ${org.operating_model} That is ${org.digital_worker_count} digital workers behind one human - ${org.leverage_ratio}x leverage.`);
@@ -1100,7 +1559,17 @@ async function beginStory() {
 
     let res;
     try {
-        res = await api("/api/world/design", { pitch: state.pitch, company_name: state.company });
+        res = await api("/api/world/design", {
+            pitch: state.pitch,
+            company_name: state.company,
+            founder_name: state.founderName,
+            founder_archetype: state.archetype ? state.archetype.name : "Builder",
+            founder_skill: state.archetype ? state.archetype.skill : ARCHETYPE_SKILL.Builder,
+            founder_locale: state.founderLocale,
+            founder_voice_stack: state.founderVoiceStack,
+            founder_voice: state.founderVoice,
+            founder_avatar: state.founderAvatar
+        });
     } catch (e) {
         if (A.thinkingStop) A.thinkingStop();
         $("hint").textContent = "Design failed";
@@ -1162,30 +1631,216 @@ function standupToolMarkup(turn) {
     return `<div class="standup-tool"><code>${esc(tool)}</code><span>${esc(status)}</span></div>`;
 }
 
+function speakerProfileForTurn(turn) {
+    const role = turn.role || "narrator";
+    const profile = turn.speaker_profile || {};
+    const portrait = profile.portrait_url || `/game/assets/generated/${ROLE_PORTRAIT[role] || "narrator"}.png`;
+    return {
+        displayName: profile.display_name || turn.speaker || ROLE_NAME[role] || role,
+        roleLabel: profile.role_label || ROLE_NAME[role] || role,
+        workerId: profile.worker_id || turn.worker_id || role,
+        portraitUrl: portrait,
+        textStyle: profile.text_style || "standup posture",
+        voiceId: profile.voice_id || VOICE_BY_ROLE[role] || NARRATOR_VOICE,
+    };
+}
+
 async function renderAgentStandup(standup) {
     const turns = standup && Array.isArray(standup.turns) ? standup.turns : [];
     if (!turns.length) return;
     const trigger = standup.trigger || {};
     setSceneHead("Agent stand-up", "The party reacts to your call",
         `group chat orchestration - ${esc(trigger.rule_id || "decision")}`);
-    const members = turns.map((turn, i) => {
-        const role = turn.role || "narrator";
-        const portrait = ROLE_PORTRAIT[role] || "narrator";
-        const handoff = turn.handoff_to ? `<div class="standup-handoff">handoff: ${esc(turn.handoff_to)}</div>` : "";
-        return `<div class="council-member standup-member" style="animation-delay:${i * 90}ms">`
-            + `<div class="council-top"><img class="council-face" src="/game/assets/generated/${portrait}.png" alt="" onerror="this.style.display='none'" />`
-            + `<div><div class="council-name">${esc(turn.speaker || ROLE_NAME[role] || role)}</div><div class="council-role">${esc(ROLE_NAME[role] || role)}</div></div></div>`
-            + standupToolMarkup(turn)
-            + `<div class="council-says">&ldquo;${esc(turn.message || "")}&rdquo;</div>`
-            + handoff
-            + `</div>`;
-    }).join("");
-    $("diagram").innerHTML = `<div class="council fade-scene">${members}</div>`;
-    setParty(turns[0].worker_id || turns[0].role, "reacting to the CEO decision", turns[0].speaker);
+
+    // Set up empty council container
+    $("diagram").innerHTML = `<div class="council fade-scene"></div>`;
+    const council = $("diagram").querySelector(".council");
+
+    const accumulatedHistory = [];
+
+    async function displayTurns(newTurns) {
+        for (let i = 0; i < newTurns.length; i++) {
+            const turn = newTurns[i];
+            const role = turn.role || "narrator";
+            const profile = speakerProfileForTurn(turn);
+            const handoff = turn.handoff_to ? `<div class="standup-handoff">handoff: ${esc(turn.handoff_to)}</div>` : "";
+            const source = turn.source ? `<span>${esc(turn.source)}</span>` : "";
+
+            const cardHtml = `<div class="council-member standup-member" style="opacity: 1; transform: none; transition: opacity 300ms ease;">`
+                + `<div class="council-top"><img class="council-face" src="${esc(profile.portraitUrl)}" alt="" onerror="this.style.display='none'" />`
+                + `<div><div class="council-name">${esc(profile.displayName)}</div><div class="council-role">${esc(profile.roleLabel)}</div></div></div>`
+                + `<div class="standup-profile"><span>${esc(profile.textStyle)}</span>${source}</div>`
+                + standupToolMarkup(turn)
+                + `<div class="council-says">&ldquo;${esc(turn.message || "")}&rdquo;</div>`
+                + handoff
+                + `</div>`;
+
+            council.insertAdjacentHTML("beforeend", cardHtml);
+            const lastCard = council.lastElementChild;
+            try { lastCard.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch (_) {}
+
+            setParty(profile.workerId, "reacting in stand-up", profile.displayName);
+            if (A.turnCue) { try { A.turnCue(); } catch (_) {} }
+            const previousVoice = currentVoice;
+            currentVoice = profile.voiceId || VOICE_BY_ROLE[role] || NARRATOR_VOICE;
+            await narrate(turn.message || `${profile.displayName} is processing the handoff.`, 15);
+            currentVoice = previousVoice;
+            await sleep(220);
+
+            accumulatedHistory.push({
+                speaker: profile.displayName,
+                role: turn.role,
+                worker_id: profile.workerId,
+                message: turn.message,
+                speaker_profile: turn.speaker_profile || null
+            });
+        }
+    }
+
+    // First round of turns
+    await displayTurns(turns);
+
     const line = standup.next_brief_delta || trigger.summary || "The next worker brief now carries the choice.";
-    lens("reasoning", `Agent group chat: ${turns.length} turns reacted to ${trigger.rule_id || "the CEO decision"}`);
+    const selection = (standup.orchestration && standup.orchestration.selection) || STANDUP_SELECTION;
+    lens("reasoning", `Agent group chat: ${turns.length} character turns, ${selection} selection, reacted to ${trigger.rule_id || "the CEO decision"}`);
+
+    // Keep the standup itself text-first; the narrator only closes the beat.
+    currentVoice = NARRATOR_VOICE;
     await narrate(`Stand-up. ${line}`);
-    await sleep(600);
+    await sleep(400);
+
+    // Now loop conversation infinitely
+    let replySeq = 0;
+    return new Promise((resolve) => {
+        async function promptCEO() {
+            // Present the CEO response input card
+            const seq = ++replySeq;
+            const responseId = `standup-response-wrap-${seq}`;
+            const inputId = `standup-response-input-${seq}`;
+            const btnId = `standup-response-send-${seq}`;
+            const skipId = `standup-response-skip-${seq}`;
+            const micId = `${inputId}-mic`;
+            const statusId = `${inputId}-status`;
+
+            const founderCardHtml = `<div id="${responseId}" class="council-member standup-member" style="border: 1px solid var(--blue); background: rgba(91, 140, 255, 0.04); padding: 18px; width: 100%; transition: opacity 300ms ease;">`
+                + `<div class="council-top">`
+                + `<img class="council-face" src="${state.founderAvatar || "/game/assets/generated/narrator.png"}" alt="" onerror="this.style.display='none'" />`
+                + `<div><div class="council-name">${esc(state.founderName || "CEO")} (You)</div><div class="council-role">Human Operator</div></div></div>`
+                + `<div style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">`
+                + `<div style="position: relative; display: flex; align-items: center;">`
+                + `<input id="${inputId}" autocomplete="off" style="width: 100%; background: rgba(7, 10, 20, 0.6); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink); padding: 9px 42px 9px 13px; font-size: 13.5px; outline: none; transition: 140ms ease;" placeholder="Respond to your workforce (e.g., 'Focus on speed' or 'Optimize runway')..." />`
+                + `<button id="${micId}" class="mic-btn" type="button" title="Speak your response" aria-label="Speak your response" style="position: absolute; right: 8px; background: transparent; border: none; cursor: pointer; font-size: 18px; color: var(--gold-soft);">&#127908;</button>`
+                + `</div>`
+                + `<div id="${statusId}" style="font-size: 10.5px; min-height: 16px; color: var(--ink-faint);"></div>`
+                + `<div style="display: flex; gap: 8px; justify-content: flex-end;">`
+                + `<button id="${skipId}" class="btn ghost" style="padding: 7px 16px; font-size: 12.5px; font-weight: 500; cursor: pointer;">End Standup</button>`
+                + `<button id="${btnId}" class="btn primary" style="padding: 7px 16px; font-size: 12.5px; font-weight: 600; cursor: pointer;">Send Response</button>`
+                + `</div></div></div>`;
+
+            council.insertAdjacentHTML("beforeend", founderCardHtml);
+            const fsCard = council.lastElementChild;
+            try { fsCard.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch (_) {}
+
+            const inputEl = $(inputId);
+            const sendBtn = $(btnId);
+            const skipBtn = $(skipId);
+            const micBtn = $(micId);
+            const statusEl = $(statusId);
+
+            if (inputEl) inputEl.focus();
+
+            // Bind mic button for CEO response
+            const stopMic = bindSpeechRecognition(micBtn, inputEl, statusEl);
+
+            const cleanup = () => {
+                stopMic();
+                sendBtn.removeEventListener("click", handleSend);
+                skipBtn.removeEventListener("click", handleSkip);
+            };
+
+            const handleSend = async () => {
+                const val = inputEl.value.trim();
+                if (!val) return;
+
+                cleanup();
+                sendBtn.disabled = true;
+                skipBtn.disabled = true;
+                inputEl.disabled = true;
+                if (statusEl) statusEl.textContent = "Sending response to worker memory...";
+                if (A.uiPress) { try { A.uiPress(); } catch (_) {} }
+
+                try {
+                    // 1. Save response to procedural memory
+                    await api("/api/world/standup/respond", { text: val });
+
+                    // 2. Transform the input card into static message
+                    fsCard.innerHTML = `<div class="council-top">`
+                        + `<img class="council-face" src="${state.founderAvatar || "/game/assets/generated/narrator.png"}" alt="" onerror="this.style.display='none'" />`
+                        + `<div><div class="council-name">${esc(state.founderName || "CEO")} (You)</div><div class="council-role">Human Operator</div></div></div>`
+                        + `<div class="council-says" style="margin-top: 10px; font-style: italic; color: var(--ink-dim);">&ldquo;${esc(val)}&rdquo;</div>`
+                        + `<div class="standup-handoff" style="color: var(--good-soft); margin-top: 8px;">response registered in memory ledger</div>`;
+
+                    // Add user turn to history
+                    const userTurn = {
+                        speaker: state.founderName || "CEO",
+                        role: "founder",
+                        worker_id: "founder",
+                        message: val,
+                        speaker_profile: {
+                            display_name: state.founderName || "CEO",
+                            role: "founder",
+                            role_label: "Human Operator",
+                            worker_id: "founder",
+                            portrait_url: state.founderAvatar || "/game/assets/generated/narrator.png",
+                            text_style: "CEO direction",
+                            voice_stack: state.founderVoiceStack || "core_openai",
+                            voice_id: state.founderVoice || "onyx",
+                            locale: state.founderLocale || "en-US"
+                        }
+                    };
+                    accumulatedHistory.push(userTurn);
+
+                    // Narrate confirmation
+                    await narrate(`Registered. Asking the workforce to react...`);
+
+                    // 3. Fetch next standup turns
+                    const nextStandup = await api("/api/world/standup", {
+                        chapter_id: standup.chapter_id,
+                        history: accumulatedHistory,
+                        selection_mode: STANDUP_SELECTION
+                    });
+
+                    // 4. Display the new turns
+                    await displayTurns(nextStandup.turns);
+
+                    // 5. Loop again
+                    promptCEO();
+
+                } catch (err) {
+                    fsCard.remove();
+                    resolve();
+                }
+            };
+
+            const handleSkip = () => {
+                cleanup();
+                if (A.uiHover) { try { A.uiHover(); } catch (_) {} }
+                fsCard.remove();
+                resolve();
+            };
+
+            sendBtn.addEventListener("click", handleSend);
+            skipBtn.addEventListener("click", handleSkip);
+            inputEl.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSend();
+                }
+            });
+        }
+
+        promptCEO();
+    });
 }
 
 async function revealVentureGraph() {
@@ -1310,6 +1965,11 @@ async function runNextChapter() {
 
     setSceneHead(`Chapter ${state.idx + 1}`, ch.title,
         `\u2692 artifact + diagram by ${ownerName} (agent JSON \u2192 Mermaid)`);
+    // Paint the scenario onto the world canvas (center stage) so the player has
+    // the room's goal + success metric in view while the worker reasons. The
+    // theater overlay sits above this; when it closes, the scenario remains
+    // until the artifact replaces it.
+    renderScenarioCanvas(ch, ownerName);
     setWorker(ch.owner_role, `${(ch.owner_role || "role").toUpperCase()}_MODEL (Foundry)`, "Reasoning over the brief", true, ownerName);
     setReasoning(null);
     setTools(null);
@@ -1378,6 +2038,21 @@ async function runNextChapter() {
     setToolTrace(inv.tool_trace);
     setReasoning(inv);
     mafRunLand(inv);
+    // Stash this character's run evidence so its on-stage CARD is clickable -
+    // the card opens a dialog with these real receipts (tool calls, reasoning,
+    // memory, score). One store, read by both the rail and the card dialog.
+    recordCardEvidence(inv.worker_title || ownerName, ch.owner_role, {
+        chapter: ch.title,
+        score: score,
+        deployment: deployLabel,
+        tools: inv.tools_drawn || [],
+        trace: inv.tool_trace || [],
+        mafTools: inv.maf_tools_called || [],
+        mafMemory: inv.maf_memory || [],
+        reasoningTokens: inv.reasoning_tokens || 0,
+        reasoningPreview: inv.reasoning_preview || "",
+        latency: inv.latency_s ?? 0,
+    });
     // The reveal beat: the model's actual chain-of-thought, center stage.
     await theaterReveal(inv);
 
@@ -1580,7 +2255,10 @@ async function runDilemmaGate(chapter, auto) {
                 await sleep(500);
             }
             try {
-                const standup = await api("/api/world/standup", { chapter_id: chapter.id });
+                const standup = await api("/api/world/standup", {
+                    chapter_id: chapter.id,
+                    selection_mode: STANDUP_SELECTION
+                });
                 await renderAgentStandup(standup);
             } catch (_) {
                 lens("reasoning", "Agent stand-up skipped; decision state is still committed");
@@ -1611,14 +2289,14 @@ document.addEventListener("keydown", (e) => {
 async function finale(s) {
     state.phase = "done";
     markProgress(state.chapters.length, "done");
-    setSceneHead("Finale", "Your company exists");
+    setSceneHead("Finale", "Your mission has a working loop");
     if (A.complete) A.complete();
     await renderMermaid(companyGraphDef());
     setWorker("narrator", "Venture: launched", "All chapters verified", false);
     $("hint").textContent = "Venture launched";
     $("next").disabled = true;
     $("auto").disabled = true;
-    await narrate(`${state.chapters.length} chapters, ${state.chapters.length} verified gates. From one sentence you now have an org, the systems it runs on, a launch plan, and the numbers behind it - level ${s.level ?? 1}, ${s.xp ?? 0} XP. That is your company, mapped as a dungeon you just cleared.`);
+    await narrate(`${state.chapters.length} chapters, ${state.chapters.length} verified gates. From one founder signal you now have an org, the systems it runs on, a launch plan, and the numbers behind it - level ${s.level ?? 1}, ${s.xp ?? 0} XP. That is the mission, mapped as a living system you changed.`);
     await incomeBeat(s);
 }
 
@@ -1692,28 +2370,14 @@ async function resetStory() {
 }
 
 // --- Voice input (browser speech-to-text) ----------------------------------
-// Lets the founder speak their company idea instead of typing it. Uses the
-// browser SpeechRecognition API (Chrome/Edge/Safari) - no API key, no network
-// of our own. Degrades gracefully: if unsupported, the mic button is hidden and
-// typing still works.
-function setupVoiceInput() {
-    const micBtn = $("mic");
-    const statusEl = $("mic-status");
-    const pitchEl = $("in-pitch");
-    if (!micBtn || !pitchEl) return;
-
+// Reusable speech recognition binder
+function bindSpeechRecognition(micBtn, inputEl, statusEl, onResultCallback) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { micBtn.style.display = "none"; return; }
+    if (!SR) { micBtn.style.display = "none"; return () => {}; }
 
     let rec = null;
     let listening = false;
     let baseText = "";
-
-    function setStatus(msg, live) {
-        if (!statusEl) return;
-        statusEl.textContent = msg || "";
-        statusEl.classList.toggle("live", !!live);
-    }
 
     function stop() {
         listening = false;
@@ -1723,27 +2387,35 @@ function setupVoiceInput() {
 
     micBtn.addEventListener("click", () => {
         if (A.unlock) { try { A.unlock(); } catch (e) { /* audio optional */ } }
-        if (listening) { stop(); setStatus("", false); return; }
+        if (listening) { stop(); if (statusEl) statusEl.textContent = ""; return; }
 
         rec = new SR();
         rec.lang = "en-US";
         rec.interimResults = true;
         rec.continuous = true;
-        // Start a fresh dictation but keep whatever the founder already typed.
-        baseText = (pitchEl.value || "").trim();
+        baseText = (inputEl.value || "").trim();
 
         rec.onstart = () => {
             listening = true;
             micBtn.classList.add("listening");
-            setStatus("Listening - speak your idea...", true);
+            if (statusEl) {
+                statusEl.textContent = "Listening - speak...";
+                statusEl.classList.add("live");
+            }
         };
         rec.onerror = (e) => {
-            setStatus("Mic error: " + (e.error || "unknown"), false);
+            if (statusEl) {
+                statusEl.textContent = "Mic error: " + (e.error || "unknown");
+                statusEl.classList.remove("live");
+            }
             stop();
         };
         rec.onend = () => {
             micBtn.classList.remove("listening");
-            if (listening) setStatus("Heard you. Edit, or press Begin.", false);
+            if (listening && statusEl) {
+                statusEl.textContent = "Heard you.";
+                statusEl.classList.remove("live");
+            }
             listening = false;
         };
         rec.onresult = (event) => {
@@ -1756,18 +2428,239 @@ function setupVoiceInput() {
             }
             const joined = [baseText, finalTxt].filter(Boolean).join(" ").trim();
             if (finalTxt) baseText = joined;
-            pitchEl.value = (joined + (interim ? " " + interim : "")).trim();
-            // Speaking a fresh idea should clear any URL so the pitch wins.
-            const urlEl = $("in-url");
-            if (urlEl && pitchEl.value) urlEl.value = "";
+            inputEl.value = (joined + (interim ? " " + interim : "")).trim();
+            if (onResultCallback) onResultCallback(inputEl.value);
         };
 
-        try { rec.start(); } catch (e) { setStatus("Could not start mic", false); }
+        try { rec.start(); } catch (e) { if (statusEl) statusEl.textContent = "Could not start mic"; }
     });
+
+    return stop;
+}
+
+// Lets the founder speak their company idea instead of typing it. Uses the
+// browser SpeechRecognition API (Chrome/Edge/Safari) - no API key, no network
+// of our own. Degrades gracefully: if unsupported, the mic button is hidden and
+// typing still works.
+function setupVoiceInput() {
+    const micBtn = $("mic");
+    const statusEl = $("mic-status");
+    const pitchEl = $("in-pitch");
+    if (!micBtn || !pitchEl) return;
+
+    bindSpeechRecognition(micBtn, pitchEl, statusEl, (value) => {
+        // Speaking a fresh idea should clear any URL so the pitch wins.
+        const urlEl = $("in-url");
+        if (urlEl && value) urlEl.value = "";
+    });
+}
+
+function populateFounderVoiceSelect(catalog) {
+    const select = $("in-founder-voice");
+    if (!select) return;
+
+    const core = (catalog && Array.isArray(catalog.core_openai) && catalog.core_openai.length)
+        ? catalog.core_openai
+        : VOICE_PROFILES;
+    VOICE_PROFILES.splice(0, VOICE_PROFILES.length, ...core.map((profile) => ({
+        id: profile.id,
+        label: profile.label || profile.id,
+        locale: profile.locale || "en-US",
+        stack: profile.stack || "core_openai",
+        tone: profile.tone || "Core voice",
+    })));
+
+    select.innerHTML = "";
+    const coreGroup = document.createElement("optgroup");
+    coreGroup.label = "Core cast voices";
+    VOICE_PROFILES.forEach((profile) => {
+        const option = document.createElement("option");
+        option.value = profile.id;
+        option.textContent = `${profile.label} (${profile.tone})`;
+        if (profile.id === "onyx") option.selected = true;
+        coreGroup.appendChild(option);
+    });
+    select.appendChild(coreGroup);
+
+    const planned = catalog && catalog.azure_speech && Array.isArray(catalog.azure_speech.planned_profiles)
+        ? catalog.azure_speech.planned_profiles
+        : [];
+    if (planned.length) {
+        const speechGroup = document.createElement("optgroup");
+        speechGroup.label = "Azure Speech diversity pool - planned";
+        planned.slice(0, 6).forEach((profile) => {
+            const option = document.createElement("option");
+            option.value = profile.id;
+            option.disabled = true;
+            option.textContent = `${profile.label} (${profile.locale}) - adapter next`;
+            speechGroup.appendChild(option);
+        });
+        select.appendChild(speechGroup);
+    }
+}
+
+async function hydrateFounderVoiceCatalog() {
+    try {
+        const catalog = await apiGet("/api/voices");
+        populateFounderVoiceSelect(catalog);
+    } catch (e) {
+        populateFounderVoiceSelect(null);
+    }
+}
+
+function setupCharacterCreation() {
+    hydrateFounderVoiceCatalog();
+
+    // One-step profile-first creation. The LinkedIn/public URL is the primary
+    // signal; Enter starts the run. Archetype cards remain hidden as an
+    // implementation fallback and can still be selected by scripted flows.
+    const urlInput = $("in-url");
+    if (urlInput) {
+        try { urlInput.focus(); } catch (_) {}
+        urlInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                beginStory();
+            }
+        });
+    }
+
+    // Voice Preview
+    const btnPreview = $("btn-preview-voice");
+    if (btnPreview) {
+        btnPreview.addEventListener("click", () => {
+            const profile = selectedFounderVoiceProfile();
+            const voiceVal = profile.id;
+            const text = `This is ${profile.label || "my"} voice profile. Ready to guide the team.`;
+            if (A.speak) {
+                try {
+                    A.speak(text, { voice: voiceVal });
+                } catch (e) {
+                    console.warn("Speech synthesis failed", e);
+                }
+            }
+        });
+    }
+
+    // Avatar Generation
+    const btnGen = $("btn-gen-avatar");
+    if (btnGen) {
+        btnGen.addEventListener("click", async () => {
+            const nameVal = (($("in-founder-name") && $("in-founder-name").value.trim())
+                || founderNameFromProfileUrl(($("in-url") && $("in-url").value) || "")
+                || "Founder");
+            const selCard = document.querySelector("#arch-row .arch-card.sel");
+            const archVal = selCard ? selCard.dataset.arch : "Builder";
+
+            const statusEl = $("avatar-status");
+            const imgEl = $("img-founder-avatar");
+
+            if (statusEl) {
+                statusEl.textContent = "Generating custom portrait...";
+                statusEl.style.color = "var(--gold-soft)";
+            }
+            btnGen.disabled = true;
+            if (A.uiPress) { try { A.uiPress(); } catch (_) {} }
+
+            try {
+                const res = await api("/api/founder/generate-avatar", {
+                    founder_name: nameVal,
+                    founder_archetype: archVal
+                });
+
+                if (res && res.url) {
+                    const cacheBuster = `?t=${Date.now()}`;
+                    imgEl.src = res.url + cacheBuster;
+                    state.founderAvatar = res.url;
+
+                    if (statusEl) {
+                        if (res.source === "azure") {
+                            statusEl.textContent = "Generated via Azure DALL-E";
+                            statusEl.style.color = "var(--good-soft)";
+                        } else {
+                            statusEl.textContent = "Generated via Dynamic Offline SVG";
+                            statusEl.style.color = "var(--blue-soft)";
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error("Avatar generation failed", e);
+                if (statusEl) {
+                    statusEl.textContent = "Generation failed. Offline SVG fallback loaded.";
+                    statusEl.style.color = "var(--bad)";
+                }
+                imgEl.src = "/game/assets/generated/narrator.png";
+                state.founderAvatar = "/game/assets/generated/narrator.png";
+            } finally {
+                btnGen.disabled = false;
+            }
+        });
+    }
 }
 
 // --- Wire up ---------------------------------------------------------------
 $("begin").addEventListener("click", beginStory);
+$("begin").addEventListener("mouseenter", () => {
+    if (A.uiHover && A.isUnlocked && A.isUnlocked() && !$("begin").disabled) {
+        try { A.uiHover(); } catch (_) {}
+    }
+});
+
+// Character cards ARE the inspector: tap a card to flip it in place to its
+// dossier (tool calls, reasoning, memory, receipts); tap again or press Escape
+// to return it to the board. No modal.
+(function wireCharacterCards() {
+    const party = $("party");
+    if (party) {
+        party.addEventListener("click", (e) => {
+            const tile = e.target.closest(".party-agent");
+            if (tile && tile.dataset.owner) flipCard(tile.dataset.owner);
+        });
+        party.addEventListener("keydown", (e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            const tile = e.target.closest(".party-agent");
+            if (tile && tile.dataset.owner) { e.preventDefault(); flipCard(tile.dataset.owner); }
+        });
+        party.addEventListener("mouseover", (e) => {
+            if (!e.target.closest(".party-agent")) return;
+            if (A.cardHover && A.isUnlocked && A.isUnlocked()) { try { A.cardHover(); } catch (_) {} }
+        });
+    }
+    // The footer mini is the front door to the active agent's gorgeous card -
+    // including the core game-master agents (Org Designer / World Designer) that
+    // never sit in the party row. Click it to summon their dossier, click again
+    // (or the close button / Escape / outside) to dismiss.
+    const workerMini = $("worker");
+    if (workerMini) {
+        workerMini.setAttribute("role", "button");
+        workerMini.setAttribute("tabindex", "0");
+        workerMini.setAttribute("title", "Inspect this agent's dossier");
+        workerMini.addEventListener("click", () => {
+            toggleAgentInspector();
+            if (A.cardDraw) { try { A.cardDraw(); } catch (_) {} }
+        });
+        workerMini.addEventListener("keydown", (e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
+            toggleAgentInspector();
+        });
+    }
+    const castStage = $("cast-stage");
+    if (castStage) {
+        castStage.addEventListener("click", (e) => {
+            if (e.target.closest(".cast-close")) closeAgentInspector();
+        });
+    }
+    // Click anywhere outside the open dossier (and not on its trigger) closes it.
+    document.addEventListener("click", (e) => {
+        if (!inspectorOpen) return;
+        if (e.target.closest("#cast-stage") || e.target.closest("#worker")) return;
+        closeAgentInspector();
+    });
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") { closeAgentInspector(); unflipAllCards(); }
+    });
+})();
 
 // The intro film hands off here: one continuous descent, no second form.
 // `mission` = {company, pitch, archetype: {name, skill}|null}. The film picks
@@ -1825,3 +2718,6 @@ fetch("/api/mode").then((r) => (r.ok ? r.json() : null)).then((d) => {
 
 // Enable speak-your-idea voice input on the pitch field (if the browser supports it).
 setupVoiceInput();
+
+// Wire up name randomization, voice previews, and custom avatar generators
+setupCharacterCreation();

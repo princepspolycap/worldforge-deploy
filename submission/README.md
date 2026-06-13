@@ -1,8 +1,8 @@
-# Your Company Is the Dungeon
+# Gamifying World Improvement
 
 Reasoning Agents submission for Microsoft Agents League, Battle #2.
 
-This project turns the live battle RPG prompt into a business-building quest game: the player pitches a company idea, a Foundry-powered Master Narrator decomposes it into a quest line, specialist character agents execute each step, and the player verifies artifacts before XP is awarded.
+This project turns the live battle RPG prompt into a gamified world-improvement simulator: the player enters their public profile, a Foundry-powered Master Narrator decomposes the mission into a campaign graph, a customized AI workforce executes each step, and the player verifies artifacts at gates before XP is awarded.
 
 ## Current Status
 
@@ -11,7 +11,7 @@ This project turns the live battle RPG prompt into a business-building quest gam
 - Microsoft platform/source links and submission notes are captured in [docs/microsoft_platform_references.md](docs/microsoft_platform_references.md).
 - Official challenge references remain untouched under [../starter-kits/2-reasoning-agents](../starter-kits/2-reasoning-agents).
 - This `submission/` folder is reserved for our build, docs, agent code, tools, state, knowledge, quests, UI, and replay logs.
-- The current playable shell uses FastAPI plus a narrated story view: pitch entry, dynamic org design, chapter execution on Foundry deployments, verification gates, XP, animated Mermaid/SVG artifact diagrams, MAI-generated portraits, narration, and synthesized audio.
+- The current playable shell uses FastAPI plus a narrated story view: profile entry, dynamic org design, chapter execution on Foundry deployments, verification gates, XP, animated Mermaid/SVG artifact diagrams, MAI-generated portraits, narration, and synthesized audio.
 - The release game loop is mapped in [docs/game_loop.md](docs/game_loop.md): story view first, visible reasoning, human verification, and no public dependency on private art.
 
 ## Microsoft Scaffold Relationship
@@ -25,8 +25,8 @@ This project turns the live battle RPG prompt into a business-building quest gam
 
 Build one end-to-end quest line:
 
-1. Player enters a business pitch.
-2. Master Narrator creates a 3-step launch quest.
+1. Player enters a LinkedIn or public profile URL.
+2. Master Narrator creates a 3-step campaign graph.
 3. Strategist produces positioning and ICP.
 4. Designer produces a landing-page artifact.
 5. Marketer produces launch email copy.
@@ -37,7 +37,7 @@ Build one end-to-end quest line:
 ## Architecture Rules
 
 - Foundry is the reasoning core: Master Narrator and character agents run on Microsoft Foundry models.
-- Foundry IQ grounds the agents in curated business-launch knowledge.
+- Foundry IQ grounds the agents in curated business-launch/world-improvement knowledge.
 - Code tools handle deterministic checks such as URL status, email validation, and scoring.
 - Poly backend integrations are optional tools only, with simulation fallbacks.
 - The repo must remain forkable and runnable without proprietary infrastructure.
@@ -78,7 +78,7 @@ source .venv/bin/activate
 pip install -r submission/requirements.txt
 
 # end-to-end CLI simulator (no Azure required)
-python3 submission/tools/run_quest_simulation.py --pitch "Your idea here"
+python3 submission/tools/run_quest_simulation.py --pitch "Green energy grids"
 ```
 
 For Foundry-backed runs, copy the keys you need from your own local Foundry env

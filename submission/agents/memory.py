@@ -23,13 +23,15 @@ from __future__ import annotations
 import json
 import os
 import time
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# Local ledger path. DUNGEON_MEMORY_FILE isolates a second server's session
+# Local ledger path. CAMPAIGN_MEMORY_FILE isolates a second server's session
 # (simulation test bench) from the live demo's ledger - same reasoning as
-# DUNGEON_STATE_FILE in tools/server.py.
-MEMORY_FILE = Path(os.environ.get("DUNGEON_MEMORY_FILE")
+# CAMPAIGN_STATE_FILE in tools/server.py.
+MEMORY_FILE = Path(os.environ.get("CAMPAIGN_MEMORY_FILE")
+                   or os.environ.get("DUNGEON_MEMORY_FILE")
                    or Path(__file__).resolve().parent.parent / "state" / "memory.json")
 
 _KINDS = ("user_profile", "procedural", "chat_summary")
@@ -121,22 +123,27 @@ def _foundry_search(query: str, limit: int) -> Optional[List[Dict[str, Any]]]:
 # replay/UI can read memory without a network hop).
 # ---------------------------------------------------------------------------
 
+_lock = threading.RLock()
+
+
 def _load_local() -> List[Dict[str, Any]]:
-    if not MEMORY_FILE.exists():
-        return []
-    try:
-        data = json.loads(MEMORY_FILE.read_text())
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
+    with _lock:
+        if not MEMORY_FILE.exists():
+            return []
+        try:
+            data = json.loads(MEMORY_FILE.read_text())
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
 
 
 def _save_local(items: List[Dict[str, Any]]) -> None:
-    try:
-        MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-        MEMORY_FILE.write_text(json.dumps(items[-200:], indent=1))
-    except Exception:
-        pass  # memory must never break the game loop
+    with _lock:
+        try:
+            MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+            MEMORY_FILE.write_text(json.dumps(items[-200:], indent=1))
+        except Exception:
+            pass  # memory must never break the game loop
 
 
 def remember(kind: str, text: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -157,9 +164,10 @@ def remember(kind: str, text: str, payload: Optional[Dict[str, Any]] = None) -> 
         "ts": time.time(),
         "origin": "foundry-memory" if sent else "local-memory",
     }
-    items = [m for m in _load_local() if not (m.get("kind") == kind and m.get("text") == text)]
-    items.append(entry)
-    _save_local(items)
+    with _lock:
+        items = [m for m in _load_local() if not (m.get("kind") == kind and m.get("text") == text)]
+        items.append(entry)
+        _save_local(items)
     return entry
 
 
@@ -174,40 +182,43 @@ def recall_memories(query: str = "", limit: int = 4) -> List[Dict[str, Any]]:
     if foundry:
         return foundry
 
-    items = _load_local()
-    if not items:
-        return []
+    with _lock:
+        items = _load_local()
+        if not items:
+            return []
 
-    kws = set((query or "").lower().split())
+        kws = set((query or "").lower().split())
 
-    def score(m: Dict[str, Any]) -> float:
-        overlap = sum(1 for k in kws if k in str(m.get("text", "")).lower()) if kws else 0
-        return overlap * 10 + float(m.get("ts") or 0) / 1e10
+        def score(m: Dict[str, Any]) -> float:
+            overlap = sum(1 for k in kws if k in str(m.get("text", "")).lower()) if kws else 0
+            return overlap * 10 + float(m.get("ts") or 0) / 1e10
 
-    ranked = sorted(items, key=score, reverse=True)[:limit]
-    # Binding rule: the newest procedural memory always rides along.
-    procedural = [m for m in items if m.get("kind") == "procedural"]
-    if procedural and procedural[-1] not in ranked:
-        ranked = [procedural[-1]] + ranked[: max(limit - 1, 1)]
-    return ranked
+        ranked = sorted(items, key=score, reverse=True)[:limit]
+        # Binding rule: the newest procedural memory always rides along.
+        procedural = [m for m in items if m.get("kind") == "procedural"]
+        if procedural and procedural[-1] not in ranked:
+            ranked = [procedural[-1]] + ranked[: max(limit - 1, 1)]
+        return ranked
 
 
 def memory_snapshot() -> Dict[str, Any]:
     """Everything the agents currently remember, grouped by kind (for the UI)."""
-    items = _load_local()
-    grouped: Dict[str, List[Dict[str, Any]]] = {k: [] for k in _KINDS}
-    for m in items:
-        grouped.setdefault(m.get("kind", "procedural"), []).append(
-            {"text": m.get("text", ""), "ts": m.get("ts", 0), "origin": m.get("origin", "local-memory")})
-    cfg = _store_config()
-    return {
-        "store": "foundry-memory" if (cfg and _FOUNDRY_MEM_AVAILABLE) else "local-memory",
-        "configured": bool(cfg),
-        "counts": {k: len(v) for k, v in grouped.items()},
-        "memories": grouped,
-    }
+    with _lock:
+        items = _load_local()
+        grouped: Dict[str, List[Dict[str, Any]]] = {k: [] for k in _KINDS}
+        for m in items:
+            grouped.setdefault(m.get("kind", "procedural"), []).append(
+                {"text": m.get("text", ""), "ts": m.get("ts", 0), "origin": m.get("origin", "local-memory")})
+        cfg = _store_config()
+        return {
+            "store": "foundry-memory" if (cfg and _FOUNDRY_MEM_AVAILABLE) else "local-memory",
+            "configured": bool(cfg),
+            "counts": {k: len(v) for k, v in grouped.items()},
+            "memories": grouped,
+        }
 
 
 def forget_all() -> None:
     """Reset the local ledger (new venture = new memory)."""
-    _save_local([])
+    with _lock:
+        _save_local([])

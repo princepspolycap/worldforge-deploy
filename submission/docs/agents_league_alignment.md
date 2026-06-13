@@ -37,10 +37,10 @@ Everything below maps our build onto that spec, element for element.
 ## 2. The canonical spec, mapped to our build
 
 We did not abandon the role-play RPG; we **reskinned it from fantasy to
-business**. The player is the CEO; the dungeon is their company. The mapping is
-one-to-one - this is the slide that earns "Accuracy and Relevance."
+world-improvement**. The player is the founder; the campaign graph is their mission
+roadmap. The mapping is one-to-one - this is the slide that earns "Accuracy and Relevance."
 
-| Canonical concept (RPG) | Our build (business dungeon) | Where it lives |
+| Canonical concept (RPG) | Our build (world-improvement campaign) | Where it lives |
 |---|---|---|
 | **Game Master** (orchestrator + narrator + world builder) | **Org Designer + World Designer** - reads the pitch, designs the workforce, decomposes the venture into chapters | [agents/org_designer.py](../agents/org_designer.py), [agents/world_designer.py](../agents/world_designer.py) |
 | **Character agents** (Warrior, Mage, Rogue, Healer, Rival) | **Digital workers** the Org Designer invents for *this* company, each with a role and a `why` | [agents/worker_factory.py](../agents/worker_factory.py) |
@@ -96,6 +96,11 @@ their own Microsoft Foundry deployments through `submission/.env`.
 Reasoning must stay Foundry-native. Non-Foundry providers, if ever used, belong
 outside the core reasoning path as optional tools.
 
+For day-to-day development, use the explicit cheap-iteration policy in
+[model_cost_policy.md](model_cost_policy.md): simulation for UI churn, one
+cheap Foundry deployment for live integration checks, and larger models only for
+final visible reasoning passes.
+
 ### Azure services and patterns in play
 
 - **Azure AI Foundry project + model deployments** - the reasoning core.
@@ -134,12 +139,12 @@ a cool animation.
 
 | Time | Beat | The league concept we name out loud |
 |---|---|---|
-| 0:00-1:00 | Intro lore auto-plays | "This is a role-play reasoning game on Foundry - the spec asked for a Game Master and a cast; we reskinned fantasy to business." |
-| 1:00-1:45 | Pick a front (mission or Poly) | **Human-in-the-loop** starts here: the CEO sets intent; the agents execute. |
+| 0:00-1:00 | Intro lore auto-plays | "This is a role-play reasoning game on Foundry - the spec asked for a Game Master and a cast; we reskinned fantasy to world improvement." |
+| 1:00-1:45 | Pick a front (mission or Poly) | **Human-in-the-loop** starts here: the founder sets intent; the agents execute. |
 | 1:45-3:30 | Org Designer maps the company | **Orchestration + reasoning**: the Game Master decomposes a pitch into a workforce. Read one `why`. |
 | 3:30-4:30 | World Designer decomposes the venture | **Multi-step reasoning**: design-time output becomes run-time chapters. Point at the dependency graph. |
 | 4:30-7:30 | Run 2-3 chapters | Name all three primitives as they fire: worker (**orchestration**) -> IQ recall (**Foundry IQ**) -> score (**code interpreter**) -> **verification gate** (human-in-the-loop). Approve; XP. |
-| 7:30-8:30 | Finale: "your company exists" | **Reliability and safety**: nothing shipped without a human gate; simulation fallback means it cannot hard-fail. |
+| 7:30-8:30 | Finale: "your campaign is launched" | **Reliability and safety**: nothing shipped without a human gate; simulation fallback means it cannot hard-fail. |
 | 8:30-10:00 | Meta close: Poly maps Poly | **Accuracy + creativity**: a playable argument that one operator + a digital workforce is a company. MIT-licensed, forkable. |
 
 Two run framings (pick one per audience): the **Vision run** (Terraform the
@@ -152,12 +157,12 @@ the "is this real?" proof). See [vision_and_evolution.md](vision_and_evolution.m
 
 These are the differentiators that make the build memorable after the scorecard:
 
-- **Fantasy -> business reskin.** A **narrated management RPG** - visual-novel
+- **Fantasy -> world-improvement reskin.** A **narrated management simulator** - visual-novel
   lore and choices, tycoon-style company building, RPG progression - instead of a
   chat box or a literal fantasy RPG. The player verb is *decide*: pitch, choose a
   front, approve or reject what your workforce builds. The reasoning artifacts
   (org charts, decompositions, scores) ARE the graphics - the genre that makes
-  reasoning visible instead of hiding it behind decorative movement.
+  reasoning visible instead of hiding it.
 - **The fair-data thesis.** The digital-worker platform is also a fair-data
   engine - real people paid evenly for real work, a human at the root even of a
   superintelligence. The ethical spine under the mechanic.
@@ -177,7 +182,7 @@ These are the differentiators that make the build memorable after the scorecard:
 
 We took the Battle #2 role-play reasoning spec - Game Master, character agents,
 tools, shared state, human-in-the-loop, Foundry IQ - and reskinned it into a
-business dungeon where you play the CEO. A Microsoft Foundry workforce
+world-improvement campaign where you play the founder. A Microsoft Foundry workforce
 designs your org, decomposes your venture, grounds each step with Foundry IQ,
 checks it with a code interpreter, and ships nothing until you approve it at a
 verification gate. It is forkable, MIT-licensed, based on our own real platform,

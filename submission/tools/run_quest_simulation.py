@@ -14,7 +14,7 @@ from tools.code_interpreter_wrappers import validate_positioning, validate_landi
 
 def run_simulation(pitch: str) -> None:
     print("=" * 60)
-    print("⚔️  YOUR COMPANY IS THE DUNGEON - SIMULATOR RUN ⚔️")
+    print("⚔️  GAMIFYING WORLD IMPROVEMENT - SIMULATOR RUN ⚔️")
     print("=" * 60)
     print(f"Propelling Pitch: '{pitch}'")
     
@@ -23,9 +23,9 @@ def run_simulation(pitch: str) -> None:
     state = store.initialize_new_company(
         name="My Spawned Venture",
         pitch=pitch,
-        description="A startup forged in QuestForge."
+        description="A campaign forged in QuestForge."
     )
-    store.log_event(EventType.SESSION_START, "system", "Initialized fresh startup session and spawned character party.")
+    store.log_event(EventType.SESSION_START, "system", "Initialized fresh campaign session and spawned character workforce.")
     
     # 2. Master Narrator Decomposes the Pitch into 3 Quests
     narrator = MasterNarrator()
@@ -137,8 +137,8 @@ def run_simulation(pitch: str) -> None:
     print("=" * 60)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Simulator for Your Company Is the Dungeon")
-    parser.add_argument("--pitch", type=str, default="A billing tracker for contractors", help="The startup pitch to feed initial narrative generation")
+    parser = argparse.ArgumentParser(description="Simulator for Gamifying World Improvement")
+    parser.add_argument("--pitch", type=str, default="A billing tracker for contractors", help="The campaign brief to feed initial narrative generation")
     args = parser.parse_args()
     
     run_simulation(args.pitch)

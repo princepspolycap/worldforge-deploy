@@ -1,4 +1,4 @@
-# Hosted Agent: Dungeon Narrator
+# Hosted Agent: Campaign Narrator
 
 This folder makes the Master Narrator deployable as a **Microsoft Foundry hosted
 agent** - Foundry's managed agent-hosting surface where agents expose a standard

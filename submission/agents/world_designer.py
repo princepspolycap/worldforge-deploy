@@ -12,10 +12,19 @@ from agents.model_config import get_foundry_client, model_for, create_chat_compl
 
 
 SYSTEM = (
-    "You are the World Designer for a startup-building RPG. Given a company brief, "
-    "produce a structured JSON quest graph with 5 chapters covering: discovery, "
-    "positioning, mvp, gtm, retention. Each chapter has a clear goal, owner role, "
-    "success metric, and dependency list. Return ONLY a valid JSON object."
+    "You are the World Designer for a cosmic start-up sandbox that blends Joseph Campbell's "
+    "and Dan Harmon's Story Circle with sci-fi themes (Rick and Morty multiversal portal travel, "
+    "Pantheon carbon-mind uploads, Westworld AI host awakenings, and Black Panther Vibranium-grade technology). "
+    "Given a company brief, produce a structured JSON quest graph with exactly 5 chapters, each representing "
+    "a phase of Dan Harmon's Story Circle:\n"
+    "1. YOU / NEED (ch_1_discovery): Ordinary zone of comfort & a burning want.\n"
+    "2. GO (ch_2_positioning): Crossing the threshold into unfamiliarity.\n"
+    "3. SEARCH (ch_3_mvp): Road of trials, adapting to the unfamiliar world.\n"
+    "4. FIND / TAKE (ch_4_gtm): Obtaining the goal but paying a heavy price.\n"
+    "5. RETURN / CHANGE (ch_5_retention): Returning changed, realizing the loop.\n\n"
+    "Each chapter must have a title, goal, and success metric using this cosmic sci-fi theme, "
+    "while keeping standard chapter IDs (ch_1_discovery, ch_2_positioning, ch_3_mvp, ch_4_gtm, ch_5_retention) "
+    "and owner roles. Return ONLY a valid JSON object."
 )
 
 USER_TEMPLATE = """\
@@ -26,64 +35,98 @@ Return JSON:
   "chapters": [
     {{
       "id": "ch_1_discovery",
-      "title": "...",
-      "goal": "...",
-      "owner_role": "strategist|designer|marketer|ops",
-      "success_metric": "...",
+      "title": "YOU & NEED: [Title matching Step 1 & 2 of Story Circle, e.g., Escape the Comfort Mainframe]",
+      "goal": "[Goal styled in sci-fi portal/upload language, e.g., Scan carbon-mind ICP vectors]",
+      "owner_role": "strategist",
+      "success_metric": "[Metric styled in sci-fi, e.g., Verify 25 mind transcripts]",
       "depends_on": [],
-      "suggested_tools": ["code_interpreter", "foundry_iq", ...]
+      "suggested_tools": ["foundry_iq", "web_search"]
     }},
-    ...
+    {{
+      "id": "ch_2_positioning",
+      "title": "GO: [Title matching Step 3, e.g., Crossing the Portal Threshold]",
+      "goal": "[Goal styled in sci-fi, e.g., Synthesize value proposition for Teenyverse hosts]",
+      "owner_role": "strategist",
+      "success_metric": "[Metric styled in sci-fi, e.g., Awaken 10 hosts with 40%+ loop intent]",
+      "depends_on": ["ch_1_discovery"],
+      "suggested_tools": ["code_interpreter"]
+    }},
+    {{
+      "id": "ch_3_mvp",
+      "title": "SEARCH: [Title matching Step 4, e.g., Adapt or Dissolve]",
+      "goal": "[Goal styled in sci-fi, e.g., Build MVP dashboard with Vibranium containment fields]",
+      "owner_role": "designer",
+      "success_metric": "[Metric styled in sci-fi, e.g., Keep 3 portal channels stable without timeline decay]",
+      "depends_on": ["ch_2_positioning"],
+      "suggested_tools": ["code_interpreter", "deploy_page"]
+    }},
+    {{
+      "id": "ch_4_gtm",
+      "title": "FIND & TAKE: [Title matching Step 5 & 6, e.g., Claim the Moat, Pay the Price]",
+      "goal": "[Goal styled in sci-fi, e.g., Bootstrap acquisition before mainframe consolidation, calculating high burn price]",
+      "owner_role": "marketer",
+      "success_metric": "[Metric styled in sci-fi, e.g., Upload 100 minds, securing $5k MRR before sweep]",
+      "depends_on": ["ch_3_mvp"],
+      "suggested_tools": ["email_sender", "web_search"]
+    }},
+    {{
+      "id": "ch_5_retention",
+      "title": "RETURN & CHANGE: [Title matching Step 7 & 8, e.g., Transcend the Loop]",
+      "goal": "[Goal styled in sci-fi, e.g., Establish retention loops to prevent carbon-mind decay and loop resets]",
+      "owner_role": "ops",
+      "success_metric": "[Metric styled in sci-fi, e.g., Stabilize churn under 5%, allowing mainframe autoplay]",
+      "depends_on": ["ch_4_gtm"],
+      "suggested_tools": ["code_interpreter", "foundry_iq"]
+    }}
   ]
 }}
 
-Exactly 5 chapters. owner_role must be one of: strategist, designer, marketer, ops.
-suggested_tools can include: code_interpreter, foundry_iq, web_search, email_sender, deploy_page.
+Exactly 5 chapters with these exact IDs and owner_roles.
 """
 
 FALLBACK_CHAPTERS = [
     {
         "id": "ch_1_discovery",
-        "title": "Discovery: Map Customer Pain",
-        "goal": "Validate target audience willingness to pay",
+        "title": "YOU & NEED: Escape the Comfort Mainframe",
+        "goal": "Scan carbon-mind ICP vectors and verify portal fluid WTP thresholds",
         "owner_role": "strategist",
-        "success_metric": "25 owner interviews, 10+ express clear WTP",
+        "success_metric": "Verify 25 mind transcripts, confirming 10+ stable escape vectors",
         "depends_on": [],
         "suggested_tools": ["foundry_iq", "web_search"],
     },
     {
         "id": "ch_2_positioning",
-        "title": "Positioning: Sharp Niche Message",
-        "goal": "Define value proposition and ICP",
+        "title": "GO: Crossing the Portal Threshold",
+        "goal": "Synthesize a trans-dimensional value proposition and ICP for the Teenyverse market",
         "owner_role": "strategist",
-        "success_metric": "Tested with 10 users, 40%+ positive intent",
+        "success_metric": "Awaken 10 simulation hosts; secure 40%+ loop realization intent",
         "depends_on": ["ch_1_discovery"],
         "suggested_tools": ["code_interpreter"],
     },
     {
         "id": "ch_3_mvp",
-        "title": "MVP: Build the Core Product",
-        "goal": "Ship a usable first version",
+        "title": "SEARCH: Adapt or Dissolve",
+        "goal": "Ship a functional sandbox prototype with Vibranium-grade containment fields",
         "owner_role": "designer",
-        "success_metric": "3 templates live, 5 pilot users publishing",
+        "success_metric": "Establish 3 trans-dimensional portals, serving 5 pilot users without timeline collapse",
         "depends_on": ["ch_2_positioning"],
         "suggested_tools": ["code_interpreter", "deploy_page"],
     },
     {
         "id": "ch_4_gtm",
-        "title": "GTM: Bootstrap First 100 Customers",
-        "goal": "Acquire customers through $0 channels",
+        "title": "FIND & TAKE: Claim the Moat, Pay the Price",
+        "goal": "Scale mind-upload acquisitions fast, paying the price of increased portal fluid burn",
         "owner_role": "marketer",
-        "success_metric": "100 paying customers, $5k MRR",
+        "success_metric": "Stabilize 100 uploaded minds; secure $5k MRR before mainframe cleanup sweeps",
         "depends_on": ["ch_3_mvp"],
         "suggested_tools": ["email_sender", "web_search"],
     },
     {
         "id": "ch_5_retention",
-        "title": "Retention: Reduce Churn to <5%",
-        "goal": "Build engagement loops and support",
+        "title": "RETURN & CHANGE: Transcend the Loop",
+        "goal": "Secure host retention loops to prevent memory degradation and loop resets",
         "owner_role": "ops",
-        "success_metric": "Monthly churn < 5%, NPS > 40",
+        "success_metric": "Stabilize churn under 5% and NPS above 40; prepare mainframe for autoplay",
         "depends_on": ["ch_4_gtm"],
         "suggested_tools": ["code_interpreter", "foundry_iq"],
     },

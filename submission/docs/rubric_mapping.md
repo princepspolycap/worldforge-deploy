@@ -15,7 +15,7 @@ none; removed.
 | Accuracy and Relevance | 25% | Direct reskin of the official Game Master scenario: a Game Master (World Designer/Narrator) plus in-story character agents build a venture as an interactive RPG. Every required primitive present and named on screen: multi-agent orchestration, Foundry IQ recall with citations, code interpreter validators, world state, quests, dynamic consequences. |
 | Reasoning and Multi-step Thinking | 25% | The World Designer decomposes the pitch into a dependency-ordered chapter graph; the Org Designer reasons out the workforce before any work happens; each chapter is a multi-step run (recall -> memory injection -> reasoning -> tool calls -> validation) with the live reasoning theater showing the plan form. CEO decisions chain across chapters: choice -> memory -> recall -> visibly different artifact. |
 | Reliability and Safety | 20% | Human verification gate on every artifact, deterministic validator floors under the rubric score, four-layer degradation (Foundry project endpoint -> /openai/v1 -> simulation; IQ -> local playbooks; memory store -> local ledger; Toolbox -> local registry), secret scrubbing, no raw chain-of-thought, SSRF-guarded URL ingestion. The evidence smoke test fails the build if any chapter ships without proof points. |
-| Creativity and Originality | 15% | "Your company is the dungeon" - a narrated management RPG where the model designs its own workforce; agent memory as an audible game mechanic; dilemma gates written by the narrator from the artifact just sealed; cinematic voiced intro film that hands off into live play. |
+| Creativity and Originality | 15% | "Gamifying World Improvement" - a gamified world-improvement simulator where the model designs its own workforce; agent memory as an audible game mechanic; dilemma gates written by the narrator from the artifact just sealed; cinematic voiced intro film that hands off into live play. |
 | UX and Presentation | 15% | Voiced intro film -> founding screen -> live reasoning theater, one evidence rail (Active Worker, Agent Framework, Digital Workforce, Foundry IQ Memory, Agent Memory - learned, Verification Gate), XP/levels, Mermaid artifact diagrams, multi-voice neural TTS narration. |
 
 ## Submission Requirements Checklist (spec: "To be considered valid")
@@ -61,7 +61,7 @@ none; removed.
    AI workforce" made playable.
 3. **The Org Designer answers the film's promise.** The film shows a
    workforce; the first reasoning beat designs one, live, for THIS venture.
-4. **Chapters are the role-play.** Each room of the dungeon is a chapter
+4. **Chapters are the role-play.** Each node of the campaign graph is a chapter
    owned by an in-story character agent; the reasoning theater is the
    "watch the party act" moment; the gate is the player's turn.
 5. **Memory closes the loop.** What the CEO decides at each gate becomes who

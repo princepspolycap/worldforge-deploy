@@ -127,7 +127,7 @@ def _fetch_html(url: str, max_bytes: int = 400_000, timeout: float = 6.0) -> Opt
     req = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "Mozilla/5.0 (compatible; DungeonOrgDesigner/1.0)",
+            "User-Agent": "Mozilla/5.0 (compatible; CampaignOrgDesigner/1.0)",
             "Accept": "text/html,application/xhtml+xml",
         },
     )

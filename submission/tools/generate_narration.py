@@ -11,7 +11,7 @@ At runtime audio.js plays these takes first and only falls back to live TTS
 (then the browser voice) when a file is missing - baking is an enhancement,
 never a requirement.
 
-Usage (requires TTS_ENDPOINT / TTS_DEPLOYMENT / TTS_API_KEY in
+Usage (requires TTS_ENDPOINT / TTS_DEPLOYMENTS or TTS_DEPLOYMENT / TTS_API_KEY in
 submission/.env):
     python submission/tools/generate_narration.py            # missing takes
     python submission/tools/generate_narration.py --force    # re-bake all
@@ -41,6 +41,13 @@ if _ENV.exists():
 
 TTS_ENDPOINT = os.getenv("TTS_ENDPOINT", "").strip().rstrip("/")
 TTS_DEPLOYMENT = os.getenv("TTS_DEPLOYMENT", "gpt-4o-mini-tts").strip()
+TTS_DEPLOYMENTS = [
+    dep.strip()
+    for dep in os.getenv("TTS_DEPLOYMENTS", "").split(",")
+    if dep.strip()
+]
+if TTS_DEPLOYMENT and TTS_DEPLOYMENT not in TTS_DEPLOYMENTS:
+    TTS_DEPLOYMENTS.append(TTS_DEPLOYMENT)
 TTS_API_KEY = os.getenv("TTS_API_KEY", "").strip()
 TTS_VOICE = os.getenv("TTS_VOICE", "onyx").strip()
 TTS_API_VERSION = os.getenv("TTS_API_VERSION", "2025-03-01-preview").strip()
@@ -75,20 +82,26 @@ def read_script() -> tuple[str, dict[str, str]]:
 
 
 def synthesize(text: str, instructions: str) -> bytes:
-    url = (f"{TTS_ENDPOINT}/openai/deployments/{TTS_DEPLOYMENT}"
-           f"/audio/speech?api-version={TTS_API_VERSION}")
-    body = json.dumps({
-        "model": TTS_DEPLOYMENT,
-        "input": text,
-        "voice": TTS_VOICE,
-        "instructions": instructions,
-    }).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=body, method="POST",
-        headers={"api-key": TTS_API_KEY, "Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return resp.read()
+    last_error = ""
+    for deployment in TTS_DEPLOYMENTS:
+        url = (f"{TTS_ENDPOINT}/openai/deployments/{deployment}"
+               f"/audio/speech?api-version={TTS_API_VERSION}")
+        body = json.dumps({
+            "model": deployment,
+            "input": text,
+            "voice": TTS_VOICE,
+            "instructions": instructions,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=body, method="POST",
+            headers={"api-key": TTS_API_KEY, "Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return resp.read()
+        except Exception as exc:  # noqa: BLE001
+            last_error = f"{deployment}: {exc}"
+    raise RuntimeError(f"TTS upstream error: {last_error}")
 
 
 def main() -> int:
@@ -107,9 +120,9 @@ def main() -> int:
     only = {s.strip() for s in args.only.split(",") if s.strip()}
     todo = {k: v for k, v in lines.items() if not only or k in only}
 
-    configured = bool(TTS_ENDPOINT and TTS_API_KEY and TTS_DEPLOYMENT)
+    configured = bool(TTS_ENDPOINT and TTS_API_KEY and TTS_DEPLOYMENTS)
     print(f"narration takes: {len(todo)} scene(s); voice={TTS_VOICE} "
-          f"deployment={TTS_DEPLOYMENT or '(none)'}")
+          f"deployments={', '.join(TTS_DEPLOYMENTS) or '(none)'}")
     if not configured:
         print("No TTS deployment configured (TTS_ENDPOINT/TTS_API_KEY); "
               "would bake:")

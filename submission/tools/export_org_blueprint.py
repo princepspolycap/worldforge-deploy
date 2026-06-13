@@ -25,7 +25,7 @@ import re
 import sys
 from typing import Any, Dict, List
 
-BUNDLE_FORMAT = "dungeon.workforce_bundle"
+BUNDLE_FORMAT = "campaign.workforce_bundle"
 BUNDLE_VERSION = 1
 
 # deployment_hint -> platform-neutral model class the receiver maps to its own fleet.
@@ -124,7 +124,7 @@ def org_to_workforce_bundle(org: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "format": BUNDLE_FORMAT,
         "version": BUNDLE_VERSION,
-        "generated_by": "your-company-is-the-dungeon",
+        "generated_by": "gamifying-world-improvement",
         "company": {
             "summary": org.get("company_summary", ""),
             "operating_model": org.get("operating_model", ""),

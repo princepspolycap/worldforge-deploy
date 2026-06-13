@@ -1,4 +1,4 @@
-# Project Narrative - Your Company Is the Dungeon
+# Project Narrative - Gamifying World Improvement
 
 Public narrative for the Microsoft Agents League Battle #2 submission. Internal
 demo logistics and outreach planning live under the ignored `submission/private/`
@@ -6,10 +6,11 @@ folder.
 
 ## One-Sentence Pitch
 
-**Your Company Is the Dungeon** is a side-scrolling, multi-agent reasoning game
-where a player pitches a business idea, a Microsoft Foundry-powered Game Master
-decomposes it into a quest line, and specialist worker agents produce real
-artifacts that the player must verify before XP is awarded.
+**Gamifying World Improvement** is a card-and-graph based, multi-agent
+world-improvement simulator where a player enters their public profile, a
+Microsoft Foundry-powered Game Master decomposes the mission into a campaign graph,
+and specialist worker agents execute each step to produce real artifacts that the
+player must verify before XP is awarded.
 
 The player decides. The agents execute. The human verifies.
 
@@ -22,24 +23,24 @@ agents. This project keeps that shape and changes the domain:
 |---|---|
 | Game Master agent | Org Designer + World Designer |
 | Character agents | Strategy, product, growth, and operations workers |
-| Campaign lore | Business-launch playbooks through Foundry IQ/local fallback |
+| Campaign lore | World-improvement playbooks through Foundry IQ/local fallback |
 | Dice rolls and checks | Deterministic artifact validators |
-| Shared world state | Company, quest, world, memory, and replay state |
+| Shared world state | Campaign, quest, world, memory, and replay state |
 | Human decisions | Verification gates before XP or progress |
 
-The result is still a role-play game, but the dungeon is the company the player
-is building.
+The result is still a role-play game, but the campaign is the world-improvement
+mission the player is leading.
 
 ## Current Loop
 
-1. The player enters a business pitch or company URL.
-2. The Org Designer creates a digital workforce for that venture.
-3. The World Designer decomposes the venture into chapters.
+1. The player enters their LinkedIn or public profile URL.
+2. The Org Designer creates an AI workforce tailored to the founder's profile and mission.
+3. The World Designer decomposes the mission into a graph of chapters.
 4. Each worker recalls knowledge, receives memory, uses tools, and produces an
    artifact.
 5. Validators score the artifact.
-6. The player approves or rejects the gate.
-7. Approved gates write memory and unlock the next chapter.
+6. The player approves or rejects the artifact at the gate.
+7. Approved gates write memory and unlock the next nodes in the graph.
 
 ## Official Battle #2 Rubric
 
@@ -71,7 +72,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r submission/requirements.txt
 
-python3 submission/tools/run_quest_simulation.py --pitch "Your idea"
+python3 submission/tools/run_quest_simulation.py --pitch "Green energy grids"
 ```
 
 No Azure credentials are required for simulation mode. A configured

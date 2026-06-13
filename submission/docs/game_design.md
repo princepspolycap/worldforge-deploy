@@ -1,6 +1,6 @@
-# The Game - Design Document
+# Gamifying World Improvement - Design Document
 
-This is the canonical description of what "Your Company Is the Dungeon" is,
+This is the canonical description of what "Gamifying World Improvement" is,
 what the player does, and what the build must become. Everything else
 (narration pipeline, art pipeline, server endpoints) is plumbing in service
 of this document. When a feature decision is unclear, come back here.
@@ -20,12 +20,11 @@ largest lever there is.
 
 You cannot command any of this into existence. So the game hands you the
 only instrument that scales: **a league of reasoning agents working as your
-digital workers** - automating your basic needs by automating how your
-skill set makes money. You decide; they execute; nothing counts until you
-press the seal.
+digital workforce** - automating how your skill set solves global challenges.
+You decide; they execute; nothing counts until you press the seal.
 
-The game is the on-ramp into that world: you found one company on one front
-of the mission, and you play it like a dungeon - room by room, choice by
+The game is the on-ramp into that world: you lead a campaign on one front of
+the mission, and you play it like an adventure - chapter by chapter, choice by
 choice, gate by gate.
 
 ## 2. The problem this document solves
@@ -59,7 +58,7 @@ any beat, but it must arrive as clickable options (2-4 cards) with an
 optional free-text escape hatch.** Never a bare text prompt. Clicking is
 the primary verb; typing is always optional.
 
-## 4. The game loop (one chapter = one room)
+## 4. The game loop (one chapter = one node)
 
 ```mermaid
 flowchart LR
@@ -67,19 +66,19 @@ flowchart LR
     B --> C{Dilemma gate<br/>2-3 options, tradeoffs}
     C -->|player picks| D[Consequence<br/>state changes, org adapts]
     D --> E{Verification gate<br/>approve / reject}
-    E -->|approve| F[XP, next room unlocks]
+    E -->|approve| F[XP, next chapter unlocks]
     E -->|reject| A
 ```
 
 Two different gates, two different muscles:
 
-- **Dilemma gate** (new): *before or during* the work. The agent surfaces a
-  real tradeoff from the venture - "Compliance-first or speed-first?",
+- **Dilemma gate**: *before or during* the work. The agent surfaces a
+  real tradeoff from the campaign - "Compliance-first or speed-first?",
   "Spend the remaining budget on supply or demand?" - as 2-3 clickable
   options, each with a visible cost. The choice writes into state and the
-  org/plan visibly adapts. This is role-play: the player is making CEO
+  org/plan visibly adapts. This is role-play: the player is making founder
   decisions, not watching them.
-- **Verification gate** (existing): *after* the work. The deterministic
+- **Verification gate**: *after* the work. The deterministic
   validator scores the artifact, the human approves or rejects. This is
   judgment: the law of the world.
 
@@ -112,7 +111,7 @@ same dilemma contract without inventing a second decision path.
 
 ## 6. The org chart - the central artifact
 
-The org the player builds is not a list of agents. It is **three lanes**:
+The workforce the player builds is not a list of agents. It is **three lanes**:
 
 ```mermaid
 flowchart TB
@@ -143,8 +142,8 @@ This is also the bridge to the larger story: the same three lanes, scaled
 up, are the Poly186 organism - users as cells, teams as tissues, platforms
 as organs. The player's company is a small organism learning to feed
 itself. That is why the game's final beats are about **self-organized
-earning**: the org goes out, makes money from the player's skill set, and
-the income loop closes.
+earning**: the org goes out, makes progress on the player's skill set, and
+the campaign loop closes.
 
 ## 7. Agents get tools (show, don't narrate)
 
@@ -173,14 +172,14 @@ hand-off must be seamless:
    as text. 3-4 clickable archetypes (Designer / Seller / Operator /
    Builder) + optional free text + mic. The archetype seeds the org design
    - your skill becomes the human lane of the chart.
-3. **The founding** (built): pitch or URL -> org chart (three lanes now)
-   -> world decomposition into chapters.
-4. **The chapters** (built as slideshow - add dilemma gates): each room =
+3. **The founding** (built): profile URL -> org chart (three lanes now)
+   -> campaign decomposition into chapters.
+4. **The chapters** (built as slideshow - add dilemma gates): each chapter =
    reasoning + artifact + dilemma + seal.
 5. **The closing of the loop** (the part the narrative promises): the org
-   runs without you for a beat - work executes, gates hold, income ticks -
-   and the game names what just happened: *your experience became a
-   business that runs while you sleep.* Then it points back up at the
+   runs without you for a beat - work executes, gates hold, progress ticks -
+   and the game names what just happened: *your experience became an
+   operating loop that runs while you sleep.* Then it points back up at the
    mission: this, times a billion people, is how a desert turns green.
 
 ## 9. Build order (what to do, in priority)
@@ -213,11 +212,11 @@ there: two agents, one toolbox, one loop; never a new agent class.
 | Reasoning & multi-step | dilemmas force visible tradeoff reasoning; consequences chain across chapters |
 | Reliability & safety | two gate types; deterministic validators; human seal unchanged |
 | Accuracy & relevance | same Foundry primitives (IQ, code interpreter, orchestration) - now player-steered |
-| Creativity | the dungeon is choices, not rooms; the whitepaper cosmology gives it stakes |
+| Creativity | the campaign is choices, not rooms; the whitepaper cosmology gives it stakes |
 | UX & presentation | click-first grammar, artifacts as things, film -> game with no seam |
 
 ---
 
 *The one sentence: the intro invites you into a story too big to command;
 the game lets you answer - choice by choice, gate by gate - until your
-company runs without you, and the story gets one founder bigger.*
+operating loop runs without you, and the story gets one founder bigger.*

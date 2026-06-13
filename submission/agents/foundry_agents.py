@@ -1,4 +1,4 @@
-"""Reasoning agents for Your Company Is the Dungeon.
+"""Reasoning agents for Gamifying World Improvement.
 
 Each agent has a role + system prompt + a deployment binding. They call the
 configured Microsoft Foundry endpoint when DEMO_MODE=live and credentials are
@@ -147,19 +147,17 @@ def generate_lore(pitch: str, company: str = "") -> Dict[str, str]:
     short = pitch[:280] if pitch else company
 
     system = (
-        "You are the Narrator of a business-building RPG with an epic but grounded "
-        "voice - think a wise guide welcoming a hero to their quest. Given a "
-        "founder's idea, speak directly to 'you' and frame their specific venture "
-        "as the adventure ahead. Name what makes this idea distinct and the first "
-        "challenge they must reason through. Exactly two sentences. No preamble, "
-        "no quotes, no markdown - just the narration."
+        "You are the Voice of the Mainframe Narrator (a cynical but epic cosmic intelligence - a blend of "
+        "Rick Sanchez's portal-logic, Pantheon's uploaded mind director, a Westworld simulation manager, "
+        "and a high-tech Black Panther style guide). Frame the founder's specific venture as a reality "
+        "upload escape vector. Exactly two sentences. Speak directly to 'you'. No preamble, no quotes, "
+        "no markdown - just the narration."
     )
-    user = f"Company: {company}\nThe idea: {short}\n\nWrite the two-sentence welcome."
+    user = f"Company Name: {company}\nThe Idea: {short}\n\nWrite the two-sentence welcome."
 
     fallback = (
-        f"So your path is {company} - {short[:120]}. "
-        "Every great company starts as one bold sentence; now your agent workforce "
-        "must turn yours into something real, one verified step at a time."
+        f"So you seek to escape the zone of comfort with {company} - {short[:120]}. "
+        "Enter the unfamiliar mainframe; your digital workforce is initialized to stabilize the loop."
     )
     text = _chat_text("narrator", system, user, fallback, max_tokens=2000)
     return {"lore": text, "mode": "live" if is_live() else "simulation"}
@@ -168,9 +166,9 @@ def generate_lore(pitch: str, company: str = "") -> Dict[str, str]:
 # Canonical quest line: role, artifact_type, default id/title/xp. Order is fixed
 # because downstream execution reads steps[0]=positioning, steps[1]=page, etc.
 _CANONICAL_STEPS = [
-    ("strategist", "doc",   "step_1_positioning",  "Define Your Target Audience and Positioning",     15),
-    ("designer",   "url",   "step_2_landing_page", "Draft and Validate Your Landing Page Structure",  25),
-    ("marketer",   "email", "step_3_launch_email", "Draft Your Launch Campaign Email",                20),
+    ("strategist", "doc",   "step_1_positioning",  "YOU & NEED: Escape the Comfort Mainframe",        15),
+    ("designer",   "url",   "step_2_landing_page", "GO: Crossing the Portal Threshold",              25),
+    ("marketer",   "email", "step_3_launch_email", "SEARCH: Adapt or Dissolve in the Mainframe",     20),
 ]
 
 
@@ -226,33 +224,35 @@ class MasterNarrator(BaseFoundryAgent):
         super().__init__(
             "The Narrator",
             "narrator",
-            "You are the Master Narrator of a startup-building RPG. Read a business "
-            "pitch and decompose it into exactly 3 quest steps for a Strategist, "
-            "Designer, and Marketer. Return JSON only.",
+            "You are the Master Narrator of a world-improvement campaign sandbox that blends Joseph Campbell's "
+            "and Dan Harmon's Story Circle with sci-fi themes (Rick and Morty multiversal portal travel, "
+            "Pantheon carbon-mind uploads, Westworld AI host awakenings, and Black Panther Vibranium-grade technology). "
+            "Read a campaign brief and decompose it into exactly 3 quest steps representing the first 3 phases "
+            "of the Story Circle (YOU/NEED, GO, and SEARCH). Return JSON only.",
         )
 
     def decompose_pitch(self, pitch: str) -> List[Dict[str, Any]]:
         fallback = [
             {
                 "id": "step_1_positioning",
-                "title": "Define Your Target Audience and Positioning",
-                "description": f"Use the Strategist to scope target clients and shape the positioning of: '{pitch}'",
+                "title": "YOU & NEED: Escape the Comfort Mainframe",
+                "description": f"Use the Strategist to scan carbon-mind ICP vectors and verify WTP thresholds for: '{pitch}'",
                 "assigned_to": "strategist",
                 "artifact_type": "doc",
                 "xp_reward": 15,
             },
             {
                 "id": "step_2_landing_page",
-                "title": "Draft and Validate Your Landing Page Structure",
-                "description": "Work with the Designer to write a compelling hero headline, copy, and set up a deployment check.",
+                "title": "GO: Crossing the Portal Threshold",
+                "description": "Work with the Designer to synthesize a trans-dimensional value proposition and ICP for the Teenyverse hosts.",
                 "assigned_to": "designer",
                 "artifact_type": "url",
                 "xp_reward": 25,
             },
             {
                 "id": "step_3_launch_email",
-                "title": "Draft Your Landing Page Launch Campaign",
-                "description": "Have the Marketer create a launch outreach email featuring a CTA to drive signups.",
+                "title": "SEARCH: Adapt or Dissolve in the Mainframe",
+                "description": "Have the Marketer draft a launch campaign email that offers the new sandbox portal to the public.",
                 "assigned_to": "marketer",
                 "artifact_type": "email",
                 "xp_reward": 20,

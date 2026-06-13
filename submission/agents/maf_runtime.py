@@ -7,7 +7,7 @@ primitives - the same ones we teach on stage:
   * Agent            - model + instructions + tools, MAF's core abstraction
   * @tool            - our toolbox validators become real FunctionTools the
                        model calls mid-run (visible function-calling)
-  * ContextProvider  - DungeonMemory injects the CEO's gate decisions and
+  * ContextProvider  - CampaignMemory injects the CEO's gate decisions and
                        Foundry IQ snippets before every invocation; this is
                        MAF's canonical memory surface (before_run/after_run)
   * AgentSession     - managed per run by the framework
@@ -118,12 +118,12 @@ def run_maf_agent(
         "maf_tool_trace": [],
     }
 
-    class DungeonMemory(ContextProvider):
+    class CampaignMemory(ContextProvider):
         """Session memory, the MAF way: the CEO's decision ledger and Foundry
         IQ recall ride in via before_run instead of prompt-pasting."""
 
         def __init__(self) -> None:
-            super().__init__(source_id="dungeon-memory")
+            super().__init__(source_id="campaign-memory")
 
         async def before_run(self, *, agent, session, context, state) -> None:  # noqa: ANN001
             lines: List[str] = []
@@ -156,7 +156,7 @@ def run_maf_agent(
                 meta["maf_memory"].append({"kind": "agent_memory", "text": str(m.get("text", ""))[:120]})
             if lines:
                 context.extend_instructions(
-                    "dungeon-memory",
+                    "campaign-memory",
                     "Session memory (binding direction - the artifact must visibly follow "
                     "the most recent CEO decision):\n- " + "\n- ".join(lines),
                 )
@@ -219,7 +219,7 @@ def run_maf_agent(
             name=name,
             instructions=instructions,
             tools=[_wrap(n, f) for n, f in (tool_fns or {}).items()] or None,
-            context_providers=[DungeonMemory()],
+            context_providers=[CampaignMemory()],
         )
         resp = await agent.run(prompt)
         # UsageDetails is an open TypedDict in current MAF builds (attribute
@@ -277,3 +277,238 @@ def run_maf_agent(
         return text, meta
     finally:
         loop.close()
+
+
+def run_maf_group_chat(
+    api_key: str,
+    base_url: str,
+    company_name: str,
+    pitch: str,
+    chapter_title: str,
+    option: str,
+    consequence_summary: str,
+    participants: List[Dict[str, Any]],
+    simulation: bool = False,
+    history: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """Runs a live agent group chat standup using Microsoft Agent Framework.
+
+    The implementation intentionally uses core MAF `Agent` instances instead of
+    GroupChatBuilder so a fresh fork only needs the base framework package. In
+    live mode each participant receives the prior transcript and contributes one
+    brief turn. In simulation mode the same shape is returned without importing
+    MAF, which keeps smoke tests offline-safe.
+    """
+    role_labels = {
+        "strategist": "Strategist",
+        "designer": "Designer",
+        "marketer": "Marketer",
+        "ops": "Operations",
+        "narrator": "World Designer",
+        "orgdesigner": "Org Designer",
+        "founder": "Human Operator",
+    }
+    role_portrait = {
+        "strategist": "strategist",
+        "designer": "designer",
+        "marketer": "marketer",
+        "ops": "ops",
+        "narrator": "narrator",
+        "orgdesigner": "orgdesigner",
+        "founder": "founder",
+    }
+    role_text_style = {
+        "strategist": "market posture",
+        "designer": "product and experience posture",
+        "marketer": "growth posture",
+        "ops": "operating posture",
+        "narrator": "world-state posture",
+        "orgdesigner": "org-design posture",
+        "founder": "CEO direction",
+    }
+    role_debate_frame = {
+        "strategist": (
+            "Protect market truth. Challenge fuzzy ICPs, name the adoption bet, "
+            "and ask design or growth for the evidence you need."
+        ),
+        "designer": (
+            "Protect product clarity. Challenge bloated scope, translate the "
+            "decision into one user-facing loop, and ask strategy or ops what "
+            "constraint is non-negotiable."
+        ),
+        "marketer": (
+            "Protect momentum. Challenge timid launches, name the channel risk, "
+            "and ask strategy or product for the proof that will convert."
+        ),
+        "ops": (
+            "Protect runway and execution. Challenge hidden cost, name the "
+            "operational bottleneck, and ask the next owner what must be automated."
+        ),
+        "narrator": (
+            "Protect the story loop. Name what changed in the simulation and "
+            "force the next speaker to carry that change forward."
+        ),
+        "orgdesigner": (
+            "Protect role fit. Challenge unclear ownership and name the worker "
+            "or handoff the company now needs."
+        ),
+    }
+
+    def default_speaker_profile(name: str, role: str, worker_id: str) -> Dict[str, Any]:
+        portrait = role_portrait.get(role, role_portrait["narrator"])
+        return {
+            "display_name": name,
+            "role": role,
+            "role_label": role_labels.get(role, role.title()),
+            "worker_id": worker_id or role,
+            "portrait": portrait,
+            "portrait_url": f"/game/assets/generated/{portrait}.png",
+            "text_style": role_text_style.get(role, "standup posture"),
+        }
+
+    def fallback_message(p: Dict[str, Any]) -> str:
+        return (
+            p.get("message")
+            or f"I am absorbing the CEO choice '{option}' and carrying it into my next handoff."
+        )
+
+    def build_turn(p: Dict[str, Any], msg: str, source: str, client_name: str = "") -> Dict[str, Any]:
+        role = p.get("role") or "strategist"
+        name = p.get("speaker") or p.get("display_name") or role
+        worker_id = p.get("worker_id") or role
+        tool = (p.get("tool_call") or {}).get("tool") or p.get("tool") or "read_memory"
+        tool_call = {"tool": tool, "status": "completed"}
+        speaker_profile = p.get("speaker_profile") or default_speaker_profile(name, role, worker_id)
+        return {
+            "speaker": name,
+            "role": role,
+            "worker_id": worker_id,
+            "tool_call": tool_call,
+            "message": msg,
+            "handoff_to": p.get("handoff_to") or "",
+            "speaker_profile": speaker_profile,
+            "source": source,
+            "framework": "microsoft-agent-framework" if source == "maf" else "simulation",
+            "maf_client": client_name,
+            "character_state": {
+                "worker_id": worker_id,
+                "display_name": speaker_profile.get("display_name") or name,
+                "role": role,
+                "role_label": speaker_profile.get("role_label") or role_labels.get(role, role.title()),
+                "portrait_url": speaker_profile.get("portrait_url", ""),
+                "voice_id": speaker_profile.get("voice_id", ""),
+                "status": "spoke",
+                "thought_state": "responded",
+                "current_message": msg,
+                "tool_calls": [tool_call],
+                "handoff_to": p.get("handoff_to") or "",
+                "source": source,
+                "framework": "microsoft-agent-framework" if source == "maf" else "simulation",
+                "maf_client": client_name,
+            },
+        }
+
+    if simulation:
+        return [build_turn(p, fallback_message(p), "simulation") for p in participants]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from agent_framework import Agent
+        from agent_framework.openai import OpenAIChatClient
+        from agents.model_config import model_for
+
+    def clean_message(text: str) -> str:
+        return " ".join(
+            str(text or "")
+            .replace('"', "")
+            .replace("“", "")
+            .replace("”", "")
+            .split()
+        )[:420]
+
+    async def run_turn(agent: Any, prompt: str) -> str:
+        return clean_message(str(await agent.run(prompt)))
+
+    turns: List[Dict[str, Any]] = []
+    conversation_history: List[str] = []
+
+    if history:
+        for turn in history:
+            history_role_label = turn.get("role") or turn.get("worker_id") or "agent"
+            conversation_history.append(f"{turn['speaker']} ({history_role_label}): {turn['message']}")
+
+    loop = asyncio.new_event_loop()
+
+    try:
+        for p in participants:
+            role = p.get("role") or "strategist"
+            name = p.get("speaker") or p.get("display_name") or role
+
+            deployment = model_for(role) or model_for("narrator") or ""
+            if not deployment:
+                msg = fallback_message(p)
+                turns.append(build_turn(p, msg, "simulation"))
+                conversation_history.append(f"{name} ({role}): {msg}")
+                continue
+
+            history_text = "\n".join(conversation_history)
+            history_block = f"\n\nStandup Conversation History:\n{history_text}" if conversation_history else ""
+            participant_names = ", ".join(
+                str(x.get("speaker") or x.get("display_name") or x.get("role") or "agent")
+                for x in participants
+            )
+            system_instructions = (
+                f"You are {name}, the {role} for the company '{company_name}' (pitch: '{pitch[:500]}').\n"
+                f"The CEO just made a decision at the gate of the chapter '{chapter_title}':\n"
+                f"  Choice: \"{option}\"\n"
+                f"  Consequence: {consequence_summary}\n\n"
+                f"Round table: {participant_names}.\n"
+                f"Your stance: {role_debate_frame.get(role, 'Protect the next useful decision. Challenge weak assumptions and name the next handoff.')}\n\n"
+                "You are participating in a brief startup standup, not filing a status report.\n"
+                "Your spoken turn must do exactly one of these: answer a prior point, challenge a named teammate, or ask a named teammate one pointed question.\n"
+                "Name the teammate when you respond to them. If there is no prior teammate, address the CEO.\n"
+                "Mention the tool/state you are using in plain speech only if it changes the decision.\n"
+                "Keep it speakable: 1 sentence, maximum 32 words.\n"
+                "Do not output markdown code blocks or JSON. Output only your spoken response."
+            )
+            prompt = (
+                f"It is your turn to speak.{history_block}\n\n"
+                "Give one crisp standup line that advances the debate:"
+            )
+
+            client = None
+            client_name = ""
+            use_foundry = bool(foundry_project_endpoint()) and _FOUNDRY_PATH_OK is not False
+            if use_foundry:
+                try:
+                    from agent_framework.foundry import FoundryChatClient
+                    client = FoundryChatClient(
+                        project_endpoint=foundry_project_endpoint(),
+                        model=deployment,
+                        credential=_aad_credential(),
+                    )
+                    client_name = "FoundryChatClient"
+                except Exception:
+                    client = None
+
+            if client is None:
+                client = OpenAIChatClient(model=deployment, api_key=api_key, base_url=base_url)
+                client_name = "OpenAIChatClient"
+
+            agent = Agent(client=client, name=name, instructions=system_instructions)
+            try:
+                msg = loop.run_until_complete(run_turn(agent, prompt))
+                if not msg:
+                    raise ValueError("empty MAF standup turn")
+                source = "maf"
+            except Exception:
+                msg = fallback_message(p)
+                source = "simulation"
+                client_name = ""
+
+            conversation_history.append(f"{name} ({role}): {msg}")
+            turns.append(build_turn(p, msg, source, client_name))
+    finally:
+        loop.close()
+
+    return turns

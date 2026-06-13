@@ -12,11 +12,11 @@ playthrough witnessed, live server clean on port 8070.
 
 ## The one-sentence version
 
-You sit in the CEO's chair, pitch a company, and a Microsoft Foundry
+You sit in the founder's chair, pitch a campaign, and a Microsoft Foundry
 workforce - designed on the spot, run on the Microsoft Agent Framework,
 grounded in Foundry IQ, learning you through agent memory, drawing tools
 from an MCP toolbox, checked by code interpreter validators, and sealed by
-your own human approval at every gate - builds that company in front of you,
+your own human approval at every gate - builds that campaign in front of you,
 leaving evidence at every step.
 
 ## The chain, link by link
@@ -39,7 +39,7 @@ executes. `bind_world_to_org` stamps every chapter with its owning worker.
 **The World Designer decomposes the venture.** Discovery, positioning, MVP,
 go-to-market, retention - a dependency-ordered quest line. This is the
 canonical Game Master pattern from the challenge spec, reskinned: the
-business IS the dungeon, the chapters are rooms, and each room is owned by
+campaign is the graph, the chapters are nodes, and each node is owned by
 one of the workers the org just chartered.
 
 **Each chapter is a real agent run, and you can watch it think.** When a
@@ -47,7 +47,7 @@ chapter starts, the worker spins up as a Microsoft Agent Framework Agent -
 not a wrapped SDK call. Inference goes through FoundryChatClient on the
 Foundry project Responses endpoint when configured; the OpenAI-compatible
 client is the fallback; simulation mode is the floor. Before the model sees
-a token, the framework's ContextProvider - our DungeonMemory - injects three
+a token, the framework's ContextProvider - our CampaignMemory - injects three
 streams: the CEO's gate decisions (binding direction), Foundry IQ recall
 (cited knowledge), and agent memory (what the workforce has learned about
 how you operate). The narration says exactly this out loud while it runs.
@@ -105,13 +105,13 @@ and it is also the live-demo insurance.
   the model chose itself, decisions that chain across chapters.
 - **Reliability and safety:** human gates on everything, deterministic
   validator floors, four-layer degradation, secret scrubbing, no raw CoT.
-- **Creativity:** the business dungeon, a workforce the model designs for
+- **Creativity:** the world-improvement campaign, a workforce the model designs for
   itself, memory as a game mechanic the player can hear.
 - **UX:** one evidence rail that teaches the architecture while the game
   plays; narration that names each Microsoft piece as it is used.
 
 ## The closing line
 
-"The dungeon is your company. The agents are your workforce. The gates are
+"The campaign graph is your mission. The agents are your workforce. The gates are
 your judgment. And every claim on this screen is a line in a log you can
 read." 

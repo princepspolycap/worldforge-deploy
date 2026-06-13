@@ -1,4 +1,4 @@
-# Copilot Instructions — Agents League: Your Company Is the Dungeon
+# Copilot Instructions — Agents League: Gamifying World Improvement
 
 Context for any AI coding agent working in this repo. Read this before making changes.
 
@@ -6,7 +6,7 @@ Context for any AI coding agent working in this repo. Read this before making ch
 
 A submission for **Microsoft Agents League · Battle #2 — Reasoning Agents with Microsoft Foundry**, live battle on **June 10, 2026, 9 AM PT** at Microsoft Reactor.
 
-**Concept:** "Your Company Is the Dungeon" - a narrated management RPG where the player pitches a business idea, a Foundry Master Narrator decomposes it into a quest line, and specialist character agents produce real artifacts the player approves at verification gates. It maps the canonical `live_battle_challenge.md` Game Master pattern onto business stakes instead of fantasy combat.
+**Concept:** "Gamifying World Improvement" - a gamified world-improvement simulator where a player enters their public profile, a Microsoft Foundry-powered Master Narrator decomposes the mission into a campaign graph, and specialist character agents produce real artifacts the player approves at verification gates. It maps the canonical `live_battle_challenge.md` Game Master pattern onto world-improvement stakes instead of fantasy combat.
 
 Authoritative narrative: [PROJECT_NARRATIVE.md](../PROJECT_NARRATIVE.md). Official spec to map against: [starter-kits/2-reasoning-agents/live_battle_challenge.md](../starter-kits/2-reasoning-agents/live_battle_challenge.md).
 
@@ -59,7 +59,16 @@ agentsleague-afterbuild/
 - ✅ Story-view UI shell (`submission/ui/story.html` + `submission/ui/game/`)
 - ✅ Verification gate UI
 - ✅ Reasoning panel and evidence rail
+- ✅ Onboarding UI & Audio Polish (gated unmuted intro film, zoom-pan Earth, staggered entrance transitions, synthesized ambient music and hover chime)
+- ✅ MAF Agent Group Chat standup (live sequential multi-agent group chat reacting to CEO decisions)
 - ⏳ Optional `deploy_landing_page` tool with simulation fallback
+
+## Current UI/runtime notes
+
+- **Onboarding polish**: `submission/ui/game/intro.js` owns the intro film overlay. All film skip and completion paths reveal `.first-step` with its `.enter` animation and start the synthesized ambient pad via `DungeonAudio.ambientStart()`. `?intro=0` bypasses the film and still triggers the same first-step handoff.
+- **Audio cues**: `submission/ui/game/audio.js` is pure Web Audio. Hover chimes should only fire after the audio context is unlocked; the Begin press stops the ambient pad and plays the journey-start cue.
+- **MAF standup**: `/api/world/standup` builds deterministic standup turns first, then in live mode upgrades them through `submission/agents/maf_runtime.py::run_maf_group_chat`. The live path uses a sequential loop of core Microsoft Agent Framework `Agent` instances, passing prior turns as transcript context. If MAF or Foundry is unavailable, the deterministic turns remain the stable fallback.
+- **Standup smoke**: run `python3 submission/tools/maf_standup_smoke_test.py` for the offline response-contract check. Run it with `--live` from a configured `DEMO_MODE=live` environment to require real MAF turns.
 
 ## Reusable resources (local-only, do not commit paths)
 
@@ -129,7 +138,7 @@ Full script: [submission/docs/demo_script.md](../submission/docs/demo_script.md)
 | Accuracy & Relevance     |    25% | Tighter mapping to `live_battle_challenge.md` primitives           |
 | Reasoning & Multi-step   |    25% | Visible decomposition, tool calls in replay log, multi-hop chains  |
 | Reliability & Safety     |    20% | Verification gates, simulation fallbacks, deterministic validators |
-| Creativity & Originality |    15% | Business-dungeon framing, generated lore, dynamic workforce loop   |
+| Creativity & Originality |    15% | World-improvement campaign framing, generated lore, dynamic workforce loop   |
 | UX & Presentation        |    15% | Story-view polish, narration, evidence rail, verification gates    |
 
 (Official weights from `live_battle_challenge.md` Evaluation Criteria; no community-vote criterion exists in the spec.)

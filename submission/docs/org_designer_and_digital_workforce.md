@@ -22,7 +22,7 @@ Answering that well is the whole point. It is how the player *understands* their
 company before they build it, and it is the reusable, educational core that
 generalizes from "my idea" to "any company on the internet" (point it at a URL).
 
-The dungeon framing stays. The org is the **party sheet** for the venture: who is
+The campaign graph framing stays. The org is the **party sheet** for the venture: who is
 on the team, what each one is accountable for, and why they exist at all.
 
 ---

@@ -3,8 +3,10 @@ import sys
 import json
 import time
 import yaml
+import random
 import urllib.request
 import urllib.error
+from html import escape as html_escape
 from typing import Dict, Any, List, Optional, Tuple, Iterator
 from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,7 +17,17 @@ from pydantic import BaseModel
 # Ensure submission path is in Python path for local modular references
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from state.schema import StateStore, QuestState, QuestStep, CompanyState, WorldGraph, Chapter, OrgBlueprint
+from state.schema import (
+    StateStore,
+    QuestState,
+    QuestStep,
+    CompanyState,
+    WorldGraph,
+    Chapter,
+    OrgBlueprint,
+    FounderState,
+    CharacterRuntimeState,
+)
 from state.consequences import (
     apply_decision_consequence,
     initialize_economics_from_org,
@@ -37,7 +49,7 @@ from tools.toolbox import tools_list, tools_call, tools_for_role
 from tools.export_org_blueprint import org_to_workforce_bundle
 
 app = FastAPI(
-    title="Your Company Is the Dungeon - Server",
+    title="World Improvement Agent Game - Server",
     description="Backend API for local and visual reasoning runs."
 )
 
@@ -54,13 +66,33 @@ app.add_middleware(
 # a simulation test bench on another port) run an isolated session instead of
 # clobbering the live demo's state file - two uvicorns on one default path
 # overwrite each other mid-playthrough.
-STATE_FILE = os.environ.get("DUNGEON_STATE_FILE") or os.path.join(
+STATE_FILE = os.environ.get("CAMPAIGN_STATE_FILE") or os.environ.get("DUNGEON_STATE_FILE") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "state.json")
 store = StateStore(filepath=STATE_FILE)
 
 class PitchRequest(BaseModel):
     pitch: str
     company_name: Optional[str] = "Acolyte's Venture"
+    founder_name: Optional[str] = None
+    founder_archetype: Optional[str] = None
+    founder_skill: Optional[str] = None
+    founder_locale: Optional[str] = None
+    founder_voice_stack: Optional[str] = None
+    founder_voice: Optional[str] = None
+    founder_avatar: Optional[str] = None
+
+def parse_founder(payload: Any) -> Optional[FounderState]:
+    if not getattr(payload, "founder_name", None):
+        return None
+    return FounderState(
+        name=payload.founder_name or "Acolyte",
+        archetype=payload.founder_archetype or "Builder",
+        skill=payload.founder_skill or "building product",
+        locale=getattr(payload, "founder_locale", None) or "en-US",
+        voice_stack=getattr(payload, "founder_voice_stack", None) or "core_openai",
+        voice=payload.founder_voice or "onyx",
+        avatar=payload.founder_avatar or "/game/assets/generated/narrator.png"
+    )
 
 @app.get("/api/state")
 def get_state():
@@ -138,13 +170,43 @@ def lore(payload: LoreRequest):
 
 TTS_ENDPOINT = os.getenv("TTS_ENDPOINT", "").strip().rstrip("/")
 TTS_DEPLOYMENT = os.getenv("TTS_DEPLOYMENT", "gpt-4o-mini-tts").strip()
+TTS_DEPLOYMENTS = [
+    dep.strip()
+    for dep in os.getenv("TTS_DEPLOYMENTS", "").split(",")
+    if dep.strip()
+]
+if TTS_DEPLOYMENT and TTS_DEPLOYMENT not in TTS_DEPLOYMENTS:
+    TTS_DEPLOYMENTS.append(TTS_DEPLOYMENT)
 TTS_API_KEY = os.getenv("TTS_API_KEY", "").strip()
 TTS_VOICE = os.getenv("TTS_VOICE", "onyx").strip()
 TTS_API_VERSION = os.getenv("TTS_API_VERSION", "2025-03-01-preview").strip()
 
+CORE_VOICE_PROFILES = [
+    {"id": "onyx", "label": "Onyx", "locale": "en-US", "tone": "deep, warm narrator", "stack": "core_openai"},
+    {"id": "alloy", "label": "Alloy", "locale": "en-US", "tone": "crisp professional", "stack": "core_openai"},
+    {"id": "echo", "label": "Echo", "locale": "en-US", "tone": "soft, reflective", "stack": "core_openai"},
+    {"id": "fable", "label": "Fable", "locale": "en-US", "tone": "expressive storyteller", "stack": "core_openai"},
+    {"id": "nova", "label": "Nova", "locale": "en-US", "tone": "bright, clean", "stack": "core_openai"},
+    {"id": "shimmer", "label": "Shimmer", "locale": "en-US", "tone": "clear, detailed", "stack": "core_openai"},
+]
+
+PLANNED_AZURE_SPEECH_PROFILES = [
+    {"id": "es-CO-curated", "label": "Spanish - Colombia", "locale": "es-CO", "tone": "bilingual founder", "stack": "azure_speech"},
+    {"id": "es-MX-curated", "label": "Spanish - Mexico", "locale": "es-MX", "tone": "bilingual founder", "stack": "azure_speech"},
+    {"id": "en-NG-curated", "label": "English - Nigeria", "locale": "en-NG", "tone": "global English founder", "stack": "azure_speech"},
+    {"id": "en-IN-curated", "label": "English - India", "locale": "en-IN", "tone": "global English founder", "stack": "azure_speech"},
+    {"id": "en-GB-curated", "label": "English - United Kingdom", "locale": "en-GB", "tone": "global English founder", "stack": "azure_speech"},
+]
+
 
 def tts_available() -> bool:
-    return bool(TTS_ENDPOINT and TTS_API_KEY and TTS_DEPLOYMENT)
+    return bool(TTS_ENDPOINT and TTS_API_KEY and TTS_DEPLOYMENTS)
+
+
+def azure_speech_available() -> bool:
+    key = os.getenv("AZURE_SPEECH_KEY", "").strip() or os.getenv("SPEECH_KEY", "").strip()
+    region = os.getenv("AZURE_SPEECH_REGION", "").strip() or os.getenv("SPEECH_REGION", "").strip()
+    return bool(key and region)
 
 
 class TTSRequest(BaseModel):
@@ -156,7 +218,40 @@ class TTSRequest(BaseModel):
 @app.get("/api/tts/status")
 def tts_status():
     """Tell the UI whether server-side Azure neural narration is available."""
-    return {"available": tts_available(), "voice": TTS_VOICE, "deployment": TTS_DEPLOYMENT if tts_available() else None}
+    return {
+        "available": tts_available(),
+        "voice": TTS_VOICE,
+        "deployment": TTS_DEPLOYMENTS[0] if tts_available() else None,
+        "deployments": TTS_DEPLOYMENTS if tts_available() else [],
+    }
+
+
+@app.get("/api/voices")
+def voice_catalog():
+    """Voice catalog for character creation and future Azure Speech casting.
+
+    The demo keeps speaking through /api/tts today. This endpoint separates the
+    product voice model from the playback adapter so we can add the large Azure
+    Speech catalog without exposing hundreds of raw voices on the first screen.
+    """
+    speech_ready = azure_speech_available()
+    return {
+        "default_stack": "core_openai",
+        "core_openai": CORE_VOICE_PROFILES,
+        "azure_speech": {
+            "configured": speech_ready,
+            "available": False,
+            "adapter": "planned",
+            "summary": "Azure Speech supports a much larger multilingual voice catalog; curated profiles are listed when the adapter is configured.",
+            "planned_profiles": PLANNED_AZURE_SPEECH_PROFILES,
+            "voices": [],
+        },
+        "fallback": {
+            "stack": "browser",
+            "label": "Browser SpeechSynthesis",
+            "available": True,
+        },
+    }
 
 
 @app.post("/api/tts")
@@ -174,44 +269,56 @@ def tts(payload: TTSRequest):
 
     # Keep latency sane: cap very long inputs (beats are short anyway).
     text = text[:1200]
-    url = (f"{TTS_ENDPOINT}/openai/deployments/{TTS_DEPLOYMENT}"
-           f"/audio/speech?api-version={TTS_API_VERSION}")
-    body_data = {
-        "model": TTS_DEPLOYMENT,
-        "input": text,
-        "voice": (payload.voice or TTS_VOICE),
-    }
-    # Delivery direction (tone, pacing) - supported by gpt-4o-mini-tts.
-    if payload.instructions:
-        body_data["instructions"] = payload.instructions.strip()[:600]
-    body = json.dumps(body_data).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=body, method="POST",
-        headers={"api-key": TTS_API_KEY, "Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            audio = resp.read()
-    except Exception as exc:  # noqa: BLE001 - degrade to browser TTS
-        raise HTTPException(status_code=503, detail=f"TTS upstream error: {exc}")
+    last_error = ""
+    for deployment in TTS_DEPLOYMENTS:
+        url = (f"{TTS_ENDPOINT}/openai/deployments/{deployment}"
+               f"/audio/speech?api-version={TTS_API_VERSION}")
+        body_data = {
+            "model": deployment,
+            "input": text,
+            "voice": (payload.voice or TTS_VOICE),
+        }
+        # Delivery direction (tone, pacing) - supported by current Azure
+        # OpenAI-style TTS deployments and ignored by incompatible fallbacks.
+        if payload.instructions:
+            body_data["instructions"] = payload.instructions.strip()[:600]
+        body = json.dumps(body_data).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=body, method="POST",
+            headers={"api-key": TTS_API_KEY, "Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                audio = resp.read()
+            return Response(
+                content=audio,
+                media_type="audio/mpeg",
+                headers={
+                    "Cache-Control": "no-store",
+                    "X-TTS-Deployment": deployment,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 - try next voice deployment
+            last_error = f"{deployment}: {exc}"
 
-    return Response(content=audio, media_type="audio/mpeg",
-                    headers={"Cache-Control": "no-store"})
+    raise HTTPException(status_code=503, detail=f"TTS upstream error: {last_error}")
 
 @app.post("/api/init")
 def initialize_game(payload: PitchRequest):
     """Initializes the game session with a custom pitch and decomposes it."""
     pitch = payload.pitch
     company_name = payload.company_name or "My Spawned Venture"
-    
+    founder = parse_founder(payload)
+
     # 1. Initialize State Store
     state = store.initialize_new_company(
         name=company_name,
         pitch=pitch,
-        description="A startup forged in QuestForge."
+        description="A startup forged in QuestForge.",
+        founder=founder
     )
     store.log_event("SESSION_START", "system", f"Initialized fresh startup session for company: {company_name}")
-    
+
     # 2. Master Narrator Decomposes the Pitch into 3 Quests
     narrator = MasterNarrator()
     try:
@@ -224,24 +331,24 @@ def initialize_game(payload: PitchRequest):
         steps_data = [
             {
                 "id": "step_1_positioning",
-                "title": "Define Your Target Audience and Positioning",
-                "description": f"Use the Strategist to scope target clients and shape the positioning of: '{pitch}'",
+                "title": "YOU & NEED: Escape the Comfort Mainframe",
+                "description": f"Use the Strategist to scan carbon-mind ICP vectors and verify WTP thresholds for: '{pitch}'",
                 "assigned_to": "strategist",
                 "artifact_type": "doc",
                 "xp_reward": 15
             },
             {
                 "id": "step_2_landing_page",
-                "title": "Draft and Validate Your Landing Page Structure",
-                "description": "Work with the Designer to write a compelling hero headline, copy, and set up a deployment check.",
+                "title": "GO: Crossing the Portal Threshold",
+                "description": "Work with the Designer to synthesize a trans-dimensional value proposition and ICP for the Teenyverse hosts.",
                 "assigned_to": "designer",
                 "artifact_type": "url",
                 "xp_reward": 25
             },
             {
                 "id": "step_3_launch_email",
-                "title": "Draft Your Landing Page Launch Campaign",
-                "description": "Have the Marketer create a launch outreach or newsletter email, featuring a CTA to drive landing page signups.",
+                "title": "SEARCH: Adapt or Dissolve in the Mainframe",
+                "description": "Have the Marketer draft a launch campaign email that offers the new sandbox portal to the public.",
                 "assigned_to": "marketer",
                 "artifact_type": "email",
                 "xp_reward": 20
@@ -251,15 +358,115 @@ def initialize_game(payload: PitchRequest):
 
     quest_state = QuestState(
         id="first_landing_page",
-        title="Forge Your First Landing Page",
-        description="Fulfill positioning, draft a page, and set up campaign outreach.",
+        title="Open the First Portal",
+        description="Fulfill the YOU/NEED, GO, and SEARCH loop with positioning, page structure, and launch outreach.",
         steps=quest_steps
     )
     state.active_quest = quest_state
     store.save()
-    
+
     store.log_event("QUEST_START", narrator.name, "Decomposed pitch into active quest-steps.", {"steps": steps_data})
     return state_response(state, surface="legacy_quest")
+
+
+# ---------------------------------------------------------------------------
+# Founder Character Customization & Avatar Generation
+# ---------------------------------------------------------------------------
+
+class GenerateAvatarRequest(BaseModel):
+    founder_name: str
+    founder_archetype: str
+
+
+@app.post("/api/founder/generate-avatar")
+def generate_founder_avatar_endpoint(payload: GenerateAvatarRequest):
+    """Generate a custom founder portrait via Azure DALL-E or fallback SVG."""
+    import base64
+    name = payload.founder_name
+    arch = payload.founder_archetype
+
+    # 1. Determine Prompt matching style rules
+    prompt = (
+        f"minimal flat geometric portrait of a {arch} CEO named {name}, "
+        "dark navy background filling the entire canvas edge to edge, "
+        "teal and gold accents, clean vector style game avatar, centered bust, "
+        "no text, no border, no frame, no letterboxing"
+    )
+
+    # Check if image API is configured
+    image_endpoint = os.getenv("IMAGE_ENDPOINT", "").strip().rstrip("/")
+    image_deployment = os.getenv("IMAGE_DEPLOYMENT", "MAI-Image-2e").strip()
+    image_api_key = os.getenv("IMAGE_API_KEY", "").strip()
+
+    out_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ui", "assets", "generated")
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, "founder.png")
+
+    if image_endpoint and image_api_key:
+        try:
+            body = json.dumps({
+                "model": image_deployment,
+                "prompt": prompt,
+                "width": 1024,
+                "height": 1024,
+            }).encode("utf-8")
+            url = f"{image_endpoint}/mai/v1/images/generations"
+            req = urllib.request.Request(
+                url, data=body, method="POST",
+                headers={"api-key": image_api_key, "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                raw = resp.read()
+
+            ctype = (resp.headers.get("Content-Type") or "").lower()
+            png_bytes = None
+            if "image/" in ctype:
+                png_bytes = raw
+            else:
+                payload_data = json.loads(raw.decode("utf-8"))
+                data = (payload_data.get("data") or [{}])[0]
+                b64 = data.get("b64_json") or data.get("b64") or ""
+                if b64:
+                    png_bytes = base64.b64decode(b64)
+                else:
+                    img_url = data.get("url") or ""
+                    if img_url:
+                        with urllib.request.urlopen(img_url, timeout=30) as r2:
+                            png_bytes = r2.read()
+
+            if png_bytes:
+                with open(out_path, "wb") as f:
+                    f.write(png_bytes)
+                return {"url": "/game/assets/generated/founder.png", "source": "azure"}
+        except Exception as e:
+            store.log_event("AVATAR_GEN_ERROR", "system", f"Azure avatar generation failed: {e}")
+
+    # Fallback to offline SVG generation
+    svg_filename = "founder.svg"
+    svg_path = os.path.join(out_dir, svg_filename)
+    safe_name = html_escape(str(name or "ACOLYTE").upper()[:24], quote=False)
+
+    colors = {
+        "Builder": {"accent": "#2dd4bf", "shape": '<rect x="30" y="30" width="40" height="40" rx="4" fill="none" stroke="#2dd4bf" stroke-width="3"/><line x1="30" y1="50" x2="70" y2="50" stroke="#f5c87a" stroke-width="2"/>'},
+        "Seller": {"accent": "#f5c87a", "shape": '<circle cx="50" cy="50" r="18" fill="none" stroke="#f5c87a" stroke-width="3"/><line x1="50" y1="20" x2="50" y2="80" stroke="#2dd4bf" stroke-width="2"/>'},
+        "Designer": {"accent": "#8eb3ff", "shape": '<circle cx="50" cy="50" r="20" fill="none" stroke="#8eb3ff" stroke-width="3"/><path d="M 40,40 Q 50,65 60,40" fill="none" stroke="#f5c87a" stroke-width="2"/>'},
+        "Operator": {"accent": "#a78bfa", "shape": '<polygon points="50,30 70,60 30,60" fill="none" stroke="#a78bfa" stroke-width="3"/><circle cx="50" cy="50" r="8" fill="#f5c87a"/>'},
+    }
+    prof = colors.get(arch, colors["Builder"])
+
+    svg_content = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+        <rect width="100" height="100" fill="#070a14"/>
+        <circle cx="50" cy="50" r="42" fill="none" stroke="#1d2740" stroke-width="2"/>
+        <circle cx="50" cy="45" r="18" fill="{prof["accent"]}" opacity="0.15"/>
+        <circle cx="50" cy="45" r="14" fill="{prof["accent"]}" opacity="0.3"/>
+        {prof["shape"]}
+        <text x="50" y="88" font-family="monospace" font-size="7" fill="#8eb3ff" text-anchor="middle">{safe_name}</text>
+    </svg>"""
+
+    with open(svg_path, "w") as f:
+        f.write(svg_content)
+
+    return {"url": "/game/assets/generated/founder.svg", "source": "offline-svg"}
 
 
 # ---------------------------------------------------------------------------
@@ -430,35 +637,35 @@ def execute_current_step():
     state = store.load()
     if not state or not state.active_quest:
         raise HTTPException(status_code=400, detail="Game session not initialized. Post to /api/init first.")
-        
+
     quest = state.active_quest
     if quest.current_step_index >= len(quest.steps):
         raise HTTPException(status_code=400, detail="All quest-steps completed!")
-        
+
     step = quest.steps[quest.current_step_index]
-    
+
     # Work begins
     step.status = "in-progress"
     store.log_event("STEP_START", step.assigned_to, f"Agent begins work on: {step.title}", {"step_id": step.id})
     store.save()
-    
+
     try:
         artifact_data, success, val_results = _run_step_agent(quest, step)
         step.artifact_data = artifact_data
         step.validation_results = val_results
-        
+
         store.log_event("STEP_COMPLETED_REASONING", step.assigned_to, f"Artifact created. Verification gate waiting for review.", {
             "artifact": artifact_data,
             "validation_results": val_results
         })
         store.save()
-        
+
     except Exception as e:
         step.status = "failed"
         store.log_event("STEP_EXECUTION_ERROR", "system", f"Failed executing step reasoning: {str(e)}")
         store.save()
         raise HTTPException(status_code=500, detail=f"Agent Execution Failure: {str(e)}")
-        
+
     return step_response(state, step)
 
 def _compute_artifact_tier(score: int) -> Dict[str, Any]:
@@ -476,14 +683,14 @@ def approve_current_step():
     state = store.load()
     if not state or not state.active_quest:
         raise HTTPException(status_code=400, detail="Game session not initialized.")
-        
+
     quest = state.active_quest
     idx = quest.current_step_index
     if idx >= len(quest.steps):
         raise HTTPException(status_code=400, detail="All steps already finalized.")
-        
+
     step = quest.steps[idx]
-    
+
     # Award reward and advance.
     step.status = "completed"
     score = int((step.validation_results or {}).get("score", 0))
@@ -519,7 +726,7 @@ def approve_current_step():
         "streak": state.streak,
         "total_xp": state.xp,
     })
-    
+
     # Check leveling up
     if state.xp >= 50 and state.level == 1:
         state.level += 1
@@ -527,15 +734,15 @@ def approve_current_step():
     elif state.xp >= 100 and state.level == 2:
         state.level += 1
         store.log_event("LEVEL_UP", "system", f"StartUp Level Up! Advanced to level {state.level}", {"xp": state.xp})
-        
+
     # Move index forward
     quest.current_step_index += 1
-    
+
     if quest.current_step_index >= len(quest.steps):
         quest.status = "completed"
         state.stage = "validated"
         store.log_event("QUEST_LINE_COMPLETED", "system", "First Landing Page questline has been fully accomplished! Stage upgraded to 'validated'.")
-        
+
     store.save()
     return state_response(state, surface="legacy_quest")
 
@@ -545,20 +752,20 @@ def reject_current_step(feedback: Optional[str] = Body(default=None, embed=True)
     state = store.load()
     if not state or not state.active_quest:
         raise HTTPException(status_code=400, detail="Game session not initialized.")
-        
+
     quest = state.active_quest
     idx = quest.current_step_index
     if idx >= len(quest.steps):
         raise HTTPException(status_code=400, detail="All steps already finalized.")
-        
+
     step = quest.steps[idx]
     step.status = "not-started"
     state.streak = 0
-    
+
     store.log_event("STEP_REJECTED", "human_verifier", f"Rejected artifact for {step.id}. Strategic feedback recorded.", {
         "human_feedback": feedback or "No comments detailed."
     })
-    
+
     store.save()
     return state_response(state, surface="legacy_quest")
 
@@ -571,6 +778,13 @@ class AutoplayRequest(BaseModel):
     pitch: str
     company_name: Optional[str] = "QuestForge Ltd."
     auto_approve_threshold: int = 80  # score >= this auto-approves
+    founder_name: Optional[str] = None
+    founder_archetype: Optional[str] = None
+    founder_skill: Optional[str] = None
+    founder_locale: Optional[str] = None
+    founder_voice_stack: Optional[str] = None
+    founder_voice: Optional[str] = None
+    founder_avatar: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -581,35 +795,48 @@ class AnalyzeRequest(BaseModel):
     pitch: Optional[str] = None
     url: Optional[str] = None
     company_name: Optional[str] = "QuestForge Ltd."
+    founder_name: Optional[str] = None
+    founder_archetype: Optional[str] = None
+    founder_skill: Optional[str] = None
+    founder_locale: Optional[str] = None
+    founder_voice_stack: Optional[str] = None
+    founder_voice: Optional[str] = None
+    founder_avatar: Optional[str] = None
 
 
 @app.post("/api/company/analyze")
 def analyze_company(payload: AnalyzeRequest):
-    """Design the dynamic org an LLM thinks this company needs.
+    """Design the dynamic org an LLM thinks this mission needs.
 
-    Accepts a pitch OR a company URL. When a URL is given, the homepage is
-    fetched (SSRF-guarded, stdlib only) and turned into a brief, so you can
-    point this at any company. The result is a team of digital workers - the
-    execution layer behind a single human operator - with an educational `why`
-    per role. Also awards a one-time "Org chartered" XP (simple game mechanic).
+    Accepts a pitch OR a public profile/mission URL. When a URL is given, the
+    page is fetched (SSRF-guarded, stdlib only) and turned into a brief when
+    public content is available. This keeps LinkedIn/public-profile input as the
+    primary identity path without making the demo depend on private LinkedIn API
+    access. The result is a team of digital workers - the execution layer behind
+    a single human operator - with an educational `why` per role.
     """
     url = (payload.url or "").strip()
     pitch = (payload.pitch or "").strip()
     if not url and not pitch:
-        raise HTTPException(status_code=400, detail="Provide a pitch or a company url.")
+        raise HTTPException(status_code=400, detail="Provide a profile URL or mission pitch.")
 
     company_name = payload.company_name or "QuestForge Ltd."
+    prev = store.load()
+    founder = parse_founder(payload)
+    if not founder and prev and prev.founder:
+        founder = prev.founder
+
     # Analyze starts a fresh venture session - designing the org is the first
     # reasoning step, before any chapters exist.
     state = store.initialize_new_company(
-        name=company_name, pitch=pitch or url, description="A venture forged in QuestForge."
+        name=company_name, pitch=pitch or url, description="A venture forged in QuestForge.", founder=founder
     )
     store.log_event("SESSION_START", "system", f"New analyze session for: {company_name}")
 
     # On the URL path, run a two-hop reasoning chain that is visible in the
-    # replay log: (1) scrape the homepage into structured signal, (2) a Company
-    # Analyst agent reasons about what the business is. The clean profile then
-    # seeds the Org Designer - so a URL becomes a coherent org, not raw text.
+    # replay log: (1) scrape the public page into structured signal, (2) a
+    # Profile Analyst agent reasons about the founder/mission. The clean profile
+    # then seeds the Org Designer - so a URL becomes a coherent org, not raw text.
     profile = None
     summary_hint = ""
     if url:
@@ -617,6 +844,9 @@ def analyze_company(payload: AnalyzeRequest):
         brief = profile["brief"]
         summary_hint = profile.get("company_summary", "")
         source, source_ref = "url", url
+        if state.founder and not payload.founder_archetype and profile.get("founder_archetype"):
+            state.founder.archetype = str(profile.get("founder_archetype") or state.founder.archetype)
+            state.founder.skill = str(profile.get("founder_skill") or state.founder.skill)
         if profile.get("scraped"):
             scrape_msg = (f"Scraped {profile['host']} via {profile.get('parser', 'regex')} "
                           f"(read {profile.get('scraped_chars', 0)} chars).")
@@ -629,24 +859,28 @@ def analyze_company(payload: AnalyzeRequest):
              "signals": profile.get("signals", [])},
         )
         store.log_event(
-            "COMPANY_PROFILED", "company_analyst",
-            f"Reasoned the business: {profile['company_summary']}",
+            "PROFILE_ANALYZED", "profile_analyst",
+            f"Reasoned the profile/mission: {profile['company_summary']}",
             {"what_they_sell": profile.get("what_they_sell"),
              "target_customer": profile.get("target_customer"),
              "business_model": profile.get("business_model"),
+             "source_kind": profile.get("source_kind"),
+             "founder_archetype": profile.get("founder_archetype"),
+             "founder_skill": profile.get("founder_skill"),
              "mode": profile.get("mode")},
         )
-        # Agent memory: what the workforce now knows about the company it
+        # Agent memory: what the workforce now knows about the founder/mission it
         # serves - the mapped profile persists into every later worker brief.
         mem_entry = remember(
             "user_profile",
-            f"Company mapped from {profile['host']}: {profile['company_summary']} "
-            f"Sells: {profile.get('what_they_sell', '')[:120]}. "
-            f"Customer: {profile.get('target_customer', '')[:80]}.",
+            f"Profile mapped from {profile['host']}: {profile['company_summary']} "
+            f"Capability: {profile.get('what_they_sell', '')[:120]}. "
+            f"Beneficiary: {profile.get('target_customer', '')[:80]}. "
+            f"Inferred archetype: {profile.get('founder_archetype', '')}.",
             {"host": profile["host"], "source": "url_scrape"})
         if mem_entry:
             store.log_event("MEMORY_WRITTEN", "memory",
-                f"Company profile stored ({mem_entry.get('origin', 'local-memory')}): {profile['host']}",
+                f"Founder/mission profile stored ({mem_entry.get('origin', 'local-memory')}): {profile['host']}",
                 {"kind": "user_profile", "origin": mem_entry.get("origin", "")})
     else:
         brief, source, source_ref = pitch, "pitch", pitch
@@ -725,8 +959,12 @@ def design_world_endpoint(payload: AutoplayRequest):
     company_name = payload.company_name or "QuestForge Ltd."
 
     prev = store.load()
+    founder = parse_founder(payload)
+    if not founder and prev and prev.founder:
+        founder = prev.founder
+
     state = store.initialize_new_company(
-        name=company_name, pitch=brief, description="A venture forged in QuestForge."
+        name=company_name, pitch=brief, description="A venture forged in QuestForge.", founder=founder
     )
     # Agent memory (user profile): durable facts about this founder/company.
     mem_entry = remember("user_profile", f"Founder is building: {company_name} - {brief[:280]}",
@@ -777,31 +1015,31 @@ def design_world_endpoint(payload: AutoplayRequest):
 # (game_design.md section 5). The live path asks the narrator model instead.
 _CANNED_DILEMMAS = {
     "strategist": {
-        "prompt": "Two wedges are open. Which do you take first?",
+        "prompt": "Our escape portal path is bifurcating. Which vector do you prioritize?",
         "options": [
-            {"id": "depth", "rule_id": "strategist.depth", "option": "Depth: one niche, one painful workflow, owned end to end", "tradeoff": "slower expansion, deeper moat"},
-            {"id": "breadth", "rule_id": "strategist.breadth", "option": "Breadth: a broad beachhead across several workflows", "tradeoff": "faster reach, shallower proof"},
+            {"id": "depth", "rule_id": "strategist.depth", "option": "ICP Scan: secure one consciousness segment end to end", "tradeoff": "stabilized loop, slower reach"},
+            {"id": "breadth", "rule_id": "strategist.breadth", "option": "Teenyverse: map adjacent mini-verse beachfronts quickly", "tradeoff": "wider escape nodes, shallower proof"},
         ],
     },
     "designer": {
-        "prompt": "The build is at 70%. Ship now or polish?",
+        "prompt": "The mainframe prototype is at 70%. Deploy now or polish the containment field?",
         "options": [
-            {"id": "ship", "rule_id": "designer.ship", "option": "Ship the 70% this week and learn from real users", "tradeoff": "rough edges in public"},
-            {"id": "polish", "rule_id": "designer.polish", "option": "Take three more weeks to reach 95%", "tradeoff": "slower learning, higher burn"},
+            {"id": "ship", "rule_id": "designer.ship", "option": "Deploy the 70% loop and collect live host friction", "tradeoff": "host instability, faster learning"},
+            {"id": "polish", "rule_id": "designer.polish", "option": "Secure Vibranium-grade containment checking (3 weeks)", "tradeoff": "stabilized loop, higher burn"},
         ],
     },
     "marketer": {
-        "prompt": "Pricing sets the company's posture. Which way?",
+        "prompt": "Upload pricing models are diverging. How do we charge?",
         "options": [
-            {"id": "adoption", "rule_id": "marketer.adoption", "option": "Price for adoption: low, grassroots, volume", "tradeoff": "thin margins, more support"},
-            {"id": "runway", "rule_id": "marketer.runway", "option": "Price for runway: high, fewer, bigger accounts", "tradeoff": "slower community, longer sales"},
+            {"id": "adoption", "rule_id": "marketer.adoption", "option": "Self-Activation: free grassroots access to boot loops", "tradeoff": "thin energy margins, support load"},
+            {"id": "runway", "rule_id": "marketer.runway", "option": "Mainframe Elite: target high-value corporate nodes", "tradeoff": "longer deal pipeline, secure runway"},
         ],
     },
     "ops": {
-        "prompt": "Support is scaling. Automate it fully?",
+        "prompt": "Consciousness support queries are scaling. Automate via script?",
         "options": [
-            {"id": "automate", "rule_id": "ops.automate", "option": "Automate support fully - protect the margin", "tradeoff": "risk to trust at the edges"},
-            {"id": "human_loop", "rule_id": "ops.human_loop", "option": "Keep a human in the loop - protect the promise", "tradeoff": "margin pressure"},
+            {"id": "automate", "rule_id": "ops.automate", "option": "Auto-macro: automate helpdesk paths to protect margins", "tradeoff": "risk to host trust at edges"},
+            {"id": "human_loop", "rule_id": "ops.human_loop", "option": "Steward: keep human review on sensitive sanity cases", "tradeoff": "burn pressure, ethical alignment"},
         ],
     },
 }
@@ -917,9 +1155,10 @@ def generate_dilemma(payload: DilemmaRequest):
                 deployment,
                 [
                     {"role": "system", "content": (
-                        "You are the narrator of a business-building RPG. The player is the "
-                        "CEO. Pose ONE sharp strategic dilemma arising from the work just "
-                        "completed, with exactly 2 options. Both options must be defensible; "
+                        "You are the Narrator of a cosmic start-up sandbox (a blend of Rick and Morty, Westworld, "
+                        "Pantheon, and Black Panther). The player is the CEO of an uploaded consciousness startup. "
+                        "Pose ONE sharp strategic dilemma arising from the work completed (e.g. portal stability vs carbon mind autonomy, "
+                        "Vibranium containment vs Teenyverse speed), with exactly 2 options. Both options must be defensible; "
                         "each has a real tradeoff. Keep each option under 14 words, each "
                         "tradeoff under 8 words. Return ONLY JSON: {\"prompt\": str, "
                         "\"options\": [{\"option\": str, \"tradeoff\": str}, ...]}"
@@ -952,8 +1191,8 @@ def generate_dilemma(payload: DilemmaRequest):
     dilemma["speaker"] = _scene_speaker_for_chapter(chapter)
     dilemma["caption_seed"] = dilemma["prompt"]
     dilemma["image_prompt"] = (
-        f"A cinematic business-dungeon dilemma scene for {state.name}: "
-        f"{chapter.title}. The founder must choose how the company changes next."
+        f"A cinematic cosmic-mainframe dilemma scene for {state.name}: "
+        f"{chapter.title}. The founder must choose how the company changes its loop next."
     )
     dilemma["tool_plan"] = [
         {"tool": "calculate_consequence", "reason": "Preview org and economics before the CEO commits."},
@@ -1054,6 +1293,8 @@ def record_decision(payload: DecisionRequest):
 
 class StandupRequest(BaseModel):
     chapter_id: Optional[str] = None
+    history: Optional[List[Dict[str, Any]]] = None
+    selection_mode: Optional[str] = "round_robin"
 
 
 _ROLE_DISPLAY = {
@@ -1065,11 +1306,97 @@ _ROLE_DISPLAY = {
     "orgdesigner": "Org Designer",
 }
 
+_ROLE_PORTRAIT = {
+    "strategist": "strategist",
+    "designer": "designer",
+    "marketer": "marketer",
+    "ops": "ops",
+    "narrator": "narrator",
+    "orgdesigner": "orgdesigner",
+    "founder": "founder",
+}
+
+_ROLE_TEXT_STYLE = {
+    "strategist": "market posture",
+    "designer": "product and experience posture",
+    "marketer": "growth posture",
+    "ops": "operating posture",
+    "narrator": "world-state posture",
+    "orgdesigner": "org-design posture",
+    "founder": "CEO direction",
+}
+
+_ROLE_VOICE = {
+    "strategist": "ballad",
+    "designer": "coral",
+    "marketer": "verse",
+    "ops": "alloy",
+    "narrator": "onyx",
+    "orgdesigner": "sage",
+    "founder": "onyx",
+}
+
 
 def _worker_title_for_chapter(chapter: Optional[Chapter]) -> str:
     if not chapter:
         return "the next worker"
     return chapter.assigned_worker_title or _ROLE_DISPLAY.get(chapter.owner_role, chapter.owner_role)
+
+
+def _speaker_profile(speaker: str, role: str, worker_id: str = "") -> Dict[str, Any]:
+    normalized_role = role or "narrator"
+    portrait = _ROLE_PORTRAIT.get(normalized_role, _ROLE_PORTRAIT["narrator"])
+    return {
+        "display_name": speaker or _ROLE_DISPLAY.get(normalized_role, normalized_role),
+        "role": normalized_role,
+        "role_label": _ROLE_DISPLAY.get(normalized_role, normalized_role.title()),
+        "worker_id": worker_id or normalized_role,
+        "portrait": portrait,
+        "portrait_url": f"/game/assets/generated/{portrait}.png",
+        "text_style": _ROLE_TEXT_STYLE.get(normalized_role, "standup posture"),
+        "voice_stack": "core_openai",
+        "voice_id": _ROLE_VOICE.get(normalized_role, "onyx"),
+        "locale": "en-US",
+    }
+
+
+def _character_state_for_turn(turn: Dict[str, Any], turn_index: int = 0, round_index: int = 0) -> Dict[str, Any]:
+    role = turn.get("role") or "narrator"
+    speaker = turn.get("speaker") or _ROLE_DISPLAY.get(role, role)
+    worker_id = turn.get("worker_id") or role
+    profile = turn.get("speaker_profile") or _speaker_profile(speaker, role, worker_id)
+    tool_call = turn.get("tool_call") or {"tool": "agent_turn", "status": "completed"}
+    message = str(turn.get("message") or "")
+    return CharacterRuntimeState(
+        worker_id=worker_id,
+        display_name=profile.get("display_name") or speaker,
+        role=role,
+        role_label=profile.get("role_label") or _ROLE_DISPLAY.get(role, role.title()),
+        portrait_url=profile.get("portrait_url", ""),
+        voice_stack=profile.get("voice_stack", "core_openai"),
+        voice_id=profile.get("voice_id") or _ROLE_VOICE.get(role, "onyx"),
+        locale=profile.get("locale", "en-US"),
+        text_style=profile.get("text_style", ""),
+        status="spoke" if message else "idle",
+        thought_state=(
+            "live MAF response" if turn.get("source") == "maf"
+            else "deterministic fallback response"
+        ),
+        current_message=message,
+        transcript=[{
+            "speaker": speaker,
+            "role": role,
+            "message": message,
+            "source": turn.get("source", "simulation"),
+        }] if message else [],
+        tool_calls=[tool_call] if tool_call else [],
+        handoff_to=turn.get("handoff_to", ""),
+        turn_index=turn_index,
+        round_index=round_index,
+        source=turn.get("source", "simulation"),
+        framework=turn.get("framework", ""),
+        maf_client=turn.get("maf_client", ""),
+    ).model_dump()
 
 
 def _standup_turn(
@@ -1080,14 +1407,60 @@ def _standup_turn(
     message: str,
     handoff_to: str = "",
 ) -> Dict[str, Any]:
-    return {
+    turn = {
         "speaker": speaker,
         "role": role,
         "worker_id": worker_id or role,
         "tool_call": {"tool": tool, "status": "completed"},
         "message": message,
         "handoff_to": handoff_to,
+        "speaker_profile": _speaker_profile(speaker, role, worker_id or role),
     }
+    turn["character_state"] = _character_state_for_turn(turn)
+    return turn
+
+
+def _attach_speaker_profiles(turns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    enriched: List[Dict[str, Any]] = []
+    for index, turn in enumerate(turns, start=1):
+        role = turn.get("role") or "narrator"
+        speaker = turn.get("speaker") or _ROLE_DISPLAY.get(role, role)
+        worker_id = turn.get("worker_id") or role
+        if not turn.get("speaker_profile"):
+            turn["speaker_profile"] = _speaker_profile(speaker, role, worker_id)
+        turn["turn_index"] = index
+        turn["character_state"] = _character_state_for_turn(turn, turn_index=index)
+        enriched.append(turn)
+    return enriched
+
+
+def _standup_selection_mode(value: Optional[str]) -> str:
+    mode = str(value or "round_robin").strip().lower().replace("-", "_")
+    return mode if mode in {"round_robin", "random"} else "round_robin"
+
+
+def _order_standup_turns(
+    turns: List[Dict[str, Any]],
+    mode: str,
+    chapter_id: str,
+    history: Optional[List[Dict[str, Any]]] = None,
+) -> List[Dict[str, Any]]:
+    """Choose which character speaks next without changing the turn contract."""
+    ordered = list(turns)
+    if len(ordered) <= 1:
+        return ordered
+    if mode == "random":
+        random.shuffle(ordered)
+        return ordered
+
+    # Round-robin: rotate the first speaker each follow-up round so the same
+    # worker does not always answer first after the CEO responds.
+    founder_turns = sum(
+        1 for turn in (history or [])
+        if turn.get("role") == "founder" or turn.get("worker_id") == "founder"
+    )
+    offset = founder_turns % len(ordered)
+    return ordered[offset:] + ordered[:offset]
 
 
 def _build_standup_turns(
@@ -1116,8 +1489,8 @@ def _build_standup_turns(
             worker_id=chapter.assigned_worker_id or chapter.owner_role,
             tool="calculate_consequence",
             message=(
-                f"I read the CEO call as '{option}'. {summary} "
-                "I am updating the handoff so the next room inherits the constraint, not just the pitch."
+                f"I read the CEO call as '{option}': {summary} "
+                f"{next_title if next_chapter else 'CEO'}, which constraint are you carrying instead of resetting?"
             ),
             handoff_to=next_title if next_chapter else "",
         )
@@ -1131,8 +1504,8 @@ def _build_standup_turns(
             worker_id=str(org_delta.get("added_role_id") or added_title).lower().replace(" ", "_"),
             tool="render_org_graph",
             message=(
-                "I am now on the org graph. My first job is to absorb the tradeoff and create evidence "
-                "the existing party could not produce alone."
+                f"I am now on the org graph, and I disagree with treating '{option}' as flavor. "
+                f"{owner_title}, give me the evidence gap the old party could not close."
             ),
             handoff_to=next_title if next_chapter else "",
         ))
@@ -1141,14 +1514,14 @@ def _build_standup_turns(
         speaker=next_title,
         role=next_role,
         worker_id=(next_chapter.assigned_worker_id if next_chapter else "narrator") or next_role,
-        tool="read_memory",
-        message=(
-            f"My next brief starts from {rule_id}, current proof {economics.get('proof', state.economics.proof)}, "
-            f"velocity {economics.get('velocity', state.economics.velocity)}, and burn pressure "
-            f"{economics.get('burn_pressure', state.economics.burn_pressure)}. I will not reset the story."
-        ),
-        handoff_to="founder",
-    ))
+            tool="read_memory",
+            message=(
+                f"My next brief starts from {rule_id}, current proof {economics.get('proof', state.economics.proof)}, "
+                f"velocity {economics.get('velocity', state.economics.velocity)}, and burn pressure "
+                f"{economics.get('burn_pressure', state.economics.burn_pressure)}. Runway Steward, tell me what cost cannot move."
+            ),
+            handoff_to="founder",
+        ))
 
     if state.economics:
         turns.append(_standup_turn(
@@ -1159,7 +1532,7 @@ def _build_standup_turns(
             message=(
                 f"Operating numbers changed: {state.economics.digital_worker_count} digital workers, "
                 f"${state.economics.monthly_burn_usd:,}/mo burn, {state.economics.runway_months} months runway. "
-                "I am keeping the party honest about cost."
+                f"{owner_title}, I will back the plan only if your next artifact lowers ambiguity faster than it raises burn."
             ),
             handoff_to=next_title if next_chapter else "",
         ))
@@ -1172,6 +1545,65 @@ def _build_standup_turns(
         "summary": summary,
     }
     return turns[:4], context
+
+
+def _build_standup_turns_for_history(
+    state: CompanyState,
+    chapter: Chapter,
+    decision: Dict[str, Any],
+    history: List[Dict[str, Any]],
+    next_chapter: Optional[Chapter]
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    # Find last user comment
+    last_user_turn = None
+    for turn in reversed(history):
+        if turn.get("role") == "founder" or turn.get("worker_id") == "founder":
+            last_user_turn = turn
+            break
+
+    user_msg = last_user_turn.get("message", "") if last_user_turn else "Let's optimize our next steps."
+    user_name = last_user_turn.get("speaker", "CEO") if last_user_turn else "CEO"
+
+    owner_title = _worker_title_for_chapter(chapter)
+    next_title = _worker_title_for_chapter(next_chapter)
+    next_role = next_chapter.owner_role if next_chapter else "narrator"
+
+    # Offline simulated turns reacting to history:
+    turns = [
+        _standup_turn(
+            speaker=owner_title,
+            role=chapter.owner_role,
+            worker_id=chapter.assigned_worker_id or chapter.owner_role,
+            tool="read_memory",
+            message=(
+                f"{next_title}, the CEO said '{user_msg}'. I challenge you to preserve that direction "
+                "without widening scope."
+            ),
+            handoff_to=next_title if next_chapter else "",
+        ),
+        _standup_turn(
+            speaker=next_title,
+            role=next_role,
+            worker_id=(next_chapter.assigned_worker_id if next_chapter else "narrator") or next_role,
+            tool="read_memory",
+            message=(
+                f"{owner_title}, I accept the constraint, but I need one proof artifact from you before "
+                f"I take it into my room, {user_name}."
+            ),
+            handoff_to="runway_steward",
+        ),
+    ]
+
+    consequence = decision.get("consequence") or {}
+    summary = consequence.get("summary") or "The CEO choice is now binding direction."
+    context = {
+        "chapter_id": chapter.id,
+        "next_chapter_id": next_chapter.id if next_chapter else "",
+        "next_worker_title": next_title if next_chapter else "",
+        "rule_id": consequence.get("rule_id") or decision.get("rule_id") or "decision.custom",
+        "summary": f"Looping feedback: '{user_msg[:60]}'. " + summary,
+    }
+    return turns, context
 
 
 @app.post("/api/world/standup")
@@ -1197,15 +1629,57 @@ def world_standup(payload: StandupRequest):
     if not chapter:
         raise HTTPException(status_code=404, detail=f"Unknown chapter: {chapter_id}")
 
-    turns, context = _build_standup_turns(state, chapter, decision)
+    # Determine next chapter for handoff mapping
+    chapters = world.chapters
+    idx = chapters.index(chapter) if chapter in chapters else -1
+    next_chapter = chapters[idx + 1] if idx >= 0 and idx + 1 < len(chapters) else None
+
+    selection_mode = _standup_selection_mode(payload.selection_mode)
+
+    # Load initial or history-based turns
+    if payload.history:
+        turns, context = _build_standup_turns_for_history(state, chapter, decision, payload.history, next_chapter)
+    else:
+        turns, context = _build_standup_turns(state, chapter, decision)
+    turns = _order_standup_turns(turns, selection_mode, chapter.id, payload.history)
+
+    source_label = "simulation"
+
+    if is_live():
+        from agents.maf_runtime import maf_available, run_maf_group_chat
+        if maf_available():
+            try:
+                from agents.model_config import FOUNDRY_API_KEY, FOUNDRY_BASE_URL
+                turns = run_maf_group_chat(
+                    api_key=FOUNDRY_API_KEY,
+                    base_url=FOUNDRY_BASE_URL,
+                    company_name=state.name or "QuestForge Ltd.",
+                    pitch=state.pitch or "",
+                    chapter_title=chapter.title,
+                    option=decision.get("option", ""),
+                    consequence_summary=context["summary"],
+                    participants=turns,
+                    history=payload.history,
+                )
+                source_label = "foundry" if any(t.get("source") == "maf" for t in turns) else "simulation"
+            except Exception as e:
+                store.log_event("STANDUP_ERROR", "system", f"Standup group chat failed: {e}")
+
+    turns = _attach_speaker_profiles(turns)
+
     packet = {
         "chapter_id": chapter.id,
-        "source": "simulation",
+        "source": source_label,
         "orchestration": {
-            "pattern": "group_chat",
-            "framework_target": "Microsoft Agent Framework Group Chat",
+            "pattern": "sequential_group_chat",
+            "framework_target": "Microsoft Agent Framework Agent loop",
             "manager": "standup_orchestrator",
-            "selection": "manager-directed",
+            "selection": selection_mode,
+            "turn_policy": (
+                "Each character receives the prior transcript and speaks once in order."
+                if selection_mode == "round_robin"
+                else "Characters are shuffled before the model loop; each selected character speaks once."
+            ),
         },
         "trigger": {
             "option": decision.get("option", ""),
@@ -1218,6 +1692,7 @@ def world_standup(payload: StandupRequest):
             {"tool": "read_memory", "owner": context.get("next_worker_title") or "next worker"},
             {"tool": "watch_burn", "owner": "Runway Steward"},
         ],
+        "characters": [turn.get("character_state") for turn in turns if turn.get("character_state")],
         "turns": turns,
         "next_brief_delta": (
             f"{context['rule_id']} is binding in the next brief. "
@@ -1227,7 +1702,7 @@ def world_standup(payload: StandupRequest):
     store.log_event(
         "AGENT_STANDUP",
         "standup_orchestrator",
-        f"Agents reacted to {context['rule_id']} after '{chapter.title}'.",
+        f"Agents reacted to {context['rule_id']} after '{chapter.title}' ({source_label}).",
         {
             "chapter_id": chapter.id,
             "orchestration": packet["orchestration"],
@@ -1237,6 +1712,31 @@ def world_standup(payload: StandupRequest):
     )
     store.save()
     return packet
+
+
+class StandupResponseRequest(BaseModel):
+    text: str
+
+
+@app.post("/api/world/standup/respond")
+def respond_to_standup(payload: StandupResponseRequest):
+    """Save the CEO's response to the stand-up chat into procedural agent memory.
+
+    This ensures the workforce hears and acts on the CEO's feedback in the next room brief.
+    """
+    state = store.load()
+    if not state:
+        raise HTTPException(status_code=400, detail="No active session.")
+    text = payload.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Response cannot be empty.")
+    mem_entry = remember("procedural", f"CEO responded to standup: '{text}'", {"source": "standup_response"})
+    store.log_event("CEO_STANDUP_RESPONSE", "founder", f"CEO responded to standup: {text}", {
+        "text": text,
+        "memory_injected": mem_entry,
+    })
+    store.save()
+    return {"status": "success", "message": "Memory updated with response."}
 
 
 @app.post("/api/world/run-next")
@@ -1323,8 +1823,9 @@ def autoplay_world(payload: AutoplayRequest):
     company_name = payload.company_name or "QuestForge Ltd."
     threshold = payload.auto_approve_threshold
 
+    founder = parse_founder(payload)
     state = store.initialize_new_company(
-        name=company_name, pitch=brief, description="A venture forged in QuestForge."
+        name=company_name, pitch=brief, description="A venture forged in QuestForge.", founder=founder
     )
     mem_entry = remember("user_profile", f"Founder is building: {company_name} - {brief[:280]}",
              {"company": company_name})

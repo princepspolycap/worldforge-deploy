@@ -1,5 +1,5 @@
-campaign: "Your Company Is the Dungeon"
-description: "A business-building adventure where you craft a company from a single raw pitch."
+campaign: "Gamifying World Improvement"
+description: "A world-improvement campaign where you automate basic needs and green the Sahara."
 starting_location: "The Pitching Chamber"
 lore_sources:
   - "Lean Startup Principles"

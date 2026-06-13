@@ -1,6 +1,6 @@
 # Narration Pipeline - How the Game Speaks
 
-How "Your Company Is the Dungeon" produces its voice-over, how to change
+How "Gamifying World Improvement" produces its voice-over, how to change
 what it says, and how to regenerate the audio. Read this before touching
 anything narration-related.
 
@@ -36,7 +36,7 @@ deletes them still narrates via step 3.
 | File | Role |
 |---|---|
 | [ui/game/intro.js](../ui/game/intro.js) | **The script.** Each lore card's `vo:` field is the spoken line; `NARRATOR_STYLE` is the shared delivery direction; `NARR_BASE` points at the baked takes. |
-| [ui/game/audio.js](../ui/game/audio.js) | **The player.** `DungeonAudio.speak(text, opts)` implements the chain: `opts.baked` (URL) tries the take first, `opts.instructions` rides along to live TTS. |
+| [ui/game/audio.js](../ui/game/audio.js) | **The player.** `CampaignAudio.speak(text, opts)` implements the chain: `opts.baked` (URL) tries the take first, `opts.instructions` rides along to live TTS. |
 | [tools/server.py](../tools/server.py) | **The synthesizer.** `/api/tts` forwards text + voice + instructions to the Azure deployment; `/api/tts/status` tells the UI if it can. |
 | [tools/generate_narration.py](../tools/generate_narration.py) | **The bakery.** Parses the script out of intro.js and writes one mp3 per scene. |
 

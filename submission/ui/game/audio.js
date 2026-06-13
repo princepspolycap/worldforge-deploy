@@ -1,4 +1,4 @@
-// Synthesized game audio for "Your Company Is the Dungeon".
+// Synthesized game audio for "Gamifying World Improvement".
 //
 // Pure Web Audio API: every sound is generated from oscillators at runtime, so
 // there are zero audio files, zero licensing risk, and it runs offline after a
@@ -13,10 +13,34 @@
 (function () {
     "use strict";
 
+    // ============================================================
+    // AUDIO CONTROL CENTER - the single place to tune all game sound.
+    // Change values HERE; no other file needs editing.
+    //
+    //  - masterVolume : overall loudness (0..1).
+    //  - cues         : short UI/game sounds (clicks, seals, ticks, chimes).
+    //  - music        : an OPTIONAL looping background track. OFF by default so
+    //                   the committed game ships file-free, offline-safe, and
+    //                   with no background drone. To use a Suno-made cinematic
+    //                   harp theme (Ori-style), drop the file at `src` (local
+    //                   only / gitignored) and set enabled:true. If the file is
+    //                   missing it silently does nothing - never breaks a fork.
+    // ============================================================
+    const AUDIO = {
+        masterVolume: 0.5,
+        cues: true,
+        music: {
+            enabled: false,
+            src: "/game/assets/local/audio/theme.mp3",
+            volume: 0.32,
+            loop: true,
+        },
+    };
+
     let ctx = null;
     let masterGain = null;
     let muted = false;
-    let thinkingNodes = null; // active "thinking" loop, if any
+    let musicEl = null; // optional <audio> background track, if configured
 
     // --- Narration (Text-to-Speech) -------------------------------------
     // Uses the browser SpeechSynthesis API: no audio files, no API keys, no
@@ -96,13 +120,14 @@
         if (!AC) return null;
         ctx = new AC();
         masterGain = ctx.createGain();
-        masterGain.gain.value = muted ? 0 : 0.5;
+        masterGain.gain.value = muted ? 0 : AUDIO.masterVolume;
         masterGain.connect(ctx.destination);
         return ctx;
     }
 
     // Play a single tone. freq Hz, dur seconds, type waveform, gain 0-1.
     function tone(freq, dur, type, gain, when) {
+        if (!AUDIO.cues) return;
         const c = ensureContext();
         if (!c) return;
         const start = when ?? c.currentTime;
@@ -126,7 +151,7 @@
         freqs.forEach((f, i) => tone(f, step * 1.6, type || "triangle", gain ?? 0.18, c.currentTime + i * step));
     }
 
-    const DungeonAudio = {
+    const CampaignAudio = {
         // Called from a user gesture (e.g. launch click) to unlock audio.
         unlock() {
             ensureContext();
@@ -137,11 +162,16 @@
             return muted;
         },
 
+        isUnlocked() {
+            return !!(ctx && ctx.state === "running");
+        },
+
         setMuted(value) {
             muted = !!value;
             if (masterGain && ctx) {
-                masterGain.gain.setTargetAtTime(muted ? 0 : 0.5, ctx.currentTime, 0.02);
+                masterGain.gain.setTargetAtTime(muted ? 0 : AUDIO.masterVolume, ctx.currentTime, 0.02);
             }
+            if (musicEl) musicEl.muted = muted;
             if (muted) this.stopSpeaking();
             return muted;
         },
@@ -306,39 +336,12 @@
 
         narrationEnabled() { return narrationOn && (!!TTS || serverTTS); },
 
-        // A low, slow pulse loop while an agent is reasoning (the live call).
-        thinkingStart() {
-            const c = ensureContext();
-            if (!c || thinkingNodes) return;
-            const osc = c.createOscillator();
-            const lfo = c.createOscillator();
-            const lfoGain = c.createGain();
-            const g = c.createGain();
-            osc.type = "sine";
-            osc.frequency.value = 110; // low hum
-            lfo.type = "sine";
-            lfo.frequency.value = 2.2;  // pulse rate
-            lfoGain.gain.value = 0.04;
-            g.gain.value = 0.0001;
-            lfo.connect(lfoGain);
-            lfoGain.connect(g.gain);
-            osc.connect(g);
-            g.connect(masterGain);
-            g.gain.setTargetAtTime(0.05, c.currentTime, 0.1);
-            osc.start();
-            lfo.start();
-            thinkingNodes = { osc, lfo, g };
-        },
-
-        thinkingStop() {
-            const c = ensureContext();
-            if (!c || !thinkingNodes) return;
-            const { osc, lfo, g } = thinkingNodes;
-            thinkingNodes = null;
-            g.gain.setTargetAtTime(0.0001, c.currentTime, 0.08);
-            const stopAt = c.currentTime + 0.25;
-            try { osc.stop(stopAt); lfo.stop(stopAt); } catch (_) {}
-        },
+        // Reasoning indicator. Deliberately SILENT: a sustained low hum gave
+        // listeners a headache, so there is no background drone. The visual
+        // "thinking" cues (pulse dot, ticks per validator check) carry it
+        // instead. Kept as no-ops so existing callers stay valid.
+        thinkingStart() { /* intentionally silent - no background hum */ },
+        thinkingStop() { /* intentionally silent - no background hum */ },
 
         // Short tick when a deterministic validator check lands.
         tick(passed) {
@@ -370,7 +373,77 @@
         complete() {
             arpeggio([523, 659, 784, 1046, 1318], 0.11, "triangle", 0.18);
         },
+
+        // --- UI cues (intro / first step) ------------------------------
+        // Soft high shimmer when the eye lands on the primary button.
+        uiHover() {
+            tone(1320, 0.05, "sine", 0.05);
+            tone(1760, 0.06, "sine", 0.035, (ctx ? ctx.currentTime : 0) + 0.02);
+        },
+
+        // Warm confirming swell the moment the journey begins (Begin press).
+        uiPress() {
+            arpeggio([392, 523, 659, 784], 0.075, "triangle", 0.16);
+            tone(196, 0.4, "sine", 0.12);
+        },
+
+        // --- Deck / roguelike cues -------------------------------------
+        // These frame the game as a roguelike deckbuilder (see docs/ui_revamp).
+        // Soft riffle as a worker-card is dealt onto the stage (a character
+        // joining the party / the org drafting a worker).
+        cardDraw() {
+            arpeggio([523, 698, 880], 0.045, "triangle", 0.10);
+            tone(1320, 0.05, "sine", 0.04, (ctx ? ctx.currentTime : 0) + 0.13);
+        },
+
+        // Tiny soft tick when the pointer lands on a character card.
+        cardHover() {
+            tone(1046, 0.045, "sine", 0.045);
+        },
+
+        // Warm resonant press - the gold seal landing on an approved artifact
+        // at a verification gate (richer + heavier than the light chime).
+        seal() {
+            tone(330, 0.5, "sine", 0.14);
+            arpeggio([523, 659, 880], 0.09, "triangle", 0.17);
+        },
+
+        // A quiet two-note marker when the conversation turns to a new speaker
+        // (the infinite-conversation handoff between characters).
+        turnCue() {
+            tone(587, 0.06, "sine", 0.06);
+            tone(784, 0.08, "sine", 0.05, (ctx ? ctx.currentTime : 0) + 0.05);
+        },
+
+        // --- Background music (single control: AUDIO.music) ------------
+        // Background music. Driven entirely by the AUDIO.music control center
+        // at the top of this file. OFF by default - the committed game ships
+        // file-free with NO background drone (the old synth pad caused a hum).
+        // When AUDIO.music.enabled is true and the file at AUDIO.music.src
+        // exists (a local-only Suno harp theme, etc.), it loops softly; a
+        // missing file or a blocked autoplay just stays silent - never breaks.
+        // `ambientStart`/`ambientStop` keep their old names so existing callers
+        // (intro hand-off, run start) still work as music start/stop.
+        ambientStart() {
+            if (!AUDIO.music.enabled || muted) return;
+            if (musicEl) { try { musicEl.play().catch(() => {}); } catch (e) { /* ok */ } return; }
+            try {
+                const a = new Audio(AUDIO.music.src);
+                a.loop = !!AUDIO.music.loop;
+                a.volume = AUDIO.music.volume;
+                a.muted = muted;
+                a.addEventListener("error", () => { musicEl = null; }); // missing file: stay silent
+                musicEl = a;
+                a.play().catch(() => { /* autoplay blocked: stays silent until next gesture */ });
+            } catch (e) { musicEl = null; }
+        },
+
+        ambientStop() {
+            if (!musicEl) return;
+            try { musicEl.pause(); musicEl.currentTime = 0; } catch (e) { /* ok */ }
+        },
     };
 
-    window.DungeonAudio = DungeonAudio;
+    window.CampaignAudio = CampaignAudio;
+    window.DungeonAudio = CampaignAudio;
 })();

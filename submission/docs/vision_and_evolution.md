@@ -1,9 +1,9 @@
 # Vision and Evolution - The Soul of the Build
 
-> The canonical "why" document. It captures the full lore, the CEO role-play
+> The canonical "why" document. It captures the full lore, the founder role-play
 > frame, the two missions, the digital-workforce thesis, and the fair-data
 > flywheel - and it traces how the project evolved from a fantasy RPG reskin
-> into a playable argument about how humans and AI run companies together.
+> into a playable argument about how humans and AI run campaigns together.
 >
 > If you read only one doc to understand intent, read this one. Everything else
 > in `submission/docs/` is the mechanism; this is the meaning.
@@ -23,7 +23,7 @@ the maintainer's demo-readiness checklist (gitignored `submission/private/`) -
 
 ## 1. The one-line frame
 
-**You role-play a CEO. A Microsoft Foundry agent workforce runs your company.
+**You role-play a founder. A Microsoft Foundry agent workforce runs your campaign graph.
 You approve every gate.**
 
 And one line under it, for the people we are really building for: **it is a
@@ -42,8 +42,8 @@ Veo motion backdrops, neural narration, an intertitle per scene - so the
 presenter does not have to narrate the reasoning out loud on stage. The game
 explains itself. The arc is a hero's journey: it opens by **inviting the
 player into the story** instead of describing the product, and the title -
-"your company is the dungeon" - is earned at the end of the arc as the way the
-player enters that story. The scenes, card by card, live in
+"Gamifying World Improvement" - defines the player's role-play entry
+point into that story. The scenes, card by card, live in
 [ui/game/intro.js](../ui/game/intro.js):
 
 1. **The invitation - welcome to your hero's journey.** You are here to chart
@@ -62,7 +62,7 @@ player enters that story. The scenes, card by card, live in
    and their AI, finally pull the same way. (The vow is from the 2021 Poly186
    whitepaper - this game is its playable form.)
 4. **The mechanism - an agency of digital workers.** Bind your real skill to
-   a worker that executes, and your experience becomes a business that runs
+   a worker that executes, and your experience becomes an operating loop that runs
    while you sleep. UBI-by-construction, not UBI-by-handout.
 5. **The flywheel - everyone gets paid, fairly.** The platform learns from
    real, consented work, paid evenly - not scraped. Even a superintelligence
@@ -72,9 +72,9 @@ player enters that story. The scenes, card by card, live in
    agents into a team.
 7. **The law of this world - a human holds the seal.** Nothing counts until a
    human presses the seal. Every artifact stops at the gate and waits for you.
-8. **The game - your company is the dungeon.** This is how you enter the
-   story: found a company on one front of the mission, take the CEO's chair,
-   and clear it room by room with your workforce.
+8. **The game - Gamifying World Improvement.** This is how you enter the
+   story: lead a campaign on one front of the mission, take the founder's seat,
+   and execute it chapter by chapter with your workforce.
 
 The closing card is **character creation as the choice screen** - "What do
 you bring?" - where the player answers the narrator for the first time: their
@@ -94,31 +94,31 @@ The arc survives at three cards - that is the simplify pass.
 
 Battle 2 rewards visible reasoning and role-play. The lore earns both at once: it
 gives the player a **reason to reason** (a mission too big to brute-force, so
-delegation is the only path), puts them **in character** (a CEO with a workforce,
+delegation is the only path), puts them **in character** (a founder with a workforce,
 not a user of a chat box), and makes the **Foundry and human-at-the-root choices
 read as deliberate**, not incidental.
 
 ---
 
-## 3. The CEO role-play frame
+## 3. The founder role-play frame
 
 The strongest version of this demo is not "type a prompt and watch output." It
-is "sit in the CEO's chair and feel what it is like to run a company through an
+is "sit in the founder's chair and feel what it is like to run a campaign through an
 agent workforce."
 
 That reframe changes the input. The player brings:
 
-- **A company or an idea** - the thing they want to build.
+- **A LinkedIn or public profile URL** - the identity signal they want to build around.
 - **Their edge** - the skill, experience, or knowledge they personally carry.
 
-And the system returns an **org of digital workers** plus a **decomposed venture**
+And the system returns an **org of digital workers** plus a **decomposed campaign graph**
 that the workforce executes under the player's approval. The player is the human
-at the root; the agents are the second company.
+at the root; the agents are the operating team.
 
-This is where the personalization lives. The vision belongs to the CEO, but the
+This is where the personalization lives. The vision belongs to the founder, but the
 **path is the player's** - they choose the mission, they bring the skill, they
-approve or reject each artifact. The intent is that a player feels the venture
-is *theirs*, even though it serves a larger vision.
+approve or reject each artifact. The intent is that a player feels the campaign is
+*theirs*, even though it serves a larger vision.
 
 ---
 
@@ -131,19 +131,18 @@ verification loop**:
 
 1. **Pick a template (the fastest door).** A small gallery of concrete starting
    ventures the player can click. Templates are the teaching device: each is a
-   worked example of a real business, pre-wired to a front of the larger mission.
-2. **Bring your own (idea or URL).** Type a one-line idea, or paste a company URL
-   the game scrapes (with SSRF guards). This is the "is this real?" door - point
-   it at something you know and watch it map.
+   worked example of a real project, pre-wired to a front of the larger mission.
+2. **Bring your own public profile URL.** Paste a LinkedIn profile URL that the game
+   analyzes. This is the "is this real?" door - point it at yourself and watch it map.
 3. **Choose a grand front.** The two missions - automate basic needs, terraform
    the Sahara - for players who want to start from the vision and work down.
 
 ### The decomposition that routes them
 
 Whichever door they pick, a Foundry LLM **reads the input and decomposes it**: it
-infers what the company is, **routes it to the front of the larger story it
+infers what the campaign is, **routes it to the front of the larger story it
 serves** (3D-printed solar cells -> the energy wedge of "automate basic needs"),
-and drafts the org plus the venture. That routing is the connective tissue this
+and drafts the org plus the campaign graph. That routing is the connective tissue this
 review surfaced. Today the org/venture decomposition is **live** (Layers 1-2),
 but the **front-routing and the template gallery are the next on-ramp to build** -
 small, high-leverage, and the thing that turns a clever demo into something a
@@ -158,7 +157,7 @@ stranger can start. See the placeholder note in section 8.
 | Modular water purification units | Basic needs - water |
 | Flat-pack rapid shelter | Basic needs - shelter |
 | Solar microgrid + soil regeneration service | Terraform the Sahara |
-| Bring your own idea or URL | Routed by the LLM |
+| Bring your own public profile URL | Routed by the LLM |
 
 ### The grand fronts (start from the vision)
 
@@ -176,7 +175,7 @@ screen and focuses Begin, so the run stays under human control on stage.
 
 Every door also takes the player's **edge** (their real skill), appended to the
 brief as "The founding operator's edge: ...", so the org the agents design is
-shaped by who the player actually is. The vision is the CEO's; the path is the
+shaped by who the player actually is. The vision is the founder's; the path is the
 player's.
 
 ---
@@ -211,8 +210,8 @@ workers" and wondered if it was real - and to hand them a path to start.
 So the game is a funnel disguised as lore: **play** (take the chair, pick a door,
 watch a workforce build) -> **wonder** ("is this true? is this real?") ->
 **join** (the same loop is the on-ramp to the real platform) -> **learn** (every
-template and chapter is a lesson: discovery, org design, GTM, retention - idea to
-first customers).
+template and chapter is a lesson: discovery, org design, implementation, launch -
+idea to first milestones).
 
 The honest answer to "is this real?" is the strongest hook we have: it is **based
 on a true story - our story.** The platform the game describes is the platform
@@ -237,12 +236,12 @@ the same workers Layer 2 runs.
 
 | Layer | What the audience sees | Lives in |
 |---|---|---|
-| **1 - Org Designer** | A pitch or URL becomes one human operator + a workforce of digital workers, each with a `why`, with leverage and burn shown. | [agents/org_designer.py](../agents/org_designer.py), `/api/company/analyze` |
+| **1 - Org Designer** | A profile or URL becomes one human operator + a workforce of digital workers, each with a `why`, with leverage and burn shown. | [agents/org_designer.py](../agents/org_designer.py), `/api/company/analyze` |
 | **2 - World Designer + Worker Factory** | The venture decomposes into chapters; each chapter is owned by one designed worker, executed on Foundry, validated, gated. | [agents/world_designer.py](../agents/world_designer.py), [agents/worker_factory.py](../agents/worker_factory.py), `/api/world/*` |
-| **3 - Intro + CEO role-play** | The game introduces itself (skippable lore), then hands the CEO chair with a mission or Poly pre-loaded. | [ui/game/intro.js](../ui/game/intro.js), [ui/story.html](../ui/story.html), [ui/game/story.js](../ui/game/story.js) |
+| **3 - Intro + Founder role-play** | The game introduces itself (skippable lore), then hands the founder chair with a mission or Poly pre-loaded. | [ui/game/intro.js](../ui/game/intro.js), [ui/story.html](../ui/story.html), [ui/game/story.js](../ui/game/story.js) |
 
 Design-time reasoning (who should be on this team?) feeds run-time reasoning
-(now that team builds the venture). That is the multi-step reasoning story the
+(now that team builds the campaign). That is the multi-step reasoning story the
 rubric asks for. See [architecture.md](architecture.md) for the system diagram
 and [rubric_mapping.md](rubric_mapping.md) for how each layer scores.
 
@@ -256,11 +255,11 @@ Eras at a glance:
 
 | Era | From -> To | The shift |
 |---|---|---|
-| 0 | Starter kit -> our build | Fantasy Game Master reskin for business. |
+| 0 | Starter kit -> our build | Fantasy Game Master reskin for world improvement. |
 | 1 | Quest -> org | Input becomes an org: one human + a digital workforce. |
-| 2 | Org -> venture | The designed workers actually build the venture. |
+| 2 | Org -> campaign | The designed workers actually build the campaign graph. |
 | 3 | Licensed art -> geometry | Drop restricted assets; geometric-first, MIT-clean. |
-| 4 | Tool -> meaning | Lore, CEO frame, missions, fair-data, Poly-maps-itself. |
+| 4 | Tool -> meaning | Lore, founder frame, missions, fair-data, Poly-maps-itself. |
 | 5 | Geometry -> generated art | Foundry MAI-Image-2e paints the game's own art - MIT, pluggable. |
 | Next | Demo -> doorway | Templates + LLM front-routing: a stranger starts in 30s. |
 
@@ -268,7 +267,7 @@ Eras at a glance:
 
 The project began as a direct reskin of the canonical Game Master example in
 [live_battle_challenge.md](../../starter-kits/2-reasoning-agents/live_battle_challenge.md):
-a Master Narrator decomposes a business pitch into a quest line, and specialist
+a Master Narrator decomposes a pitch into a quest line, and specialist
 character agents (Strategist, Designer, Marketer) produce artifacts the player
 approves at verification gates. The public narrative is captured in
 [PROJECT_NARRATIVE.md](../../PROJECT_NARRATIVE.md), and the original agent shape
@@ -279,18 +278,18 @@ the constant map the whole time.
 ### Phase 1 - From "quest" to "org": the URL-to-org-chart turn
 
 The build matured past generic fantasy quests into something with a real thesis:
-take a **pitch or a URL**, understand the company, and design the **organization
-it needs** - not as one chart but as two, a human org chart and a digital-worker
-org chart, side by side. This is the Org Designer
+take a **LinkedIn profile or public URL**, understand the founder, and design the
+**organization it needs** - not as one chart but as two, a human org chart and a
+digital-worker org chart, side by side. This is the Org Designer
 ([org_designer_and_digital_workforce.md](org_designer_and_digital_workforce.md)).
-The output is one human operator plus a workforce of digital workers, each with a
+The output is one human founder plus a workforce of digital workers, each with a
 plain-language `why`, plus leverage and monthly burn. URL scraping (with SSRF
-guards) lets a real company be mapped from its own site.
+guards) lets a profile signal be mapped.
 
-### Phase 2 - The venture, decomposed: World Designer + Worker Factory
+### Phase 2 - The campaign, decomposed: World Designer + Worker Factory
 
 The seam closed here. The workers the Org Designer invents became the workers
-that actually do the work: the World Designer decomposes the venture into
+that actually do the work: the World Designer decomposes the campaign into
 chapters, and the Worker Factory assigns each chapter to one designed worker,
 who executes it on Foundry, grounded by Foundry IQ memory and checked by a code
 interpreter, gated by a human. See
@@ -311,8 +310,8 @@ legacy visual prototype were removed from the public path to keep one clean
 release surface. Restricted art was never committed, and the repo remains fully
 procedural plus Foundry-generated portraits after `git clone`.
 
-Naming the genre honestly: what this is now is a **narrated management RPG** -
-visual-novel-style lore and choices, tycoon-style company building, and RPG
+Naming the genre honestly: what this is now is a **narrated management simulator** -
+visual-novel-style lore and choices, tycoon-style campaign building, and RPG
 progression where the verification gate is the core mechanic. The player verb is
 *decide*, not *walk*. That genre is the right one for a reasoning battle: the
 reasoning artifacts (org charts, decomposition graphs, validator scores) ARE the
@@ -335,11 +334,11 @@ three env vars (`IMAGE_ENDPOINT`, `IMAGE_DEPLOYMENT`,
 with their own model. See [.env.example](../.env.example) and
 [agents_league_alignment.md](agents_league_alignment.md) section 4.
 
-### Phase 4 - The self-introducing lore and the CEO frame (current)
+### Phase 4 - The self-introducing lore and the founder frame (current)
 
 The most recent layer is the one this document is mostly about: a skippable
 **intro that tutorializes the reasoning** the way a game teaches lore, a reframe
-around **CEO role-play**, a **two-mission choice screen** as an early playable
+around **founder role-play**, a **two-mission choice screen** as an early playable
 placeholder, the **fair-data flywheel** spelled out, and **Agency of Poly** set
 as the worked example so the game maps its own maker. The grand vision -
 terraform the Sahara, automate basic needs, a human at the root of an AI
@@ -368,15 +367,15 @@ workforce - became the spine that ties the mechanism to the meaning.
 
 ```mermaid
 flowchart TD
-    Lore["Intro lore + CEO frame<br/>(intro.js)"] --> Door{"Pick a door"}
+    Lore["Intro lore + founder frame<br/>(intro.js)"] --> Door{"Pick a door"}
     Door -->|template| T["Template gallery<br/>e.g. 3D-printed solar cells"]
-    Door -->|bring your own| U["Idea or URL"]
+    Door -->|bring your own| U["Profile URL"]
     Door -->|grand front| M["Mission: basic needs / terraform"]
     T --> Dec["LLM decomposition<br/>read input -> route to a front -> draft plan"]
     U --> Dec
     M --> Dec
     Dec --> L1["Layer 1: Org Designer<br/>human operator + digital workforce"]
-    L1 --> L2["Layer 2: World Designer + Worker Factory<br/>venture decomposed into owned chapters"]
+    L1 --> L2["Layer 2: World Designer + Worker Factory<br/>campaign decomposed into owned chapters"]
     L2 --> Gate["Verification gate<br/>(human at the root)"]
     Gate --> XP["XP / level / launched"]
     L1 -. "same workers" .-> L2
@@ -399,7 +398,7 @@ the maintainer's demo-readiness checklist (gitignored `submission/private/`). Fo
 
 ## 10. One sentence to remember
 
-Most agent demos ask you to trust a chat box; this one puts you in the CEO's
+Most agent demos ask you to trust a chat box; this one puts you in the founder's
 chair with a vision too big to command, hands you an agency of digital workers
 to align a billion people toward it, and lets nothing count until you, the human
 at the root, approve it.

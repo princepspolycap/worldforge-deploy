@@ -84,6 +84,11 @@ submission/replay/*.jsonl
 submission/replay/*.log
 submission/ui/assets/local/
 submission/ui/assets/generated/lore/video/
+# Cast idle clips (Veo image-to-video) are heavy + local-only, like the lore
+# film; the committed PNG sprites are the baseline and the UI upgrades to a clip
+# when one is present. Keep a placeholder README tracked so the path is visible.
+submission/ui/assets/generated/characters/video/*.mp4
+submission/ui/assets/generated/characters/_v1_prewakanda/
 
 # Build outputs
 dist/

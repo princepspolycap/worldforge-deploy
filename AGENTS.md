@@ -4,7 +4,7 @@ This repo's canonical AI-agent context lives in [.github/copilot-instructions.md
 
 Read it before making changes. Highlights:
 
-- We're building a Microsoft Agents League submission ("Your Company Is the Dungeon") for the **June 10, 2026** live battle.
+- We're building a Microsoft Agents League submission ("Gamifying World Improvement") for the **June 10, 2026** live battle.
 - All reasoning agents must run on **Microsoft Foundry models**.
 - All new code lives under `submission/`. Never modify `starter-kits/` (upstream Microsoft).
 - Reuse Foundry credentials from a local Foundry `.env` (path kept off this public repo).
@@ -16,7 +16,7 @@ Read it before making changes. Highlights:
 Run the end-to-end simulator (no Azure needed):
 
 ```bash
-python3 submission/tools/run_quest_simulation.py --pitch "Your idea"
+python3 submission/tools/run_quest_simulation.py --pitch "Green energy grids"
 ```
 
 Full strategy: [PROJECT_NARRATIVE.md](PROJECT_NARRATIVE.md).

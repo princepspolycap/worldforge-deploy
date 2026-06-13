@@ -4,14 +4,14 @@
 
 ## North Star
 
-Take **Your Company Is the Dungeon** from "decompose a pitch into 3 quest steps" to a **bootstrap-startup simulator** where a player can:
+Take **Gamifying World Improvement** from "decompose a pitch into 3 quest steps" to a **world-improvement campaign simulator** where a player can:
 
 1. Drop a pitch *or* a competitor URL.
 2. Watch a Foundry-driven team **self-organize** around the brief - allocate roles, propose org chart, set OKRs, draft a financial plan, pick GTM channels, wire integrations.
 3. **Autoplay** the simulation while still hitting verification gates, so the player can sit back and watch the venture unfold, or step in to approve / reject.
 4. Walk away with a usable bundle: positioning doc, landing page spec, integration map, org chart, OKRs, 6-month financial plan, GTM channel mix, launch email.
 
-The dungeon framing stays. What changes is the **fidelity of the artifacts**, the **autonomy of the agents** between gates, and the **world response** after each approval.
+The campaign graph framing stays. What changes is the **fidelity of the artifacts**, the **autonomy of the agents** between gates, and the **world response** after each approval.
 
 The playable world should stay story-view-first for this demo pass. The World Designer should generate a venture graph, chapter metadata, evidence, and artifact kinds that the browser renders as narrated beats, Mermaid diagrams, SVG artifacts, KPI meters, and company-system maps.
 
@@ -111,7 +111,7 @@ Right now the Narrator assigns each step to a specific role. The richer pattern,
 
 ## Artifact types as game rewards
 
-The Worker Factory should produce artifacts that can become visuals in the verification panel and in the dungeon itself.
+The Worker Factory should produce artifacts that can become visuals in the verification panel and in the campaign graph itself.
 
 | Artifact kind | Producing worker | Visual renderer | In-world effect |
 |---|---|---|---|

@@ -1,4 +1,4 @@
-"""Foundry hosted agent: the Dungeon Narrator behind the `invocations` protocol.
+"""Foundry hosted agent: the Campaign Narrator behind the `invocations` protocol.
 
 Wraps the same MasterNarrator + lore reasoning the local game server uses, so
 the narrator can be deployed to Microsoft Foundry's hosted-agent surface and

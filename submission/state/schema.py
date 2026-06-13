@@ -14,6 +14,43 @@ class CharacterState(BaseModel):
     skills: List[str] = Field(default_factory=list)
 
 
+class FounderState(BaseModel):
+    name: str = "Acolyte"
+    archetype: str = "Builder"  # Builder | Seller | Designer | Operator
+    skill: str = "building product"
+    locale: str = "en-US"
+    voice_stack: str = "core_openai"  # core_openai | azure_speech | browser
+    voice: str = "onyx"  # Alloy, Echo, Fable, Onyx, Nova, Shimmer
+    avatar: str = "/game/assets/generated/narrator.png"
+
+
+class CharacterRuntimeState(BaseModel):
+    """UI contract for one speaking character in a live/debate turn."""
+    worker_id: str
+    display_name: str
+    role: str
+    role_label: str = ""
+    portrait_url: str = ""
+    voice_stack: str = "core_openai"
+    voice_id: str = ""
+    locale: str = "en-US"
+    text_style: str = ""
+    status: str = "idle"          # idle | thinking | tool_calling | speaking | spoke | failed
+    thought_state: str = ""       # visible state label, never raw hidden CoT
+    current_message: str = ""
+    transcript: List[Dict[str, Any]] = Field(default_factory=list)
+    tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
+    artifacts: List[Dict[str, Any]] = Field(default_factory=list)
+    images: List[Dict[str, Any]] = Field(default_factory=list)
+    diagrams: List[Dict[str, Any]] = Field(default_factory=list)
+    handoff_to: str = ""
+    turn_index: int = 0
+    round_index: int = 0
+    source: str = "simulation"
+    framework: str = ""
+    maf_client: str = ""
+
+
 # ---------------------------------------------------------------------------
 # Org blueprint: the dynamic digital workforce the OrgDesigner proposes for a
 # specific company. This is the "what org structure + agents does this company
@@ -180,6 +217,7 @@ class CompanyState(BaseModel):
     stage: str = "idea"  # idea, validated, launched
     xp: int = 0
     level: int = 1
+    founder: Optional[FounderState] = None
     active_quest: Optional[QuestState] = None
     world: Optional[WorldGraph] = None
     org: Optional[OrgBlueprint] = None
@@ -195,12 +233,13 @@ class StateStore:
         self.state: Optional[CompanyState] = None
         self._lock = threading.RLock()
 
-    def initialize_new_company(self, name: str, pitch: str, description: str = "") -> CompanyState:
+    def initialize_new_company(self, name: str, pitch: str, description: str = "", founder: Optional[FounderState] = None) -> CompanyState:
         with self._lock:
             self.state = CompanyState(
                 name=name,
                 description=description,
                 pitch=pitch,
+                founder=founder,
                 agents={
                     "strategist": CharacterState(
                         name="Soren",
@@ -242,7 +281,7 @@ class StateStore:
             with self._lock:
                 dirpath = os.path.dirname(os.path.abspath(self.filepath))
                 os.makedirs(dirpath, exist_ok=True)
-                
+
                 fd, temp_path = tempfile.mkstemp(dir=dirpath, prefix="state_", suffix=".json.tmp")
                 try:
                     with os.fdopen(fd, 'w') as f:

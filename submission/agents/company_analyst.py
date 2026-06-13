@@ -1,11 +1,12 @@
-"""CompanyAnalyst agent: scrape a company URL, then reason about the business.
+"""CompanyAnalyst/ProfileAnalyst agent: scrape a public URL, then reason.
 
-This is the first reasoning hop on the URL path. It scrapes a homepage into
+This is the first reasoning hop on the URL path. It scrapes a public page into
 structured signal (title, description, headings, CTAs), then a Foundry reasoning
-agent distills that into a clean company profile - what the company sells, to
-whom, and how. The profile feeds the Org Designer, so the chain reads:
+agent distills that into a clean profile. For company/mission pages, that means
+what the mission or business does. For LinkedIn/public profile pages, that means
+what the founder appears strong at and which starting archetype fits.
 
-    URL -> scrape -> reason about the company -> design the org -> build it.
+    URL -> scrape -> reason about the profile/mission -> design the org -> build it.
 
 Deployment preference: STRATEGIST_MODEL (company analysis is strategy work);
 falls back to NARRATOR_MODEL, then to a deterministic distillation of the
@@ -23,26 +24,28 @@ from agents.retrieval import scrape_company
 
 
 SYSTEM = (
-    "You are a company analyst. Given structured signal scraped from a company's "
-    "homepage (title, description, headings, calls to action), infer what the "
-    "business actually does. Be concrete and avoid marketing fluff. Return ONLY a "
-    "valid JSON object."
+    "You are a profile and mission analyst. Given structured signal scraped from "
+    "a public URL (LinkedIn profile, personal site, company page, or mission "
+    "page), infer the useful operating signal for a world-improvement founder. "
+    "Be concrete and avoid marketing fluff. Return ONLY a valid JSON object."
 )
 
 USER_TEMPLATE = """\
-Scraped signal from {host}:
+Scraped signal from {host} ({source_kind}):
 - Title: {title}
 - Description: {description}
 - Headings: {headings}
 - Calls to action: {ctas}
 - Body excerpt: {excerpt}
 
-Infer the business and return JSON:
+Infer the public profile or mission and return JSON:
 {{
-  "company_summary": "one plain sentence: what this company does and for whom",
-  "what_they_sell": "the core product or service",
-  "target_customer": "who pays for it",
-  "business_model": "how it makes money (e.g. SaaS subscription, agency/service, marketplace)",
+  "company_summary": "one plain sentence: what this founder/mission is about",
+  "what_they_sell": "the core skill, product, service, or mission capability",
+  "target_customer": "who benefits from this work",
+  "business_model": "how this work creates value",
+  "founder_archetype": "Builder, Seller, Designer, or Operator",
+  "founder_skill": "short skill phrase that should become the human seat",
   "signals": ["3-5 short evidence phrases pulled from the page"]
 }}
 """
@@ -90,6 +93,89 @@ def _detect_audience(blob: str) -> str:
     return ""
 
 
+def _source_kind(url: str) -> str:
+    parsed = urlparse(url)
+    host = (parsed.netloc or "").lower()
+    path = (parsed.path or "").lower()
+    if "linkedin.com" in host and "/in/" in path:
+        return "linkedin_profile"
+    if "linkedin.com" in host:
+        return "linkedin_public_page"
+    if any(token in host for token in ("about.me", "bio.site", "linktr.ee", "medium.com", "github.com")):
+        return "public_profile"
+    return "mission_or_company_url"
+
+
+def _linkedin_handle(url: str) -> str:
+    parsed = urlparse(url)
+    parts = [p for p in (parsed.path or "").split("/") if p]
+    if "in" in parts:
+        idx = parts.index("in")
+        if idx + 1 < len(parts):
+            return parts[idx + 1].replace("-", " ").replace("_", " ").strip()
+    return ""
+
+
+def _infer_founder_archetype(blob: str, url: str = "") -> Dict[str, str]:
+    """Infer the founder's starting class from public profile text.
+
+    This is deliberately heuristic and transparent. It makes LinkedIn/profile
+    input useful without making private LinkedIn API access required. Live mode
+    can override through the LLM JSON fields; this remains the deterministic
+    fallback for blocked or thin public pages.
+    """
+    text = f"{blob or ''} {_linkedin_handle(url)}".lower()
+    buckets = {
+        "Builder": {
+            "words": (
+                "engineer", "software", "developer", "code", "ai", "machine learning",
+                "technical", "product", "prototype", "build", "systems", "automation",
+                "data", "architecture", "founder"
+            ),
+            "skill": "building product: shipping software, prototypes, systems",
+        },
+        "Seller": {
+            "words": (
+                "sales", "growth", "marketing", "revenue", "partnership", "customers",
+                "go-to-market", "community", "business development", "fundraising",
+                "creator", "audience"
+            ),
+            "skill": "selling: closing deals, partnerships, growth conversations",
+        },
+        "Designer": {
+            "words": (
+                "design", "brand", "story", "storytelling", "ux", "creative",
+                "visual", "content", "experience", "product design", "artist",
+                "narrative"
+            ),
+            "skill": "design: brand, product experience, storytelling",
+        },
+        "Operator": {
+            "words": (
+                "operations", "operator", "process", "strategy", "systems", "finance",
+                "execution", "program", "management", "logistics", "scale", "chief",
+                "ceo"
+            ),
+            "skill": "operations: process, logistics, keeping the machine running",
+        },
+    }
+    scores: Dict[str, int] = {}
+    for name, spec in buckets.items():
+        score = 0
+        for word in spec["words"]:
+            if word in text:
+                score += 2 if " " in word else 1
+        scores[name] = score
+
+    archetype = max(scores, key=scores.get)
+    if scores.get(archetype, 0) <= 0:
+        archetype = "Builder"
+    return {
+        "founder_archetype": archetype,
+        "founder_skill": buckets[archetype]["skill"],
+    }
+
+
 def _fallback_profile(scraped: Dict[str, Any]) -> Dict[str, Any]:
     """Deterministic distillation of scraped signal (no Foundry required)."""
     host = scraped.get("host") or ""
@@ -124,34 +210,56 @@ def _fallback_profile(scraped: Dict[str, Any]) -> Dict[str, Any]:
     if ctas:
         signals.append("CTAs: " + ", ".join(ctas[:3]))
 
+    source_kind = _source_kind(scraped.get("url") or "")
+    inferred = _infer_founder_archetype(f"{title} {description} {' '.join(headings)} {body[:1200]}", scraped.get("url") or "")
     return {
         "company_summary": summary,
         "what_they_sell": what[:200],
         "target_customer": audience[:120],
         "business_model": model,
+        "source_kind": source_kind,
+        **inferred,
         "signals": signals[:5],
     }
 
 
 def _domain_only_profile(url: str) -> Dict[str, Any]:
     host = urlparse(url).netloc or url
+    source_kind = _source_kind(url)
+    handle = _linkedin_handle(url)
+    inferred = _infer_founder_archetype(handle or host, url)
+    if source_kind == "linkedin_profile":
+        summary = f"A public LinkedIn profile signal for {handle or host}; detailed content was not readable without authentication."
+        what = "founder profile signal from a public LinkedIn URL"
+        audience = "the founder's future mission and collaborators"
+        model = "Profile-first mission design"
+    else:
+        summary = f"A small digital-first mission operating at {host}."
+        what = "an online product, service, or public mission (page could not be read)"
+        audience = "small teams, operators, or mission collaborators"
+        model = "Digital-first product, service, or mission"
     return {
-        "company_summary": f"A small digital-first business operating at {host}.",
-        "what_they_sell": "an online product or service (homepage could not be read)",
-        "target_customer": "small teams and operators",
-        "business_model": "Digital-first product or service",
-        "signals": [f"Domain: {host}", "Homepage was unreachable; using a sensible default."],
+        "company_summary": summary,
+        "what_they_sell": what,
+        "target_customer": audience,
+        "business_model": model,
+        "source_kind": source_kind,
+        **inferred,
+        "signals": [f"Domain: {host}", "Public page was unreachable or restricted; using profile fallback."],
     }
 
 
 def _compose_brief(profile: Dict[str, Any], scraped: Optional[Dict[str, Any]], url: str) -> str:
     host = (scraped or {}).get("host") or urlparse(url).netloc or url
     lines = [
-        f"Company: {host}",
-        f"What they do: {profile.get('company_summary', '')}",
-        f"Offering: {profile.get('what_they_sell', '')}",
-        f"Target customer: {profile.get('target_customer', '')}",
-        f"Business model: {profile.get('business_model', '')}",
+        f"Source: {host}",
+        f"Source kind: {profile.get('source_kind', _source_kind(url))}",
+        f"Profile/mission summary: {profile.get('company_summary', '')}",
+        f"Capability or offering: {profile.get('what_they_sell', '')}",
+        f"Beneficiary or customer: {profile.get('target_customer', '')}",
+        f"Value model: {profile.get('business_model', '')}",
+        f"Inferred founder archetype: {profile.get('founder_archetype', '')}",
+        f"Founder human-seat skill: {profile.get('founder_skill', '')}",
     ]
     if scraped and scraped.get("headings"):
         lines.append("Homepage sections: " + " | ".join(scraped["headings"][:6]))
@@ -187,6 +295,7 @@ def analyze_company(url: str) -> Dict[str, Any]:
     if client and deployment and is_live():
         user = USER_TEMPLATE.format(
             host=host,
+            source_kind=_source_kind(url),
             title=scraped.get("title", ""),
             description=scraped.get("description", ""),
             headings=" | ".join(scraped.get("headings", [])[:8]) or "(none)",
@@ -219,6 +328,19 @@ def analyze_company(url: str) -> Dict[str, Any]:
     profile.setdefault("what_they_sell", "")
     profile.setdefault("target_customer", "")
     profile.setdefault("business_model", "")
+    profile.setdefault("source_kind", _source_kind(url))
+    inferred = _infer_founder_archetype(
+        " ".join([
+            str(profile.get("company_summary", "")),
+            str(profile.get("what_they_sell", "")),
+            str(profile.get("target_customer", "")),
+            " ".join(profile["signals"]),
+            (scraped.get("text", "") or "")[:1200],
+        ]),
+        url,
+    )
+    profile["founder_archetype"] = str(profile.get("founder_archetype") or inferred["founder_archetype"])
+    profile["founder_skill"] = str(profile.get("founder_skill") or inferred["founder_skill"])
     profile["company_summary"] = str(profile.get("company_summary") or "").strip() or _domain_only_profile(url)["company_summary"]
     profile["brief"] = _compose_brief(profile, scraped, url)
     profile["host"] = host

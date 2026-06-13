@@ -17,10 +17,26 @@
     const overlay = document.getElementById("intro-overlay");
     if (!overlay) return;
 
-    // The lore film is now opt-in. It is still useful for a staged talk, but a
-    // normal player should reach choices immediately.
-    if (new URLSearchParams(location.search).get("intro") !== "1") {
+    // Reveal the "first step" screen underneath: restart its staggered
+    // entrance animation and float the ambient pad up under it. Used both when
+    // the film hands off and when the player lands straight on it (?intro=0).
+    function revealFirstStep() {
+        const fs = document.querySelector(".first-step");
+        if (fs) {
+            fs.classList.remove("enter");
+            void fs.offsetWidth; // reflow so the animation can replay
+            fs.classList.add("enter");
+        }
+        if (A.ambientStart && !(A.isMuted && A.isMuted())) {
+            try { A.ambientStart(); } catch (e) { /* music optional */ }
+        }
+    }
+
+    // The lore film is the default opening. Practice escape hatch: append
+    // ?intro=0 to the URL to bypass it and land straight on the first step.
+    if (new URLSearchParams(location.search).get("intro") === "0") {
         overlay.style.display = "none";
+        revealFirstStep();
         return;
     }
 
@@ -31,9 +47,9 @@
     const DWELL = 6800;      // fallback hold (ms) when narration is unavailable
     const DWELL_MAX = 34000;  // safety cap while a narration line is speaking
                               // (must clear the longest baked take: sahara ~28s)
-    const VOICED_MAX = 16000; // safety cap for a voiced clip scene (clips are
-                              // ~10s; if `ended` never fires, advance at 16s
-                              // instead of letting the film hang in silence)
+    const VOICED_MAX = 95000; // safety cap for the voiced film (the assembled
+                              // intro runs ~75s; if `ended` never fires, advance
+                              // at 95s instead of letting it hang in silence)
 
     // Cinematic backdrops. Stills are generated with the Foundry MAI image
     // deployment (tools/generate_art.py --keyart) and ship committed. If a
@@ -53,6 +69,7 @@
     // Delivery direction shared by the baked takes and the live TTS fallback.
     const NARRATOR_STYLE = "A master storyteller speaking softly to one person by firelight, inviting them into an adventure. Low, warm, breathy chest voice. Slow conversational pace with long natural pauses at every dash and period. Lean into key words with rising wonder, then drop to near-whisper on the final line. Imperfect, human, alive - slight breaths audible. Absolutely never monotone, never robotic, never an announcer or commercial read.";
     const loadedImgs = {}; // filename -> true once preloaded OK
+    const failedImgs = {}; // filename -> true once loading failed
     const loadedVids = {}; // scene base name -> object URL of a playable clip
     const voicedVids = {}; // scene name -> true when the clip carries narration
     const probing = {};    // scene name -> true while the clip fetch is in flight
@@ -83,6 +100,18 @@
                     const p = pendingBg;
                     pendingBg = null;
                     setBackdrop(p.name, p.dim);
+                }
+            };
+            im.onerror = () => {
+                failedImgs[name] = true;
+                if (pendingBg && pendingBg.name === name) {
+                    const p = pendingBg;
+                    pendingBg = null;
+                    setBackdrop(p.name, p.dim);
+                }
+                if (!done && started && index >= 0 && cards[index]
+                    && (cards[index].img === name || cards[index].fallbackImg === name)) {
+                    render(index);
                 }
             };
             im.src = IMG_BASE + name;
@@ -120,7 +149,14 @@
                         setBackdrop(name, bgFront ? bgFront.classList.contains("dimmed") : false);
                     }
                 })
-                .catch(() => { /* stills-only is a fine baseline */ });
+                .catch(() => { /* stills-only is a fine baseline */ })
+                .finally(() => {
+                    probing[name] = false;
+                    if (!done && started && index >= 0 && cards[index]
+                        && (cards[index].img === name || cards[index].fallbackImg === name)) {
+                        render(index);
+                    }
+                });
         });
     }
 
@@ -154,7 +190,7 @@
             return;
         }
         const clip = loadedVids[name];
-        if (!clip && !loadedImgs[name]) { pendingBg = { name: name, dim: dim }; return; }
+        if (!clip && !loadedImgs[name] && !failedImgs[name]) { pendingBg = { name: name, dim: dim }; return; }
         pendingBg = null;
         const incoming = bgFront === bgA ? bgB : bgA;
         const outgoing = bgFront;
@@ -200,7 +236,7 @@
         } else {
             vid.style.display = "none";
             try { vid.pause(); } catch (e) { /* ok */ }
-            incoming.style.backgroundImage = "url('" + IMG_BASE + name + "')";
+            incoming.style.backgroundImage = loadedImgs[name] ? "url('" + IMG_BASE + name + "')" : "";
             void incoming.offsetWidth; // restart the Ken Burns animation
             incoming.classList.add(KB[kbTurn++ % KB.length]);
         }
@@ -214,51 +250,25 @@
         bgFront = incoming;
     }
 
-    // The intro is a short film, not a slide deck. Five scenes, League-of-
-    // Legends energy: invoke, don't explain. Each card is a full-bleed
-    // backdrop, an intertitle, and a voice-over that advances the card when
-    // it finishes. The arc: invitation -> the vow -> the mechanism -> how it
-    // thinks -> the title. (The approval law lives inside "how it thinks" as
-    // one phrase - it's a game rule, not a story beat.)
+    // The intro is now ONE assembled film (Omni/Veo, ~75s, native narration and
+    // score) that plays full-bleed and then hands directly to the founding
+    // screen. It ships as `lore/video/film.voiced.mp4` (local-only) with
+    // `lore/film.png` as the poster/fallback. A single card drives it: when the
+    // voiced clip is present the existing video machinery plays it unmuted in
+    // film-mode and advances on `ended`; if the clip is missing (fresh fork),
+    // the card falls back to the poster + a spoken line so the demo still opens.
     const cards = [
         {
-            kicker: "A POLY186 experience",
+            kicker: "Gamifying World Improvement",
             h2: "Welcome to your hero's journey.",
-            sub: "Chart your path: terraform the Sahara. Automate basic needs.",
-            vo: "Welcome to your hero's journey. You are to chart a path within a world that terraforms the Sahara desert and automates basic needs. At your disposal: a league of reasoning agents - your digital workers. The journey is ambitious. What it needs - is you.",
-            img: "sahara.png",
-        },
-        {
-            kicker: "The vow",
-            h2: "Align a billion people.",
-            sub: "No belly hungry. No head unroofed. No back unclad. No soul enslaved.",
-            vo: "A vision this size is never commanded into existence. It is aligned - by a vow. No belly goes hungry. No head goes without a roof. No back is unclad. And no soul is enslaved to survival.",
-            img: "needs.png",
-        },
-        {
-            kicker: "The mechanism",
-            h2: "An agency of digital workers.",
-            sub: "Bind your skill to a worker that executes.",
-            vo: "The mechanism is an agency of digital workers. Bind your real skill to a worker that executes, and your experience becomes a business that runs while you sleep - and everyone gets paid, fairly.",
-            img: "workforce.png",
-        },
-        {
-            kicker: "How it thinks",
-            h2: "Reasoning runs on Foundry.",
-            sub: "Memory it can cite. Checks it cannot fake. Your seal as law.",
-            vo: "Every agent here reasons on Microsoft Foundry - memory it can cite, checks it cannot fake, and one law above them all: nothing counts until you approve it.",
-            img: "foundry.png",
-        },
-        {
-            kicker: "The game",
-            h2: "Your company is the dungeon.",
-            sub: "Clear it room by room. The path is yours.",
-            vo: "Found a company on one front of the mission. Take the CEO's chair. Clear it room by room with your workforce. Your company is the dungeon. Now - choose your front, and tell us what you bring.",
-            img: "title.png",
+            sub: "Automate basic needs. Terraform the Sahara. Your workforce builds it with you.",
+            vo: "Welcome to your hero's journey. Your quest: automate basic needs, while terraforming the Sahara Desert. At your disposal, a league of reasoning agents - your digital workers. The journey is ambitious. Your workers have your back.",
+            img: "film.png",
+            fallbackImg: "title.png",
         },
     ];
 
-    preloadLoreArt(cards.map((c) => c.img).filter(Boolean));
+    preloadLoreArt([...new Set(cards.flatMap((c) => [c.img, c.fallbackImg]).filter(Boolean))]);
 
     // (Missions now live on the founding screen itself - story.js renders the
     // mission cards inside the title card, so the film's last scene fades
@@ -269,14 +279,23 @@
     let done = false;
     let started = false; // the film rolls only after one gesture (audio unlock)
 
+    function sceneAsset(card) {
+        if (!card) return null;
+        if (card.img && !loadedVids[card.img] && failedImgs[card.img] && card.fallbackImg) {
+            return card.fallbackImg;
+        }
+        return card.img || card.fallbackImg || null;
+    }
+
     function render(n) {
         const c = cards[n];
-        setBackdrop(c.img || null, false);
+        const asset = sceneAsset(c);
+        setBackdrop(asset, false);
         // One-film rule: when the scene's clip carries its own narration, the
         // picture and the voice ARE the storytelling - the overlay drops to a
         // lower-third kicker and the scrim thins (CSS .film-mode). Scenes
         // without a voiced clip keep the full card + baked narration.
-        const voiced = !!(c.img && voicedVids[c.img]) && !playBlocked[c.img];
+        const voiced = !!(asset && voicedVids[asset]) && !playBlocked[asset];
         overlay.classList.toggle("film-mode", voiced);
         cardEl.innerHTML =
             '<div class="intro-anim">' +
@@ -289,7 +308,7 @@
             // Omni/Veo voiced clip: the film carries its own narration - no
             // baked take. The clip's `ended` event advances the card.
             wireVoicedAdvance();
-        } else if (c.img && probing[c.img]) {
+        } else if (asset && probing[asset]) {
             // The clip probe is still in flight - HOLD rather than starting
             // the baked take with its short dwell timer (which would cut a
             // 10s clip at ~7s). When the probe settles, render(index) re-runs
@@ -299,7 +318,7 @@
             timer = setTimeout(() => { if (my === advanceToken && !done) next(); }, DWELL_MAX);
         } else {
             speakThenAdvance(c.vo || (c.h2 + " " + (c.sub || "")),
-                c.img ? NARR_BASE + c.img.replace(/\.png$/, ".mp3") : null);
+                asset ? NARR_BASE + asset.replace(/\.png$/, ".mp3") : null);
         }
         hintEl.textContent = "space / click to advance - esc to skip";
     }
@@ -330,7 +349,8 @@
             vid.addEventListener("error", () => {
                 if (my !== advanceToken || done) return;
                 const c = cards[index];
-                if (c && c.img) notifyVoicedBlocked(c.img);
+                const asset = sceneAsset(c);
+                if (asset) notifyVoicedBlocked(asset);
             }, { once: true });
         }
     }
@@ -394,6 +414,9 @@
         document.removeEventListener("keydown", onKey);
         overlay.classList.add("hide");
         overlay.setAttribute("aria-hidden", "true");
+        // Hand off to the "first step" screen: trigger its entrance and start
+        // the ambient pad as the film overlay fades away.
+        if (focusTarget !== "begin") revealFirstStep();
         const finish = () => {
             overlay.style.display = "none";
             if (!focusTarget) return; // the game is already running underneath
@@ -432,8 +455,11 @@
     }, { once: true });
 
     // Browsers refuse unmuted playback until the player gestures, so the film
-    // opens behind one explicit "begin" - the press-start of the game. If this
-    // session already saw a gesture (e.g. an in-page reload), roll immediately.
+    // always opens behind one explicit "Begin" press - the press-start of the
+    // game. We deliberately ALWAYS show this gate (even when the page already
+    // saw a gesture, e.g. an in-page reload mid-demo): the click that dismisses
+    // the gate is the fresh user activation that lets the film play UNMUTED.
+    // Auto-starting without that press is what made the film silently skip.
     function startFilm() {
         if (started || done) return;
         started = true;
@@ -442,21 +468,17 @@
         show(0);
     }
 
-    if (navigator.userActivation && navigator.userActivation.hasBeenActive) {
-        startFilm();
-    } else {
-        overlay.classList.add("gate");
-        setBackdrop(cards[0].img, true); // dimmed first frame as the poster
-        cardEl.innerHTML =
-            '<div class="intro-anim">' +
-            '<div class="kicker">A POLY186 experience</div>' +
-            "<h2>Gamifying World Improvement</h2>" +
-            "<p>A hero's journey where you automate basic needs.</p>" +
-            '<span class="intro-begin">&#9654;&ensp;Begin</span>' +
-            "</div>";
-        hintEl.innerHTML =
-            '<span class="ih-credit">Microsoft Agents League &middot; Battle 2 &middot; Reasoning Agents</span>' +
-            '<span class="ih-sep">&middot;</span>' +
-            '<span class="ih-hint">sound on &middot; esc to skip</span>';
-    }
+    overlay.classList.add("gate");
+    setBackdrop(cards[0].img, true); // dimmed first frame as the poster
+    cardEl.innerHTML =
+        '<div class="intro-anim">' +
+        '<div class="kicker">A world-improvement campaign</div>' +
+        "<h2>Gamifying World Improvement</h2>" +
+        "<p>A hero's journey where you automate basic needs.</p>" +
+        '<span class="intro-begin">&#9654;&ensp;Begin</span>' +
+        "</div>";
+    hintEl.innerHTML =
+        '<span class="ih-credit">Microsoft Agents League &middot; Battle 2 &middot; Reasoning Agents</span>' +
+        '<span class="ih-sep">&middot;</span>' +
+        '<span class="ih-hint">sound on &middot; esc to skip</span>';
 })();

@@ -104,7 +104,7 @@ Pitch or URL
 ```bash
 python3 submission/tools/run_quest_simulation.py --pitch "Your idea here"
 
-DEMO_MODE=simulation DUNGEON_STATE_FILE=/tmp/dungeon-state.json \
+DEMO_MODE=simulation CAMPAIGN_STATE_FILE=/tmp/campaign-state.json \
   python3 -m uvicorn submission.tools.server:app --host 127.0.0.1 --port 8051
 ```
 

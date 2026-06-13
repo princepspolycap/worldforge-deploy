@@ -1,7 +1,6 @@
 # Realtime Avatar Dilemma System
 
-This document defines the next interaction layer for "Your Company Is the
-Dungeon": dilemmas should feel like live scenes with speaking agent characters,
+This document defines the next interaction layer for "Gamifying World Improvement": dilemmas should feel like live scenes with speaking agent characters,
 captions, visible tool calls, stateful images, and choices that immediately
 change the company.
 
@@ -349,34 +348,16 @@ Let workers hand off within a room:
 
 ### Phase 1.5 - Agent Stand-Up After Choices
 
-Implemented baseline. After `/api/decision` applies a consequence, Story Mode
-calls `/api/world/standup` and renders a short manager-directed group-chat beat:
+Implemented baseline and upgraded to support infinite multi-turn group chat conversations. After `/api/decision` applies a consequence, Story Mode calls `/api/world/standup` and renders a short manager-directed group-chat beat:
 
-- the owning worker explains how the choice changes the handoff;
-- a new org role can speak if the consequence added one;
-- the next worker reads memory and operating metrics before its brief;
-- the Runway Steward reacts to burn, runway, and digital-worker count.
+- The owning worker explains how the choice changes the handoff;
+- A new org role can speak if the consequence added one;
+- The next worker reads memory and operating metrics before its brief;
+- The Runway Steward reacts to burn, runway, and digital-worker count.
 
-The endpoint returns `orchestration.pattern = "group_chat"` plus turns, tool
-calls, and handoffs. It is deterministic in simulation, but the contract is
-shaped to be replaced by Microsoft Agent Framework Group Chat later.
+The player (CEO) can respond to the workforce using text or voice (transcribed using local SpeechRecognition STT via the microphone button). Saving the comment registers it into procedural memory, then the client recursively calls `/api/world/standup` with the accumulated conversation history. The agents dynamically respond to the CEO's input in character, enabling an interactive chat standup loop that runs infinitely until the CEO chooses to "End Standup".
 
-Microsoft Agent Framework has the equivalent of the AutoGen group-chat concept.
-The official orchestration docs list Group Chat as a built-in multi-agent
-pattern where agents collaborate in a shared conversation, and the Python API
-documents `GroupChatBuilder` as a high-level builder for manager-directed group
-chat workflows:
-
-- https://learn.microsoft.com/en-us/agent-framework/workflows/orchestrations/
-- https://learn.microsoft.com/en-us/agent-framework/workflows/orchestrations/group-chat
-- https://learn.microsoft.com/en-us/python/api/agent-framework-core/agent_framework.groupchatbuilder
-
-That means our migration path should be:
-
-1. Keep `/api/world/standup` as the game contract.
-2. Replace the deterministic turn builder with a `GroupChatBuilder` workflow
-   when the local runtime and credentials are ready.
-3. Stream the same turn/tool/handoff events into the realtime scene contract.
+If live models are configured, the group chat executes sequentially on Microsoft Agent Framework (`run_maf_group_chat` inside `maf_runtime.py`) using the models specified in the model config, carrying the conversation history forward. Otherwise, it gracefully falls back to structured simulation turns.
 
 ### Phase 5 - Full Realtime Campaign
 
