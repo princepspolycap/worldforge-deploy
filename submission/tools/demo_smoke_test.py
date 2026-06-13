@@ -67,13 +67,18 @@ def check_campaign_step_by_step_path(base: str, pitch: str) -> None:
     analyze_res = _post(base, "/api/company/analyze", {"pitch": pitch, "company_name": "SmokeCo"})
     org = analyze_res.get("org") or {}
     _require(org.get("headcount", 0) > 0, "failed to design workforce org blueprint")
+    antagonist = analyze_res.get("antagonist") or {}
+    _require(bool(antagonist.get("name")), "analyze did not forge an antagonist (villain)")
     print(f"  workforce designed -> {org.get('headcount')} seat(s) created")
+    print(f"  antagonist forged -> {antagonist.get('name')} ({antagonist.get('archetype')})")
 
     # 2. Design Campaign Graph
     design_res = _post(base, "/api/world/design", {"pitch": pitch, "company_name": "SmokeCo"})
     world = design_res.get("state", {}).get("world") or {}
     chapters = world.get("chapters") or []
     _require(len(chapters) == 5, f"expected 5 campaign chapters, got {len(chapters)}")
+    carried = (design_res.get("state") or {}).get("antagonist") or {}
+    _require(bool(carried.get("name")), "antagonist was lost when carrying analyze -> world/design")
     print(f"  campaign graph constructed -> {len(chapters)} chapters")
 
     # 3. Step through chapters sequentially
@@ -152,6 +157,7 @@ def check_world_path(base: str, pitch: str) -> None:
     world = state.get("world") or {}
     chapters = world.get("chapters", [])
     _require(len(chapters) >= 3, f"expected >=3 chapters, got {len(chapters)}")
+    _require(bool((state.get("antagonist") or {}).get("name")), "autoplay did not forge an antagonist (villain)")
 
     for ch in chapters:
         artifact = ch.get("artifact") or {}

@@ -24,6 +24,23 @@ class FounderState(BaseModel):
     avatar: str = "/game/assets/generated/narrator.png"
 
 
+class AntagonistState(BaseModel):
+    """The competitive antagonist or villain — the antithesis of the founder's archetype.
+
+    In the story, the antagonist represents market competition, technical challenges,
+    or the skills the founder must learn to grow their business.
+    """
+    name: str = "Shadow Market"
+    archetype: str = "Operator"  # The complementary opposite of founder's archetype
+    threat_type: str = "market"  # market | technical | internal | cultural
+    threat_description: str = ""
+    strengths: List[str] = Field(default_factory=list)
+    strategy: str = ""  # What the antagonist is doing that poses a challenge
+    signature_tactic: str = ""  # The key move the antagonist uses (narrative tension point)
+    target_customer_overlap: str = ""  # Where their ICP overlaps with founder's target
+    motivation: str = ""  # Why this antagonist exists/competes (story depth)
+
+
 class CharacterRuntimeState(BaseModel):
     """UI contract for one speaking character in a live/debate turn."""
     worker_id: str
@@ -210,6 +227,25 @@ class QuestState(BaseModel):
     steps: List[QuestStep] = Field(default_factory=list)
     current_step_index: int = 0
 
+
+class Dilemma(BaseModel):
+    """A situational choice at a chapter gate that moves the story forward.
+    
+    Based on the founder archetype, antagonist, and market dynamics, the dilemma
+    presents a tradeoff: hiring a specialist (spend money, gain capability) vs
+    upskilling the founder (save money, slow progress), etc.
+    """
+    id: str
+    chapter_id: str
+    title: str  # e.g., "Hire or Train?"
+    context: str  # Narrative framing that explains why this choice matters now
+    antagonist_move: str  # What the antagonist did that created this dilemma
+    option_a: Dict[str, Any]  # {label, description, economics_impact, story_impact}
+    option_b: Dict[str, Any]  # {label, description, economics_impact, story_impact}
+    tradeoff_axis: str  # e.g., "speed_vs_burn", "quality_vs_reach", "specialization_vs_flexibility"
+    selected_option: Optional[str] = None  # "a" or "b" after player chooses
+
+
 class CompanyState(BaseModel):
     name: str
     description: str
@@ -218,6 +254,7 @@ class CompanyState(BaseModel):
     xp: int = 0
     level: int = 1
     founder: Optional[FounderState] = None
+    antagonist: Optional[AntagonistState] = None
     active_quest: Optional[QuestState] = None
     world: Optional[WorldGraph] = None
     org: Optional[OrgBlueprint] = None

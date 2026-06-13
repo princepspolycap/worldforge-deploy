@@ -19,8 +19,8 @@ import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
-from agents.model_config import get_foundry_client, is_live, model_for, create_chat_completion
-from agents.retrieval import scrape_company
+from agents.model_config import get_foundry_client, is_live, model_for, runtime_mode, create_chat_completion
+from agents.retrieval import scrape_company, web_search
 
 
 SYSTEM = (
@@ -37,6 +37,7 @@ Scraped signal from {host} ({source_kind}):
 - Headings: {headings}
 - Calls to action: {ctas}
 - Body excerpt: {excerpt}
+- Public web findings (live web_search): {web_findings}
 
 Infer the public profile or mission and return JSON:
 {{
@@ -114,6 +115,51 @@ def _linkedin_handle(url: str) -> str:
         if idx + 1 < len(parts):
             return parts[idx + 1].replace("-", " ").replace("_", " ").strip()
     return ""
+
+
+# Profile URLs where the page is often unreadable (LinkedIn) or thin - exactly
+# where public-web OSINT adds the most signal. Company/mission URLs skip OSINT
+# so company analysis stays a single cheap fetch.
+_PROFILE_SOURCE_KINDS = {"linkedin_profile", "linkedin_public_page", "public_profile"}
+
+
+def _osint_query(url: str) -> str:
+    """Build a public-web search query from a profile URL/handle.
+
+    For a person the bare name is the strongest signal for both the HTML SERP
+    and the entity (Instant Answer) endpoint, so we keep it simple.
+    """
+    handle = _linkedin_handle(url)
+    if handle:
+        return handle
+    host = (urlparse(url).netloc or "").strip()
+    return f"{host} founder about" if host else ""
+
+
+def osint_enrich(url: str, top_k: int = 4) -> Dict[str, Any]:
+    """Public-web OSINT on a founder URL via the keyless web_search tool.
+
+    Returns {signals, blob, hits}: real titles/snippets found about the person,
+    used to ground the Profile Analyst when a page (e.g. a restricted LinkedIn
+    profile) cannot be read directly. Never raises - empty on any failure so the
+    analyzer degrades cleanly. Only meaningful for profile URLs (see callers).
+    """
+    query = _osint_query(url)
+    if not query:
+        return {"signals": [], "blob": "", "hits": []}
+    try:
+        hits = web_search(query, top_k=top_k)
+    except Exception:
+        hits = []
+    signals: List[str] = []
+    blobs: List[str] = []
+    for h in hits:
+        title = (h.get("title") or "").strip()
+        snippet = (h.get("snippet") or "").strip()
+        if title:
+            signals.append(f"Web: {title[:90]}")
+        blobs.append(f"{title}. {snippet}")
+    return {"signals": signals[:4], "blob": " ".join(blobs)[:1500], "hits": hits}
 
 
 def _infer_founder_archetype(blob: str, url: str = "") -> Dict[str, str]:
@@ -276,15 +322,26 @@ def analyze_company(url: str) -> Dict[str, Any]:
     """
     host = urlparse(url).netloc or url
     scraped = scrape_company(url)
+    # Public-web OSINT once per analyze, only for person/profile URLs - this is
+    # where a page is often unreadable (LinkedIn) and external signal matters.
+    osint = osint_enrich(url) if _source_kind(url) in _PROFILE_SOURCE_KINDS else {"signals": [], "blob": "", "hits": []}
 
     if not scraped:
         profile = _domain_only_profile(url)
+        if osint["signals"]:
+            # OSINT is the strongest signal we have when the page won't load:
+            # merge web findings and re-seat the archetype from them.
+            profile["signals"] = (profile["signals"] + osint["signals"])[:6]
+            inferred = _infer_founder_archetype(f'{osint["blob"]} {_linkedin_handle(url)}', url)
+            profile["founder_archetype"] = inferred["founder_archetype"]
+            profile["founder_skill"] = inferred["founder_skill"]
         profile.update({
             "brief": _compose_brief(profile, None, url),
             "host": host,
             "source": url,
             "scraped": False,
-            "mode": "live" if is_live() else "simulation",
+            "osint_hits": len(osint["hits"]),
+            "mode": runtime_mode(),
         })
         return profile
 
@@ -301,6 +358,7 @@ def analyze_company(url: str) -> Dict[str, Any]:
             headings=" | ".join(scraped.get("headings", [])[:8]) or "(none)",
             ctas=", ".join(scraped.get("ctas", [])[:6]) or "(none)",
             excerpt=(scraped.get("text", "") or "")[:1200],
+            web_findings=(osint["blob"][:800] or "(none)"),
         )
         try:
             resp = create_chat_completion(
@@ -319,6 +377,12 @@ def analyze_company(url: str) -> Dict[str, Any]:
 
     if not profile:
         profile = _fallback_profile(scraped)
+
+    # Public-web OSINT signals corroborate the page read; appended before the
+    # final archetype re-inference so they feed it (without overriding a concrete
+    # LLM archetype, which the `or` below preserves).
+    if osint["signals"]:
+        profile["signals"] = (list(profile.get("signals") or []) + osint["signals"])[:6]
 
     # Normalize shape + attach the brief and provenance.
     signals = profile.get("signals")
@@ -350,5 +414,6 @@ def analyze_company(url: str) -> Dict[str, Any]:
     # Parser provenance: which path read the page (bs4 DOM walk vs stdlib
     # regex fallback) - surfaced in the replay log and the story UI.
     profile["parser"] = scraped.get("parser", "regex")
-    profile["mode"] = "live" if (client and deployment and is_live()) else "simulation"
+    profile["osint_hits"] = len(osint["hits"])
+    profile["mode"] = runtime_mode() if (client and deployment and is_live()) else "simulation"
     return profile

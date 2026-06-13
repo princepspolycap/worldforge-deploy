@@ -420,7 +420,7 @@
         const finish = () => {
             overlay.style.display = "none";
             if (!focusTarget) return; // the game is already running underneath
-            const id = focusTarget === "begin" ? "begin" : "in-pitch";
+            const id = focusTarget === "begin" ? "begin" : "in-url";
             const el = document.getElementById(id);
             if (el) { try { el.focus(); } catch (e) { /* focus optional */ } }
         };

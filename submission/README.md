@@ -83,3 +83,43 @@ python3 submission/tools/run_quest_simulation.py --pitch "Green energy grids"
 
 For Foundry-backed runs, copy the keys you need from your own local Foundry env
 (kept off this public repo) into `submission/.env`.
+
+## Local Agent Gameplay With Ollama
+
+Normal gameplay can run through a local OpenAI-compatible model. Ollama is the
+recommended default local runtime.
+
+```bash
+# 1. Confirm Ollama is running and has a model
+ollama list
+
+# If needed, pull a small model first
+ollama pull llama3.2:3b
+
+# 2. Smoke-test the same local route the game uses
+LOCAL_AGENT_MODEL=llama3.2:3b \
+  .venv/bin/python submission/tools/ollama_local_smoke_test.py
+
+# 3. Start the game in local-agent mode
+DEMO_MODE=local \
+AGENT_ROUTING=local_first \
+LOCAL_AGENT_BASE_URL=http://localhost:11434/v1 \
+LOCAL_AGENT_API_KEY=ollama \
+LOCAL_AGENT_MODEL=llama3.2:3b \
+PORT=8787 \
+  .venv/bin/python submission/tools/server.py
+```
+
+Then open `http://127.0.0.1:8787/?intro=0`.
+
+On this machine, the local Ollama runtime has been verified with `gemma4:e4b`:
+
+```bash
+LOCAL_AGENT_MODEL=gemma4:e4b \
+  .venv/bin/python submission/tools/ollama_local_smoke_test.py
+```
+
+Cloud Foundry remains the fallback/escalation path. For hybrid runs, keep
+`AGENT_ROUTING=local_first`, configure the `LOCAL_*` variables above, and also
+set the cloud `NARRATOR_MODEL`, `STRATEGIST_MODEL`, `DESIGNER_MODEL`,
+`MARKETER_MODEL`, `OPS_MODEL`, `NPC_FAST_MODEL`, and `FOUNDRY_FALLBACK_MODEL`.

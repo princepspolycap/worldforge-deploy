@@ -17,7 +17,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import List, Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlencode, parse_qs, unquote
 
 
 KNOWLEDGE_DIR = Path(__file__).resolve().parent.parent / "knowledge"
@@ -157,6 +157,185 @@ def ingest_url(url: str, max_bytes: int = 400_000, timeout: float = 6.0) -> Opti
     if not html_doc:
         return None
     return _html_to_text(html_doc) or None
+
+
+def web_search(query: str, top_k: int = 5, timeout: float = 8.0) -> List[dict]:
+    """Live web search, keyless by default. Returns [{title, url, snippet}].
+
+    Two paths, same degradation law as the rest of the repo:
+      1. Poly platform - when ENABLE_POLY_BACKEND=true and POLY_BACKEND_URL is
+         set, POST the query to Poly's search endpoint (origin "poly").
+      2. Keyless fallback - DuckDuckGo's HTML endpoint, parsed with stdlib only
+         (origin "duckduckgo"). No API key, no signup, forkable after clone.
+    Any failure returns [] so callers degrade gracefully.
+    """
+    query = (query or "").strip()
+    if not query:
+        return []
+    poly = _poly_web_search(query, top_k, timeout)
+    if poly is not None:
+        return poly[:top_k]
+    hits = _duckduckgo_search(query, top_k, timeout)
+    if hits:
+        return hits[:top_k]
+    # HTML endpoint can throttle on bursts - fall back to the keyless JSON
+    # Instant Answer API (different host). It is an entity API, so strip search
+    # operators (quotes, OR/AND) to a plain query before asking.
+    return _ddg_instant_answer(_plainify_query(query), top_k, timeout)[:top_k]
+
+
+def _plainify_query(query: str) -> str:
+    """Reduce a SERP-style query to a plain entity string for the IA endpoint."""
+    plain = query.replace('"', " ")
+    plain = re.sub(r"\b(?:OR|AND)\b", " ", plain)
+    plain = re.sub(r"[-+]", " ", plain)
+    return re.sub(r"\s+", " ", plain).strip()
+
+
+def _poly_web_search(query: str, top_k: int, timeout: float) -> Optional[List[dict]]:
+    """POST to the Poly platform's web-search endpoint, or None when disabled.
+
+    Poly is an external tool (not on the Foundry reasoning path), so it is fully
+    optional. None here means "not configured" - the caller uses the keyless
+    DuckDuckGo path instead.
+    """
+    if os.getenv("ENABLE_POLY_BACKEND", "").strip().lower() not in ("1", "true", "yes"):
+        return None
+    base = os.getenv("POLY_BACKEND_URL", "").strip().rstrip("/")
+    if not base:
+        return None
+    import json
+    body = json.dumps({"query": query, "top_k": top_k}).encode()
+    req = urllib.request.Request(f"{base}/web/search", data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    key = os.getenv("POLY_BACKEND_KEY", "").strip()
+    if key:
+        req.add_header("Authorization", f"Bearer {key}")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+    except Exception:
+        return None
+    out: List[dict] = []
+    for item in (data.get("results") or data.get("items") or [])[:top_k]:
+        out.append({
+            "title": str(item.get("title") or "")[:200],
+            "url": str(item.get("url") or item.get("link") or ""),
+            "snippet": str(item.get("snippet") or item.get("description") or "")[:400],
+            "origin": "poly",
+        })
+    return out
+
+
+def _duckduckgo_search(query: str, top_k: int, timeout: float) -> List[dict]:
+    """Keyless web search via DuckDuckGo's HTML endpoint. stdlib-only parsing.
+
+    The endpoint expects a POST form submission and a browser User-Agent; a GET
+    returns an interstitial with no results.
+    """
+    endpoint = "https://html.duckduckgo.com/html/"
+    if not _is_public_http_url(endpoint):
+        return []
+    data = urlencode({"q": query, "kl": "us-en"}).encode()
+    req = urllib.request.Request(
+        endpoint, data=data, method="POST",
+        headers={
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0",
+            "Accept": "text/html,application/xhtml+xml",
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+    )
+    try:
+        # nosec B310 - fixed public host validated above.
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            doc = resp.read(600_000).decode("utf-8", errors="ignore")
+    except (urllib.error.URLError, socket.timeout, ValueError, OSError):
+        return []
+    results: List[dict] = []
+    # Each organic result is an <a class="result__a" href="...">Title</a> plus an
+    # optional <a class="result__snippet">. Older responses wrap the real URL in
+    # a /l/?uddg= redirect, which _unwrap_ddg_url resolves.
+    for m in re.finditer(r'(?is)<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', doc):
+        href, title_html = m.group(1), m.group(2)
+        real = _unwrap_ddg_url(href)
+        if not real:
+            continue
+        # Snippet: the next result__snippet block after this anchor, if present.
+        tail = doc[m.end(): m.end() + 1500]
+        sm = re.search(r'(?is)<a[^>]+class="result__snippet"[^>]*>(.*?)</a>', tail)
+        snippet = _html_to_text(sm.group(1)) if sm else ""
+        results.append({
+            "title": _html_to_text(title_html)[:200],
+            "url": real,
+            "snippet": snippet[:400],
+            "origin": "duckduckgo",
+        })
+        if len(results) >= top_k:
+            break
+    return results
+
+
+def _unwrap_ddg_url(href: str) -> str:
+    """Resolve a DuckDuckGo redirect (//duckduckgo.com/l/?uddg=...) to its target."""
+    if not href:
+        return ""
+    if href.startswith("//"):
+        href = "https:" + href
+    parsed = urlparse(href)
+    if "duckduckgo.com" in (parsed.hostname or "") and parsed.path.startswith("/l/"):
+        target = parse_qs(parsed.query).get("uddg", [""])[0]
+        return unquote(target) if target else ""
+    return href if parsed.scheme in ("http", "https") else ""
+
+
+def _ddg_instant_answer(query: str, top_k: int, timeout: float) -> List[dict]:
+    """Keyless fallback: DuckDuckGo Instant Answer JSON API (api.duckduckgo.com).
+
+    Returns the entity abstract plus related-topic links. Less rich than the
+    HTML results but on a different host that does not throttle on bursts, so it
+    keeps web_search useful when the HTML endpoint is rate-limited.
+    """
+    endpoint = "https://api.duckduckgo.com/?" + urlencode(
+        {"q": query, "format": "json", "no_html": "1", "no_redirect": "1", "t": "campaignforge"})
+    if not _is_public_http_url(endpoint):
+        return []
+    req = urllib.request.Request(endpoint, headers={"User-Agent": "CampaignForge/1.0", "Accept": "application/json"})
+    try:
+        # nosec B310 - fixed public host validated above.
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            import json
+            data = json.loads(resp.read(400_000).decode("utf-8", errors="ignore"))
+    except (urllib.error.URLError, socket.timeout, ValueError, OSError):
+        return []
+    results: List[dict] = []
+    abstract = (data.get("AbstractText") or "").strip()
+    if abstract:
+        results.append({
+            "title": (data.get("Heading") or query)[:200],
+            "url": data.get("AbstractURL") or "",
+            "snippet": abstract[:400],
+            "origin": "duckduckgo-ia",
+        })
+
+    def _walk(topics):
+        for t in topics:
+            if len(results) >= top_k:
+                return
+            if isinstance(t, dict) and t.get("Topics"):
+                _walk(t["Topics"])
+            elif isinstance(t, dict) and t.get("FirstURL"):
+                text = (t.get("Text") or "").strip()
+                results.append({
+                    "title": text[:80] or t["FirstURL"],
+                    "url": t["FirstURL"],
+                    "snippet": text[:400],
+                    "origin": "duckduckgo-ia",
+                })
+
+    _walk(data.get("RelatedTopics") or [])
+    return results[:top_k]
+
+
 
 
 def scrape_company(url: str, max_bytes: int = 400_000, timeout: float = 6.0) -> Optional[dict]:

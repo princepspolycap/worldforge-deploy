@@ -59,6 +59,12 @@ def _map_company_runner(arguments: Dict[str, Any]) -> Dict[str, Any]:
     return {"profile": profile or {}}
 
 
+def _web_search_runner(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    from agents.retrieval import web_search
+    results = web_search(arguments.get("query", ""), top_k=int(arguments.get("top_k", 5)))
+    return {"results": results}
+
+
 _REGISTRY: Dict[str, Dict[str, Any]] = {
     "validate_positioning": {
         "description": "Deterministically score a positioning/ICP artifact (code interpreter).",
@@ -102,15 +108,21 @@ _REGISTRY: Dict[str, Dict[str, Any]] = {
         "runner": _map_company_runner,
         "kind": "web",
     },
+    "web_search": {
+        "description": "Live keyless web search (DuckDuckGo; Poly platform when configured). Returns titled results with snippets.",
+        "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "top_k": {"type": "integer"}}, "required": ["query"]},
+        "runner": _web_search_runner,
+        "kind": "web",
+    },
 }
 
 # Which tools each worker archetype draws for its chapter. This is what makes
 # the toolbox diegetic: the rail can show the worker reaching for exactly
 # these, by name, before the artifact appears.
 ROLE_TOOLS: Dict[str, List[str]] = {
-    "strategist": ["recall", "validate_org_chart", "validate_positioning"],
+    "strategist": ["recall", "web_search", "validate_org_chart", "validate_positioning"],
     "designer": ["recall", "validate_landing_page"],
-    "marketer": ["recall", "validate_financial_plan", "validate_marketing_email"],
+    "marketer": ["recall", "web_search", "validate_financial_plan", "validate_marketing_email"],
     "ops": ["recall", "validate_financial_plan"],
 }
 

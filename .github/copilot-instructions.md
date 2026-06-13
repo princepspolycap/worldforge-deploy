@@ -66,6 +66,7 @@ agentsleague-afterbuild/
 ## Current UI/runtime notes
 
 - **Onboarding polish**: `submission/ui/game/intro.js` owns the intro film overlay. All film skip and completion paths reveal `.first-step` with its `.enter` animation and start the synthesized ambient pad via `DungeonAudio.ambientStart()`. `?intro=0` bypasses the film and still triggers the same first-step handoff.
+- **Preflight gate**: the first "Begin the run" press calls `gatherAndReady()` (story.js), which reads the form once (`readFounderInputsFromForm`), fetches/reasons the profile via `/api/company/analyze` (`analyzePayload`), and renders a reversible "ready" confirmation card. The run never starts before that information is gathered. The second press (`renderReadyCard` confirm) calls `beginStory()`, which consumes `state.preflight.ares` instead of re-scraping. The intro film handoff (`CampaignStory.start`) still calls `beginStory()` directly and falls back to reading the form itself.
 - **Audio cues**: `submission/ui/game/audio.js` is pure Web Audio. Hover chimes should only fire after the audio context is unlocked; the Begin press stops the ambient pad and plays the journey-start cue.
 - **MAF standup**: `/api/world/standup` builds deterministic standup turns first, then in live mode upgrades them through `submission/agents/maf_runtime.py::run_maf_group_chat`. The live path uses a sequential loop of core Microsoft Agent Framework `Agent` instances, passing prior turns as transcript context. If MAF or Foundry is unavailable, the deterministic turns remain the stable fallback.
 - **Standup smoke**: run `python3 submission/tools/maf_standup_smoke_test.py` for the offline response-contract check. Run it with `--live` from a configured `DEMO_MODE=live` environment to require real MAF turns.
@@ -96,6 +97,10 @@ These exist on the maintainer's machine. Reference them when wiring features but
 
 ## Development conventions
 
+- **We are in refinement mode, not greenfield. Write less code.** The system is feature-complete enough; the job now is to make it cleaner and more reliable. When you add something, look for something to remove. Prefer refactoring duplicated logic into one small, single-responsibility function over adding a parallel code path. Net lines added should trend toward zero.
+- **Connect things modularly (SOLID).** Single source of truth for any DOM->state, payload, or config mapping (e.g., `readFounderInputsFromForm`, `analyzePayload` in `ui/game/story.js`). One concept, one function. Don't duplicate a request body or a parsing block in two callers - extract it and have both call it. Depend on small helpers, not on copy-paste.
+- **Refactor in place before extending.** If a function is doing two jobs (e.g., reading inputs AND running the flow), split it first, then build on the clean seam. Reuse already-fetched results instead of re-fetching (the preflight gate fetches the profile once; `beginStory` consumes it).
+- **Preserve local-first gameplay.** Normal play should route through local agents when configured; cloud Foundry is the fallback/escalation path for failed local turns, integration evidence, and final demo-quality reasoning.
 - **Python**: 3.10+. Pydantic v2 for state models (already in use). Use `model_dump()` not `.dict()`.
 - **No emojis or non-ASCII in committed source/markdown** unless they're inside a string literal that ships at runtime (e.g., CLI banner output). The CLI simulator banner is allowed; docs should stay ASCII for grep/diff cleanliness.
 - **Imports**: Local imports use module paths relative to `submission/` (the simulator extends `sys.path` for now; package-ify later).
@@ -133,13 +138,13 @@ Full script: [submission/docs/demo_script.md](../submission/docs/demo_script.md)
 
 ## Rubric — what every change should help with
 
-| Criterion                | Weight | What helps                                                         |
-| ------------------------ | -----: | ------------------------------------------------------------------ |
-| Accuracy & Relevance     |    25% | Tighter mapping to `live_battle_challenge.md` primitives           |
-| Reasoning & Multi-step   |    25% | Visible decomposition, tool calls in replay log, multi-hop chains  |
-| Reliability & Safety     |    20% | Verification gates, simulation fallbacks, deterministic validators |
-| Creativity & Originality |    15% | World-improvement campaign framing, generated lore, dynamic workforce loop   |
-| UX & Presentation        |    15% | Story-view polish, narration, evidence rail, verification gates    |
+| Criterion                | Weight | What helps                                                                 |
+| ------------------------ | -----: | -------------------------------------------------------------------------- |
+| Accuracy & Relevance     |    25% | Tighter mapping to `live_battle_challenge.md` primitives                   |
+| Reasoning & Multi-step   |    25% | Visible decomposition, tool calls in replay log, multi-hop chains          |
+| Reliability & Safety     |    20% | Verification gates, simulation fallbacks, deterministic validators         |
+| Creativity & Originality |    15% | World-improvement campaign framing, generated lore, dynamic workforce loop |
+| UX & Presentation        |    15% | Story-view polish, narration, evidence rail, verification gates            |
 
 (Official weights from `live_battle_challenge.md` Evaluation Criteria; no community-vote criterion exists in the spec.)
 

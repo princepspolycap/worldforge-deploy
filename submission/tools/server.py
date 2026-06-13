@@ -26,6 +26,7 @@ from state.schema import (
     Chapter,
     OrgBlueprint,
     FounderState,
+    AntagonistState,
     CharacterRuntimeState,
 )
 from state.consequences import (
@@ -37,16 +38,18 @@ from state.consequences import (
 )
 from state.api_contract import state_response, step_response, chapter_response, reset_response
 from agents.foundry_agents import MasterNarrator, StrategistAgent, DesignerAgent, MarketerAgent, generate_lore
-from agents.model_config import model_for, is_live, get_foundry_client, create_chat_completion
+from agents.model_config import model_for, is_live, runtime_mode, get_foundry_client, create_chat_completion
 from agents.world_designer import design_world
 from agents.worker_factory import run_world, execute_chapter, bind_world_to_org
 from agents.org_designer import design_org
 from agents.retrieval import retrieve, brief_from_url
 from agents.memory import remember, recall_memories, memory_snapshot
 from agents.company_analyst import analyze_company as analyze_company_url
+from agents.antagonist_generator import generate_antagonist, analyze_archetype_gap
 from tools.code_interpreter_wrappers import validate_positioning, validate_landing_page, validate_marketing_email
 from tools.toolbox import tools_list, tools_call, tools_for_role
 from tools.export_org_blueprint import org_to_workforce_bundle
+from tools.dilemma_generator import generate_dilemma as generate_story_dilemma, suggest_dilemma_for_chapter
 
 app = FastAPI(
     title="World Improvement Agent Game - Server",
@@ -92,6 +95,35 @@ def parse_founder(payload: Any) -> Optional[FounderState]:
         voice_stack=getattr(payload, "founder_voice_stack", None) or "core_openai",
         voice=payload.founder_voice or "onyx",
         avatar=payload.founder_avatar or "/game/assets/generated/narrator.png"
+    )
+
+
+def forge_antagonist(state: CompanyState, *, mission_brief: str = "", target_customer: str = "") -> None:
+    """Forge the competitive foil (villain) from the founder's archetype.
+
+    Single source of truth used by every path that runs chapter dilemmas
+    (analyze, world/design, autoplay) so the story always has a worthy
+    opponent with concrete market tension. Logged for replay visibility.
+    """
+    founder = state.founder or FounderState()
+    antagonist = generate_antagonist(
+        founder_archetype=founder.archetype,
+        founder_skill=founder.skill,
+        mission_brief=mission_brief or state.pitch or "",
+        target_customer=target_customer,
+    )
+    state.antagonist = AntagonistState(**antagonist.model_dump())
+    archetype_gap = analyze_archetype_gap(founder.archetype)
+    store.log_event(
+        "ANTAGONIST_FORGED", "narrator",
+        f"Forged antagonist '{state.antagonist.name}' ({state.antagonist.archetype}) "
+        f"against founder archetype '{founder.archetype}'.",
+        {
+            "founder_archetype": founder.archetype,
+            "founder_skill": founder.skill,
+            "antagonist": state.antagonist.model_dump(),
+            "archetype_gap": archetype_gap,
+        },
     )
 
 @app.get("/api/state")
@@ -141,8 +173,9 @@ def get_memory():
 
 @app.get("/api/mode")
 def get_mode():
-    """Report whether the reasoning path is hitting live Foundry or simulation."""
-    return {"live": is_live(), "mode": "live" if is_live() else "simulation"}
+    """Report whether the reasoning path is local, cloud, hybrid, or simulation."""
+    mode = runtime_mode()
+    return {"live": is_live(), "mode": mode, "local": mode in {"local", "hybrid"}}
 
 
 class LoreRequest(BaseModel):
@@ -523,8 +556,8 @@ def _stream_step_reasoning(state: CompanyState, quest: QuestState, step: QuestSt
     """
     persona_name, persona_role = _ROLE_PERSONA.get(step.assigned_to, (step.assigned_to, step.assigned_to))
     deployment = model_for(step.assigned_to) or ""
-    mode = "live" if (is_live() and deployment) else "simulation"
-    deployment_label = f"foundry-{step.assigned_to}" if mode == "live" else "simulation"
+    mode = runtime_mode() if (is_live() and deployment) else "simulation"
+    deployment_label = f"{mode}-{step.assigned_to}" if mode != "simulation" else "simulation"
 
     # Mark the step in-progress up front so a refresh mid-turn is consistent.
     step.status = "in-progress"
@@ -858,6 +891,13 @@ def analyze_company(payload: AnalyzeRequest):
              "parser": profile.get("parser", ""),
              "signals": profile.get("signals", [])},
         )
+        if profile.get("osint_hits"):
+            store.log_event(
+                "WEB_SEARCHED", "scraper",
+                f"Public-web OSINT on the profile returned {profile['osint_hits']} result(s) "
+                f"via the keyless web_search tool.",
+                {"host": profile["host"], "osint_hits": profile.get("osint_hits", 0)},
+            )
         store.log_event(
             "PROFILE_ANALYZED", "profile_analyst",
             f"Reasoned the profile/mission: {profile['company_summary']}",
@@ -889,6 +929,14 @@ def analyze_company(payload: AnalyzeRequest):
     state.org = OrgBlueprint(**blueprint)
     state.economics = initialize_economics_from_org(state.org)
 
+    # Forge the competitive foil (villain) from the founder's archetype so
+    # later chapter dilemmas can present concrete market tension.
+    forge_antagonist(
+        state,
+        mission_brief=str(profile.get("company_summary") or brief) if profile else brief,
+        target_customer=str(profile.get("target_customer") or "") if profile else "",
+    )
+
     # Simple game mechanic: chartering the org rewards XP scaled by how much
     # leverage the digital workforce gives the single human operator.
     charter_xp = 15 + 2 * state.org.digital_worker_count
@@ -915,9 +963,10 @@ def analyze_company(payload: AnalyzeRequest):
         "state": state.model_dump(),
         "org": state.org.model_dump(),
         "profile": profile,
+        "antagonist": state.antagonist.model_dump() if state.antagonist else None,
         "source": source,
         "brief": brief[:600],
-        "mode": "live" if is_live() else "simulation",
+        "mode": runtime_mode(),
     }
 
 
@@ -973,7 +1022,7 @@ def design_world_endpoint(payload: AutoplayRequest):
         store.log_event("MEMORY_WRITTEN", "memory",
             f"User-profile memory stored ({mem_entry.get('origin', 'local-memory')}): {company_name}",
             {"kind": "user_profile", "origin": mem_entry.get("origin", "")})
-    # Carry forward a prior analyze session (org + earned XP + flags).
+    # Carry forward a prior analyze session (org + earned XP + flags + villain).
     if prev and prev.org:
         state.org = prev.org
         state.economics = prev.economics or initialize_economics_from_org(state.org)
@@ -983,6 +1032,14 @@ def design_world_endpoint(payload: AutoplayRequest):
         store.log_event("WORLD_SESSION", "system", f"Attached venture graph to chartered org for: {company_name}")
     else:
         store.log_event("SESSION_START", "system", f"New world session for: {company_name}")
+
+    # The antagonist drives every chapter dilemma, so it must survive the
+    # re-init: reuse the one forged during analyze, or forge it now for a
+    # cold-start world/design call (pitch-only, no prior analyze).
+    if prev and prev.antagonist:
+        state.antagonist = prev.antagonist
+    else:
+        forge_antagonist(state, mission_brief=brief)
 
     chapters_data = design_world(brief)
     world = WorldGraph(
@@ -1151,6 +1208,12 @@ def generate_dilemma(payload: DilemmaRequest):
     deployment = model_for("narrator")
     if client and deployment and is_live():
         try:
+            antagonist_line = ""
+            if state.antagonist:
+                antagonist_line = (
+                    f"Antagonist: {state.antagonist.name} ({state.antagonist.archetype}) "
+                    f"using tactic: {state.antagonist.signature_tactic}.\n"
+                )
             resp = create_chat_completion(
                 deployment,
                 [
@@ -1167,6 +1230,7 @@ def generate_dilemma(payload: DilemmaRequest):
                         f"Venture: {world.brief[:400]}\n"
                         f"Chapter just completed: {chapter.title} - {chapter.goal}\n"
                         f"Artifact summary: {json.dumps(chapter.artifact or {})[:1200]}\n"
+                        + antagonist_line
                         + (f"Next chapter: {next_ch.title} - {next_ch.goal}\n" if next_ch else "")
                         + "The dilemma should steer how the next chapter is executed."
                     )},
@@ -1184,11 +1248,49 @@ def generate_dilemma(payload: DilemmaRequest):
         except Exception:
             dilemma = None
     if not dilemma:
-        canned = _CANNED_DILEMMAS.get(chapter.owner_role) or _CANNED_DILEMMAS["strategist"]
-        dilemma = {**canned, "source": "canned"}
+        generated = None
+        try:
+            founder = state.founder
+            suggested = suggest_dilemma_for_chapter(
+                chapter.id,
+                (founder.archetype if founder else "Builder"),
+            )
+            gd = generate_story_dilemma(
+                chapter_id=chapter.id,
+                chapter_title=chapter.title,
+                founder=founder,
+                antagonist=state.antagonist,
+                economics=state.economics,
+                suggested_template=suggested,
+            )
+            generated = {
+                "prompt": gd.context,
+                "options": [
+                    {"id": "a", "option": gd.option_a.get("label", "Option A"), "tradeoff": gd.option_a.get("description", "")},
+                    {"id": "b", "option": gd.option_b.get("label", "Option B"), "tradeoff": gd.option_b.get("description", "")},
+                ],
+                "source": "generated",
+            }
+        except Exception:
+            generated = None
+
+        if generated:
+            dilemma = generated
+        else:
+            canned = _CANNED_DILEMMAS.get(chapter.owner_role) or _CANNED_DILEMMAS["strategist"]
+            dilemma = {**canned, "source": "canned"}
     dilemma["options"] = _enrich_dilemma_options(state, chapter, dilemma.get("options") or [])
     dilemma["scene_id"] = f"{chapter.id}:dilemma"
     dilemma["speaker"] = _scene_speaker_for_chapter(chapter)
+    # Surface the antagonist (villain) so the gate UI can show whose pressure
+    # forced this choice - the story foil that makes the tradeoff feel real.
+    if state.antagonist:
+        dilemma["antagonist"] = {
+            "name": state.antagonist.name,
+            "archetype": state.antagonist.archetype,
+            "threat_type": state.antagonist.threat_type,
+            "signature_tactic": state.antagonist.signature_tactic,
+        }
     dilemma["caption_seed"] = dilemma["prompt"]
     dilemma["image_prompt"] = (
         f"A cinematic cosmic-mainframe dilemma scene for {state.name}: "
@@ -1848,6 +1950,9 @@ def autoplay_world(payload: AutoplayRequest):
         {"digital_worker_count": state.org.digital_worker_count,
          "leverage_ratio": state.org.leverage_ratio},
     )
+
+    # Autoplay runs chapter dilemmas too, so it needs the same villain.
+    forge_antagonist(state, mission_brief=brief)
 
     chapters_data = design_world(brief)
     world = WorldGraph(

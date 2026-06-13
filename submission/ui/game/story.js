@@ -7,6 +7,7 @@
 
 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
 import { T, ROLE_COLOR, mermaidThemeVariables } from "./tokens.js";
+import { toggleCollapsible } from "./motion.js";
 
 mermaid.initialize({
     startOnLoad: false,
@@ -77,8 +78,6 @@ const VOICE_PROFILES = [
 ];
 const NARRATOR_VOICE = "onyx";
 const DEFAULT_COMPANY = "World Improvement Mission";
-const DEFAULT_URL = "";
-const DEFAULT_PITCH = "A founder-led world improvement mission: use a reasoning-agent workforce to turn personal strengths, public profile signals, and a concrete social need into verified artifacts, operating loops, and human-approved next steps.";
 const ARCHETYPE_SKILL = {
     Builder: "building product: shipping software, prototypes, systems",
     Seller: "selling: closing deals, partnerships, growth conversations",
@@ -1431,27 +1430,17 @@ function setHud(s) {
 }
 
 // --- Beats -----------------------------------------------------------------
-async function beginStory() {
-    if (A.unlock) A.unlock();
-    // The ambient pad belongs to the title moment - end it as the run begins,
-    // and mark the press with a warm confirming swell.
-    if (A.ambientStop) { try { A.ambientStop(); } catch (e) { /* audio optional */ } }
-    if (A.uiPress) { try { A.uiPress(); } catch (e) { /* audio optional */ } }
+// Read the founder-creation form into `state`. Single source of truth for the
+// DOM -> state mapping so both the preflight gate and direct callers agree.
+function readFounderInputsFromForm() {
     state.company = ($("in-company") && $("in-company").value.trim()) || DEFAULT_COMPANY;
     state.pitch = ($("in-pitch") && $("in-pitch").value.trim()) || "";
     state.url = ($("in-url") && $("in-url").value || "").trim();
-    if (!state.pitch && !state.url) {
-        state.pitch = DEFAULT_PITCH;
-        state.url = DEFAULT_URL;
-    }
-    if (!state.pitch && !state.url) { $("hint").textContent = "Add a LinkedIn URL or continue with the default mission"; return; }
-    if (state.phase !== "title") return; // already descending
-    state.phase = "founding";
-
-    // Extract founder details. Name/archetype are profile-first now: the URL
-    // handle gives us a usable display name, and /api/company/analyze can infer
-    // the archetype from public profile signals. Hidden manual cards remain as
-    // an override/fallback.
+    // No silent default-mission fallback. Gathering the founder's own signal -
+    // a public profile to scrape/OSINT, or a mission they actually wrote - is a
+    // core game dynamic, enforced at the gate by hasRealSignal().
+    // Name/archetype are profile-first: the URL handle gives a display name and
+    // /api/company/analyze can infer the archetype. Hidden manual cards override.
     state.founderName = ($("in-founder-name") && $("in-founder-name").value.trim())
         || founderNameFromProfileUrl(state.url)
         || "Founder";
@@ -1462,19 +1451,189 @@ async function beginStory() {
     state.founderAvatar = ($("img-founder-avatar") && $("img-founder-avatar").getAttribute("src")) || "/game/assets/generated/narrator.png";
 
     const selCard = document.querySelector("#arch-row .arch-card.sel");
-    const manualArchetype = !!selCard;
-    if (selCard) {
-        state.archetype = {
-            name: selCard.dataset.arch,
-            skill: selCard.dataset.skill
-        };
-    } else {
-        state.archetype = null;
-    }
+    state.manualArchetype = !!selCard;
+    state.archetype = selCard ? { name: selCard.dataset.arch, skill: selCard.dataset.skill } : null;
 
     // Wire customized settings into global voice/portrait maps
     VOICE_BY_ROLE["founder"] = state.founderVoice;
     ROLE_PORTRAIT["founder"] = "founder";
+}
+
+// The founder's archetype rides into every brief: their skill becomes the human
+// lane of the org. Shared by the lore beat and the analyze payload.
+function founderArchNote() {
+    return state.archetype
+        ? ` The founder is a ${state.archetype.name}: their own skill is ${state.archetype.skill}. Design the org so the human operator covers exactly that, and digital workers cover the rest.`
+        : "";
+}
+
+// A run must be built on something real the founder actually gave us: a public
+// profile to gather signals from, or a mission they described. Gathering the
+// founder's own context is the core game dynamic, so we refuse to start on an
+// empty form. Single source of truth for "do we have enough to begin", used by
+// the gate and the scripted handoff.
+function hasRealSignal() {
+    return !!state.url || !!(state.pitch && state.pitch.trim());
+}
+
+const NEED_SIGNAL_HINT = "Drop your LinkedIn (or describe your mission) - your agents need something real to build your character from.";
+
+// One payload shape for /api/company/analyze, used by the preflight gate and the
+// cold-start fallback so the prefetched result is byte-identical.
+function analyzePayload() {
+    return {
+        pitch: state.pitch + founderArchNote(),
+        url: state.url,
+        company_name: state.company,
+        founder_name: state.founderName,
+        founder_archetype: state.archetype ? state.archetype.name : null,
+        founder_skill: state.archetype ? state.archetype.skill : null,
+        founder_locale: state.founderLocale,
+        founder_voice_stack: state.founderVoiceStack,
+        founder_voice: state.founderVoice,
+        founder_avatar: state.founderAvatar
+    };
+}
+
+// Preflight gate: the first "Begin" press. We do not start the run until we have
+// actually gone and fetched the information the form asked for - scrape the
+// public profile, reason about it, and show the founder what we gathered. Only
+// then does a second press (renderReadyCard's confirm) descend into the run.
+async function gatherAndReady() {
+    if (state.phase !== "title") return;
+    if (A.unlock) A.unlock();
+    if (A.uiPress) { try { A.uiPress(); } catch (_) { /* audio optional */ } }
+    readFounderInputsFromForm();
+    if (!hasRealSignal()) {
+        $("hint").textContent = NEED_SIGNAL_HINT;
+        try { $("in-url").focus(); } catch (_) {}
+        return;
+    }
+
+    const fromUrl = !!state.url;
+    const beginBtn = $("begin");
+    if (beginBtn) {
+        if (!beginBtn.dataset.label) beginBtn.dataset.label = beginBtn.innerHTML;
+        beginBtn.disabled = true;
+        beginBtn.classList.add("is-loading");
+        beginBtn.innerHTML = fromUrl ? "Building your character&hellip;" : "Reading your mission&hellip;";
+    }
+    $("hint").textContent = fromUrl ? "Reading your profile and the open web..." : "Shaping the mission...";
+    if (A.thinkingStart) { try { A.thinkingStart(); } catch (_) {} }
+
+    let ares;
+    try {
+        ares = await api("/api/company/analyze", analyzePayload());
+    } catch (e) {
+        if (A.thinkingStop) { try { A.thinkingStop(); } catch (_) {} }
+        if (beginBtn) {
+            beginBtn.disabled = false;
+            beginBtn.classList.remove("is-loading");
+            beginBtn.innerHTML = beginBtn.dataset.label || "Begin the run &rarr;";
+        }
+        $("hint").textContent = "Could not gather the profile. Try again, or adjust the details.";
+        return;
+    }
+    if (A.thinkingStop) { try { A.thinkingStop(); } catch (_) {} }
+    if (A.chime) { try { A.chime(); } catch (_) {} }
+
+    // Stash the fetched result so beginStory consumes it instead of re-scraping.
+    state.preflight = { ares: ares, profile: ares.profile || null };
+    renderReadyCard(ares);
+}
+
+// The "ready" confirmation: shows what the preflight gathered and offers the
+// real Begin. Reversible - "Edit details" restores the form untouched.
+function renderReadyCard(ares) {
+    const card = document.querySelector(".creator-card");
+    if (!card) { beginStory(); return; }
+    const step = card.querySelector('.cc-step[data-step="1"]');
+    const adv = card.querySelector(".cc-advanced");
+    const toggle = card.querySelector(".cc-adv-toggle");
+    if (step) step.classList.add("is-hidden");
+    if (adv) adv.setAttribute("hidden", "");
+    if (toggle) toggle.classList.add("is-hidden");
+
+    const org = ares.org || {};
+    const profile = ares.profile || null;
+    const host = profile && profile.host ? profile.host : "";
+    const verdict = (profile && profile.company_summary) || org.company_summary || state.pitch || "Default world-improvement mission";
+    const signals = (profile && profile.signals) || [];
+    const arch = (profile && profile.founder_archetype) || (state.archetype && state.archetype.name) || "Builder";
+    const dw = org.digital_worker_count != null ? org.digital_worker_count : "";
+    const lev = org.leverage_ratio != null ? org.leverage_ratio : "";
+
+    const sourceLine = host
+        ? `Read <b>${esc(host)}</b> &middot; ${signals.length} public signal${signals.length === 1 ? "" : "s"}`
+        : "Mission described &middot; no public profile to gather";
+    const chips = signals.slice(0, 4)
+        .map((s) => `<span class="cc-chip">${esc(String(s).slice(0, 42))}</span>`).join("");
+    const leverLine = dw !== ""
+        ? `<div class="cc-ready-stat"><b>${esc(dw)}</b> digital workers behind one human${lev !== "" ? ` &middot; <b>${esc(lev)}x</b> leverage` : ""}</div>`
+        : "";
+
+    let ready = card.querySelector(".cc-ready");
+    if (ready) ready.remove();
+    ready = document.createElement("div");
+    ready.className = "cc-ready cc-anim";
+    ready.innerHTML =
+        `<div class="kicker">Ready to begin</div>`
+        + `<div class="cc-ready-source">${sourceLine}</div>`
+        + `<p class="cc-ready-verdict">${esc(verdict)}</p>`
+        + (chips ? `<div class="cc-chips">${chips}</div>` : "")
+        + `<div class="cc-ready-arch">Founder seat: <b>${esc(arch)}</b></div>`
+        + leverLine
+        + `<button id="confirm-begin" class="cta">Begin the run &rarr;</button>`
+        + `<button id="edit-details" type="button" class="cc-back">&larr; Edit details</button>`;
+    card.appendChild(ready);
+    $("hint").textContent = host ? "Profile gathered. Press begin to descend." : "Ready. Press begin to descend.";
+
+    const confirm = ready.querySelector("#confirm-begin");
+    if (confirm) {
+        confirm.addEventListener("click", () => beginStory());
+        confirm.addEventListener("mouseenter", () => {
+            if (A.uiHover && A.isUnlocked && A.isUnlocked()) { try { A.uiHover(); } catch (_) {} }
+        });
+        try { confirm.focus(); } catch (_) {}
+    }
+    const edit = ready.querySelector("#edit-details");
+    if (edit) edit.addEventListener("click", restoreCreatorForm);
+}
+
+// Undo the preflight and put the founder back in front of the form.
+function restoreCreatorForm() {
+    state.preflight = null;
+    const card = document.querySelector(".creator-card");
+    if (!card) return;
+    const ready = card.querySelector(".cc-ready");
+    if (ready) ready.remove();
+    const step = card.querySelector('.cc-step[data-step="1"]');
+    const toggle = card.querySelector(".cc-adv-toggle");
+    if (step) step.classList.remove("is-hidden");
+    if (toggle) toggle.classList.remove("is-hidden");
+    const beginBtn = $("begin");
+    if (beginBtn) {
+        beginBtn.disabled = false;
+        beginBtn.classList.remove("is-loading");
+        beginBtn.innerHTML = beginBtn.dataset.label || "Begin the run &rarr;";
+    }
+    $("hint").textContent = "";
+    try { $("in-url").focus(); } catch (_) {}
+}
+
+async function beginStory() {
+    if (A.unlock) A.unlock();
+    // The ambient pad belongs to the title moment - end it as the run begins,
+    // and mark the press with a warm confirming swell.
+    if (A.ambientStop) { try { A.ambientStop(); } catch (e) { /* audio optional */ } }
+    if (A.uiPress) { try { A.uiPress(); } catch (e) { /* audio optional */ } }
+    // The preflight gate already read the form and fetched the profile. Scripted
+    // callers (the intro film handoff) come straight here with no preflight, so
+    // fall back to reading the form ourselves in that case.
+    if (!state.preflight) readFounderInputsFromForm();
+    if (!hasRealSignal()) { $("hint").textContent = NEED_SIGNAL_HINT; return; }
+    if (state.phase !== "title") return; // already descending
+    state.phase = "founding";
 
     document.documentElement.classList.remove("prestart");
     document.body.classList.remove("prestart");
@@ -1503,9 +1662,7 @@ async function beginStory() {
     setSceneHead("Your quest", state.company || "A new venture");
     // The founder's archetype rides into the brief: their skill becomes the
     // human lane of the org, and the lore speaks it back to them.
-    const archNote = state.archetype
-        ? ` The founder is a ${state.archetype.name}: their own skill is ${state.archetype.skill}. Design the org so the human operator covers exactly that, and digital workers cover the rest.`
-        : "";
+    const archNote = founderArchNote();
     if (state.fromFilm) {
         const seat = state.archetype
             ? `Your ${state.archetype.skill.split(":")[0].trim()} is the human seat.`
@@ -1533,21 +1690,14 @@ async function beginStory() {
     let org;
     let profile = null;
     try {
-        const ares = await api("/api/company/analyze", {
-            pitch: state.pitch + archNote,
-            url: state.url,
-            company_name: state.company,
-            founder_name: state.founderName,
-            founder_archetype: state.archetype ? state.archetype.name : null,
-            founder_skill: state.archetype ? state.archetype.skill : null,
-            founder_locale: state.founderLocale,
-            founder_voice_stack: state.founderVoiceStack,
-            founder_voice: state.founderVoice,
-            founder_avatar: state.founderAvatar
-        });
+        // Reuse what the preflight gate already fetched; only cold-start callers
+        // (the intro film handoff) hit the network here.
+        const ares = state.preflight
+            ? state.preflight.ares
+            : await api("/api/company/analyze", analyzePayload());
         org = ares.org;
         profile = ares.profile || null;
-        if (!manualArchetype && profile && profile.founder_archetype) {
+        if (!state.manualArchetype && profile && profile.founder_archetype) {
             setInferredArchetype(profile.founder_archetype, profile.founder_skill);
             const inferredName = founderNameFromProfileUrl(state.url);
             if (inferredName && inferredName !== "Founder") state.founderName = inferredName;
@@ -2150,11 +2300,14 @@ function describeArtifact(role) {
 // next worker treats it as binding direction. Autoplay auto-picks option 1
 // after a beat so the reliable demo path never blocks.
 let dilemmaResolve = null;
+let dilemmaVoiceBound = false; // one-time bind of the dilemma mic to STT
 
 function hideDilemma() {
     $("dilemma-overlay").hidden = true;
     $("dilemma-own-wrap").hidden = true;
     $("dilemma-own-input").value = "";
+    const st = $("dilemma-own-status");
+    if (st) { st.hidden = true; st.textContent = ""; st.classList.remove("live"); }
     dilemmaResolve = null;
 }
 
@@ -2182,6 +2335,10 @@ async function runDilemmaGate(chapter, auto) {
             `<span class="tchip gold">&#9818; posed by The Narrator</span>`,
             `<span class="tchip">from &ldquo;${esc((chapter.title || "").slice(0, 34))}&rdquo; sealed at ${chapter.validation_score ?? "&mdash;"}/100</span>`,
         ];
+        const villain = dilemma.antagonist || null;
+        if (villain && villain.name) {
+            chips.push(`<span class="tchip rival">&#9876; ${esc(villain.name)} (${esc(villain.archetype || "rival")}) pressures this call</span>`);
+        }
         if (iqN) chips.push(`<span class="tchip">&#9783; ${iqN} IQ source${iqN > 1 ? "s" : ""}</span>`);
         if (memN) chips.push(`<span class="tchip">&#9851; ${memN} memory items in brief</span>`);
         chips.push(`<span class="tchip">decision #${(state.decisions || []).length + 1} of this run</span>`);
@@ -2210,7 +2367,12 @@ async function runDilemmaGate(chapter, auto) {
         host.appendChild(btn);
     });
     $("dilemma-overlay").hidden = false;
-    $("hint").textContent = "Your call, CEO - 1 / 2, or chart your own path";
+    // Reset the voice/own-path UI so a prior gate's transcript never carries over.
+    $("dilemma-own-wrap").hidden = true;
+    $("dilemma-own-input").value = "";
+    const ownStatus = $("dilemma-own-status");
+    if (ownStatus) { ownStatus.hidden = true; ownStatus.textContent = ""; ownStatus.classList.remove("live"); }
+    $("hint").textContent = "Your call, CEO - 1 / 2, or speak your own path";
     const cd = $("dilemma-countdown");
     if (cd) { cd.hidden = true; cd.textContent = ""; }
     let promptSpeech = Promise.resolve();
@@ -2219,7 +2381,32 @@ async function runDilemmaGate(chapter, auto) {
     // Wire the free-text path BEFORE parking on the promise - statements after
     // the await only run once the dilemma is already decided, which left the
     // Commit button dead during a live gate. (decide is hoisted, so this works.)
-    $("dilemma-own-btn").onclick = () => { $("dilemma-own-wrap").hidden = false; $("dilemma-own-input").focus(); };
+    // Voice: the narrator already speaks the prompt aloud; the CEO speaks back
+    // their call here. The mic reuses the same STT binder as the standup and
+    // only transcribes into the input, so binding it once is safe even though
+    // the Commit handler is re-pointed at the current gate's `decide` each time.
+    if (!dilemmaVoiceBound) {
+        const micBtn = $("dilemma-own-mic");
+        const inputEl = $("dilemma-own-input");
+        const statusEl = $("dilemma-own-status");
+        if (micBtn && inputEl) {
+            bindSpeechRecognition(micBtn, inputEl, statusEl);
+            inputEl.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") { const v = inputEl.value.trim(); if (v) $("dilemma-own-go").click(); }
+            });
+        }
+        dilemmaVoiceBound = true;
+    }
+    $("dilemma-own-btn").onclick = () => {
+        $("dilemma-own-wrap").hidden = false;
+        const st = $("dilemma-own-status"); if (st) st.hidden = false;
+        $("dilemma-own-input").focus();
+        // Open the live voice moment immediately. The first click prompts the
+        // browser for microphone permission; if it's unsupported or denied the
+        // mic hides itself / shows the reason and typing still works.
+        const mic = $("dilemma-own-mic");
+        if (mic && mic.style.display !== "none" && !mic.classList.contains("listening")) mic.click();
+    };
     $("dilemma-own-go").onclick = () => {
         const v = $("dilemma-own-input").value.trim();
         if (v) decide(v, true);
@@ -2430,9 +2617,25 @@ function bindSpeechRecognition(micBtn, inputEl, statusEl, onResultCallback) {
         try { rec && rec.stop(); } catch (e) { /* ignore */ }
     }
 
-    micBtn.addEventListener("click", () => {
+    micBtn.addEventListener("click", async () => {
         if (A.unlock) { try { A.unlock(); } catch (e) { /* audio optional */ } }
         if (listening) { stop(); if (statusEl) statusEl.textContent = ""; return; }
+
+        // Proactively ask for mic permission so the browser shows its prompt and
+        // we can give a clear message when access is blocked (common in embedded
+        // webviews). Typing always remains the fallback.
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            try {
+                const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+                probe.getTracks().forEach((t) => t.stop());
+            } catch (err) {
+                if (statusEl) {
+                    statusEl.textContent = "Microphone blocked - allow mic access in your browser, or type instead.";
+                    statusEl.classList.remove("live");
+                }
+                return;
+            }
+        }
 
         rec = new SR();
         rec.lang = "en-US";
@@ -2450,7 +2653,9 @@ function bindSpeechRecognition(micBtn, inputEl, statusEl, onResultCallback) {
         };
         rec.onerror = (e) => {
             if (statusEl) {
-                statusEl.textContent = "Mic error: " + (e.error || "unknown");
+                statusEl.textContent = (e.error === "not-allowed" || e.error === "service-not-allowed")
+                    ? "Microphone blocked - allow mic access, or type instead."
+                    : "Mic error: " + (e.error || "unknown");
                 statusEl.classList.remove("live");
             }
             stop();
@@ -2565,7 +2770,7 @@ function setupCharacterCreation() {
         urlInput.addEventListener("keydown", (e) => {
             if (e.key === "Enter") {
                 e.preventDefault();
-                beginStory();
+                gatherAndReady();
             }
         });
     }
@@ -2644,7 +2849,7 @@ function setupCharacterCreation() {
 }
 
 // --- Wire up ---------------------------------------------------------------
-$("begin").addEventListener("click", beginStory);
+$("begin").addEventListener("click", gatherAndReady);
 $("begin").addEventListener("mouseenter", () => {
     if (A.uiHover && A.isUnlocked && A.isUnlocked() && !$("begin").disabled) {
         try { A.uiHover(); } catch (_) {}
@@ -2746,12 +2951,11 @@ const advBtn = $("btn-cc-adv");
 if (advBtn) {
     advBtn.addEventListener("click", () => {
         const ccHidden = document.querySelector(".cc-hidden");
-        if (ccHidden) {
-            const hidden = ccHidden.hidden;
-            ccHidden.hidden = !hidden;
-            ccHidden.setAttribute("aria-hidden", String(hidden));
-            advBtn.textContent = hidden ? "Hide Advanced Settings" : "Advanced Settings";
-        }
+        if (!ccHidden) return;
+        const opening = ccHidden.hidden;
+        advBtn.textContent = opening ? "Hide" : "No profile?";
+        toggleCollapsible(ccHidden, opening);
+        if (opening) { try { $("in-pitch").focus(); } catch (_) {} }
     });
 }
 

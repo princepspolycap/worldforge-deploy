@@ -10,7 +10,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from agents.model_config import get_foundry_client, is_live, model_for, model_for_hint, create_chat_completion, reasoning_from_response
+from agents.model_config import get_cloud_foundry_client, get_foundry_client, is_live, model_for, model_for_hint, runtime_mode, create_chat_completion, reasoning_from_response
 from agents.maf_runtime import maf_available, run_maf_agent
 from agents.memory import recall_memories, remember
 from agents.retrieval import retrieve
@@ -558,8 +558,10 @@ def execute_chapter(
     deployment = (model_for_hint(hint) if hint and hint != "n/a" else None) or model_for(role) or model_for("narrator") or ""
     client = get_foundry_client()
     live = bool(client and deployment and is_live())
+    active_runtime = runtime_mode()
     if live:
-        deployment_label = f"foundry-{hint}" if (worker and hint and hint != "n/a") else f"foundry-{role}"
+        prefix = "local" if active_runtime == "local" else ("hybrid" if active_runtime == "hybrid" else "foundry")
+        deployment_label = f"{prefix}-{hint}" if (worker and hint and hint != "n/a") else f"{prefix}-{role}"
     else:
         deployment_label = "simulation"
 
@@ -684,11 +686,13 @@ def execute_chapter(
 
     t0 = time.perf_counter()
 
-    # Preferred live runtime: Microsoft Agent Framework. The worker becomes a
+    # Preferred cloud proof runtime: Microsoft Agent Framework. The worker becomes a
     # real `agent_framework.Agent` - decisions + IQ recall injected through a
     # ContextProvider (framework memory), validators offered as FunctionTools
-    # the model can call mid-run. Any failure falls back to the direct path.
-    if maf_available():
+    # the model can call mid-run. Local gameplay stays on the direct
+    # OpenAI-compatible path; any MAF failure falls back there too.
+    cloud_client = get_cloud_foundry_client()
+    if active_runtime in {"live", "hybrid"} and cloud_client and maf_available():
         try:
             validator_fns = _maf_tool_fns(role)
             maf_system = system + (
@@ -697,8 +701,8 @@ def execute_chapter(
             )
             content, maf_meta = run_maf_agent(
                 deployment=deployment,
-                api_key=getattr(client, "api_key", "") or "",
-                base_url=str(getattr(client, "base_url", "")) or "",
+                api_key=getattr(cloud_client, "api_key", "") or "",
+                base_url=str(getattr(cloud_client, "base_url", "")) or "",
                 name=worker_title or role,
                 instructions=maf_system,
                 prompt=user,

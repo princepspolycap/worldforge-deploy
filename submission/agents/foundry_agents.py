@@ -13,7 +13,7 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
-from agents.model_config import get_foundry_client, model_for, is_live, create_chat_completion
+from agents.model_config import get_foundry_client, model_for, is_live, runtime_mode, create_chat_completion
 
 
 def _chat_json(role: str, system: str, user: str, fallback: Any) -> Any:
@@ -160,7 +160,7 @@ def generate_lore(pitch: str, company: str = "") -> Dict[str, str]:
         "Enter the unfamiliar mainframe; your digital workforce is initialized to stabilize the loop."
     )
     text = _chat_text("narrator", system, user, fallback, max_tokens=2000)
-    return {"lore": text, "mode": "live" if is_live() else "simulation"}
+    return {"lore": text, "mode": runtime_mode()}
 
 
 # Canonical quest line: role, artifact_type, default id/title/xp. Order is fixed
@@ -216,7 +216,7 @@ class BaseFoundryAgent:
 
     @property
     def mode(self) -> str:
-        return "live" if (is_live() and self.deployment) else "simulation"
+        return runtime_mode() if (is_live() and self.deployment) else "simulation"
 
 
 class MasterNarrator(BaseFoundryAgent):

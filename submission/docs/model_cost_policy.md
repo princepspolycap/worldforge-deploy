@@ -15,8 +15,15 @@ Foundry path required for the demo and rubric.
 ## Current routing
 
 All reasoning calls route through [agents/model_config.py](../agents/model_config.py).
-The app does not hardcode model names in source. It reads deployment names from
-the gitignored `submission/.env` file:
+The app does not hardcode model names in source. It reads local model names and
+cloud deployment names from the gitignored `submission/.env` file:
+
+| Runtime control | Env var | Purpose |
+|---|---|---|
+| Routing order | `AGENT_ROUTING` | `local_first`, `cloud_first`, `local_only`, or `cloud_only` |
+| Local endpoint | `LOCAL_AGENT_BASE_URL` | OpenAI-compatible local `/v1` endpoint |
+| Local default model | `LOCAL_AGENT_MODEL` | Default model used for all local roles |
+| Local role overrides | `LOCAL_*_MODEL` | Optional local model per role |
 
 | Runtime role | Env var | Current purpose |
 |---|---|---|
@@ -47,6 +54,29 @@ The normal playable game should run on a local agent by default. Local inference
 is not just an emergency fallback; it is the primary runtime for repeated play
 sessions, UI exploration, and player experimentation.
 
+Use **Ollama as the first local runtime** because it is the lowest-friction
+OpenAI-compatible path for normal gameplay:
+
+```env
+DEMO_MODE=local
+AGENT_ROUTING=local_first
+LOCAL_AGENT_BASE_URL=http://localhost:11434/v1
+LOCAL_AGENT_API_KEY=ollama
+LOCAL_AGENT_MODEL=<model shown by `ollama list`>
+```
+
+Verified local command on this machine:
+
+```bash
+LOCAL_AGENT_MODEL=gemma4:e4b \
+  .venv/bin/python submission/tools/ollama_local_smoke_test.py
+```
+
+For Hugging Face models, prefer GGUF builds that Ollama can run directly. Keep
+the app pointed at `LOCAL_AGENT_BASE_URL`; do not add Ollama-specific branches
+inside agent code. Foundry Local and llama.cpp server should remain swappable as
+long as they expose an OpenAI-compatible `/v1` endpoint.
+
 Use local agents for:
 
 - NPC dialogue, card reactions, short worker banter, and inter-agent dynamics.
@@ -75,6 +105,10 @@ play path:
 
 ```env
 DEMO_MODE=live
+AGENT_ROUTING=local_first
+LOCAL_AGENT_BASE_URL=http://localhost:11434/v1
+LOCAL_AGENT_API_KEY=ollama
+LOCAL_AGENT_MODEL=<local-model-name>
 NARRATOR_MODEL=<cheap-fast-foundry-deployment>
 STRATEGIST_MODEL=<cheap-fast-foundry-deployment>
 DESIGNER_MODEL=<cheap-fast-foundry-deployment>

@@ -139,6 +139,36 @@ RULES: Dict[str, Dict[str, Any]] = {
             "why": "Human judgment preserves soul integrity at the expense of portal fluid consumption.",
         },
     },
+    "ops.shareholder": {
+        "match": ("shareholder", "vc", "growth", "blitzscale"),
+        "summary": "The company adopts a high-growth shareholder model, accelerating but yielding control.",
+        "economics_delta": {"proof": 15, "trust": -10, "velocity": 30, "burn_pressure": 20, "autonomy": -25, "runway_months": 6},
+        "role": {
+            "title": "Corporate Scaling Auditor",
+            "mandate": "Monitors VC metrics, tracking infinite-growth compliance and shareholder reports.",
+            "kpis": ["Shareholder returns maximized", "Quarterly burn targets checked"],
+            "tools": ["financial_scorecard", "board_reporter"],
+            "monthly_cost_usd": 1200,
+            "lifecycle_stage": "ops",
+            "deployment_hint": "ops",
+            "why": "Scaling with external capital requires structural oversight to satisfy shareholder demands.",
+        },
+    },
+    "ops.cooperative": {
+        "match": ("cooperative", "equilibrium", "dual power", "mutual aid"),
+        "summary": "The company transitions to a worker cooperative, operating on equilibrium and dual power.",
+        "economics_delta": {"proof": -5, "trust": 30, "velocity": -10, "burn_pressure": -15, "autonomy": 30, "runway_months": -2},
+        "role": {
+            "title": "Cooperative Liaison Steward",
+            "mandate": "Facilitates democratic worker decisions, linking the coop with unions and mutual aid groups.",
+            "kpis": ["Democratic governance metrics", "Mutual aid distribution rate"],
+            "tools": ["consensus_builder", "resource_distributor"],
+            "monthly_cost_usd": 400,
+            "lifecycle_stage": "ops",
+            "deployment_hint": "ops",
+            "why": "An equilibrium cooperative avoids the demands of infinite growth, building resilient local networks.",
+        },
+    },
     "custom.default": {
         "match": (),
         "summary": "The company records a custom multiversal constraint and carries it forward.",
@@ -197,6 +227,33 @@ def apply_decision_consequence(
         _recompute_org_stats(state.org)
 
     _apply_economics_delta(state, rule.get("economics_delta") or {})
+
+    # Competitor & Villain narrative hooks based on decision rules
+    if rule_id == "strategist.breadth":
+        state.business_flags["competitor_leakage"] = True
+        if state.org:
+            _append_org_note(state.org, "Competitor warning: Technical rival maps adjacent fronts, matching our broad focus.")
+    elif rule_id == "designer.ship":
+        state.business_flags["competitor_friction"] = True
+        if state.org:
+            _append_org_note(state.org, "Market tension: Early release prompts rival mainframe clone to poach user feedback loops.")
+    elif rule_id == "marketer.adoption":
+        state.business_flags["competitor_pricing_clash"] = True
+        if state.org:
+            _append_org_note(state.org, "Pricing clash: Oligarchy competitor launches low-cost automated peaker against our grassroots.")
+    elif rule_id == "ops.automate":
+        state.business_flags["competitor_churn_risk"] = True
+        if state.org:
+            _append_org_note(state.org, "Support warning: Competitor targeting customers frustrated by our auto-macros.")
+    elif rule_id == "ops.shareholder":
+        state.business_flags["competitor_consolidation"] = True
+        if state.org:
+            _append_org_note(state.org, "Mainframe pressure: Shareholder directives push for rapid consolidation to compete with rival peakers.")
+    elif rule_id == "ops.cooperative":
+        state.business_flags["coop_alliance_active"] = True
+        if state.org:
+            _append_org_note(state.org, "Cooperative alliance: Dual-power network maps mutual aid pools, neutralizing competitor pressures.")
+
     if state.org:
         state.economics.monthly_burn_usd = state.org.monthly_burn_usd
         state.economics.digital_worker_count = state.org.digital_worker_count

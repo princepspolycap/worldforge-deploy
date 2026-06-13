@@ -451,7 +451,7 @@
         .creator-card .arch-card:hover { border-color: var(--line-bright); background: rgba(255,255,255,0.04); transform: translateY(-1px); }
         .creator-card .arch-card.sel { border-color: var(--gold-soft); background: rgba(245,200,122,0.08); box-shadow: 0 0 0 1px rgba(245,200,122,0.3) inset; }
         .first-step .creator-card .cta {
-            margin-top: 4px; width: 100%; justify-content: center;
+            margin-top: 8px; align-self: flex-start; justify-content: center;
             font-family: var(--font-body); font-weight: 700; font-size: 16px;
             color: #2a1c06; background: var(--gold-grad);
             border: none; border-radius: var(--radius-md); padding: 14px 24px;
@@ -459,11 +459,18 @@
             transition: 160ms ease; animation: none; filter: none;
         }
         .first-step .creator-card .cta:hover { transform: translateY(-2px); box-shadow: 0 24px 58px -14px rgba(245,200,122,0.85), inset 0 1px 0 rgba(255,255,255,0.5); }
+        /* Begin + "No profile?" sit on one row: the gold CTA leads, the ghost
+           toggle trails on the right. */
+        .cc-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+        .cc-actions .cta { margin-top: 0; flex: 0 0 auto; }
+        .cc-actions .cc-flip-btn.small { margin-left: auto; margin-top: 0; flex: 0 0 auto; }
         .cc-hidden { display: none; }
         .cc-hidden.cc-advanced {
             border-top: 1px dashed var(--line); margin-top: 18px; padding-top: 14px;
             flex-direction: column; gap: 14px;
         }
+        /* Motion One drives the height/opacity slide (game/motion.js); CSS just
+           lays the panel out when shown. */
         .cc-advanced:not([hidden]) { display: flex; }
         .cc-adv-toggle { margin-top: 14px; text-align: center; }
         .cc-inline { display: inline-block; }
@@ -476,6 +483,31 @@
         .cc-mic-btn { margin-top: 0; width: auto; font-size: 14px; padding: 6px 12px; }
         .cc-mic-status { font-family: var(--font-mono); font-size: 9px; color: var(--ink-faint); margin-top: 0; }
         .is-hidden { display: none !important; }
+
+        /* Begin button while the preflight gathers the profile. */
+        .first-step .creator-card .cta.is-loading {
+            opacity: 0.7; cursor: progress; filter: grayscale(0.2);
+        }
+        /* Ready confirmation: shown after the preflight has actually fetched the
+           profile, so the run never starts before we have the information. */
+        .cc-ready { display: flex; flex-direction: column; gap: 12px; }
+        .cc-ready .kicker {
+            font-family: var(--font-mono); font-size: 10.5px;
+            letter-spacing: 0.34em; text-transform: uppercase; color: #bcd2ff; margin: 0;
+        }
+        .cc-ready-source { font-size: 12.5px; color: var(--ink-dim); }
+        .cc-ready-source b { color: var(--ink); }
+        .cc-ready-verdict { margin: 0; font-size: 14.5px; line-height: 1.45; color: var(--ink); }
+        .cc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+        .cc-chip {
+            font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em;
+            color: var(--blue-soft, #bcd2ff); padding: 4px 8px; border-radius: 999px;
+            border: 1px solid rgba(91,140,255,0.28); background: rgba(91,140,255,0.06);
+        }
+        .cc-ready-arch, .cc-ready-stat { font-size: 12.5px; color: var(--ink-dim); }
+        .cc-ready-arch b, .cc-ready-stat b { color: var(--gold-soft, #f5c87a); }
+        .cc-ready .cta { margin-top: 6px; }
+        .cc-ready .cc-back { align-self: center; margin-top: 2px; }
         /* Two-step flow: only the active step shows; steps fade/slide in. */
         .cc-step { display: flex; flex-direction: column; gap: 16px; }
         .cc-step[hidden] { display: none; }
@@ -1449,6 +1481,7 @@
             font-size: 9.5px; border: 1px solid var(--line); border-radius: var(--radius-pill); padding: 2px 8px;
             margin: 0 4px 0 0; color: var(--ink-dim); background: rgba(255,255,255,0.03); }
         .dilemma-trail .tchip.gold { color: var(--gold-soft); border-color: rgba(244,201,93,0.35); }
+        .dilemma-trail .tchip.rival { color: #ff9b8a; border-color: rgba(255,107,90,0.42); background: rgba(255,107,90,0.07); }
         .dilemma-countdown { margin-top: 10px; font-family: var(--font-mono); font-size: 12px;
             color: var(--gold-soft); letter-spacing: 0.04em; text-align: center; }
         .dilemma-kicker { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.18em;
@@ -1474,9 +1507,13 @@
         .dilemma-opt:disabled { opacity: 0.55; cursor: wait; }
         .dilemma-own { margin-top: 10px; }
         .dilemma-own .own b { color: var(--ink-dim); }
-        #dilemma-own-wrap { display: flex; gap: 8px; margin-top: 10px; }
+        #dilemma-own-wrap { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
         #dilemma-own-wrap input { flex: 1; background: rgba(255,255,255,0.04); border: 1px solid var(--line);
             border-radius: 10px; color: var(--ink); padding: 10px 12px; font-family: inherit; font-size: 13px; }
+        #dilemma-own-wrap .dilemma-mic { position: static; flex: 0 0 auto; width: 40px; height: 40px; font-size: 17px; }
+        .dilemma-mic-status { margin-top: 8px; font-family: var(--font-mono); font-size: 10px;
+            letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); min-height: 14px; }
+        .dilemma-mic-status.live { color: var(--bad); }
         .income-beat { display: flex; flex-direction: column; align-items: center; gap: 22px; width: min(560px, 90%); }
         .income-num { text-align: center; }
         #income-counter { display: block; font-family: var(--font-display); font-size: 56px; color: var(--good);
@@ -1885,47 +1922,32 @@
                              player to fill a form. -->
                         <div class="creator-card" data-step="1">
                             <div class="cc-step" data-step="1">
-                                <div class="kicker">Let's take your first step</div>
-                                <h1>Where are you<br>coming from?</h1>
-                                <p class="cc-lead">Paste a LinkedIn or public profile. Your agents infer the founder seat from public signals.</p>
+                                <div class="kicker">Character creation</div>
+                                <h1>Automate your<br>basic needs</h1>
+                                <p class="cc-lead">Drop your LinkedIn. We turn your professional life into your character &mdash; then your digital workers build the one-person business that covers your basic needs.</p>
                                 <div class="cc-field">
-                                    <label for="in-url">LinkedIn or public profile URL</label>
+                                    <label for="in-url">Your LinkedIn or public profile</label>
                                     <input id="in-url" value="" placeholder="https://www.linkedin.com/in/your-handle" autocomplete="off" />
-                                    <span class="cc-hint">If the profile is restricted, the run falls back to the default mission and inferred handle.</span>
                                 </div>
-                                <button id="begin" class="cta">Begin the run &rarr;</button>
-                                <div class="cc-adv-toggle">
-                                    <button id="btn-cc-adv" type="button" class="cc-flip-btn small cc-inline">Advanced Settings</button>
+                                <div class="cc-actions">
+                                    <button id="begin" class="cta">Begin the run &rarr;</button>
+                                    <button id="btn-cc-adv" type="button" class="cc-flip-btn small cc-inline">No profile?</button>
                                 </div>
                             </div>
 
-                            <!-- Derived/hidden: company name + pitch ride along with
-                                 defaults so the run starts in one press. The URL (if
-                                 given) is what actually drives company analysis. -->
+                            <!-- Escape hatch for founders without a public profile:
+                                 describe the one-person business they'd run. The web
+                                 still trades skill for skill: an engineer builds the
+                                 systems, a seller builds the sales engine, a designer
+                                 shapes the brand. The LinkedIn URL above is the primary
+                                 path; the founder seat is inferred, not asked. -->
                             <div class="cc-hidden cc-advanced" hidden aria-hidden="true">
                                 <div class="cc-field">
-                                    <label for="in-founder-name">Founder Name Override</label>
-                                    <input id="in-founder-name" value="" placeholder="Inferred from URL handle" autocomplete="off" />
-                                </div>
-                                <div class="cc-field">
-                                    <label for="in-company">Company Name</label>
-                                    <input id="in-company" value="World Improvement Mission" autocomplete="off" />
-                                </div>
-                                <div class="cc-field">
-                                    <label for="in-pitch">Mission Pitch / Description</label>
-                                    <textarea id="in-pitch" rows="3" class="cc-textarea">A founder-led world improvement mission: use a reasoning-agent workforce to turn personal strengths, public profile signals, and a concrete social need into verified artifacts, operating loops, and human-approved next steps.</textarea>
-                                </div>
-                                <div class="cc-field">
-                                    <label>Founder Archetype Override</label>
-                                    <div id="arch-row" class="arch-row">
-                                        <button type="button" class="arch-card" data-arch="Builder" data-skill="building product: shipping software, prototypes, systems"><b class="arch-builder">Builder</b><span>Product &amp; prototypes</span></button>
-                                        <button type="button" class="arch-card" data-arch="Seller" data-skill="selling: closing deals, partnerships, growth conversations"><b class="arch-seller">Seller</b><span>Customers &amp; deals</span></button>
-                                        <button type="button" class="arch-card" data-arch="Designer" data-skill="design: brand, product experience, storytelling"><b class="arch-designer">Designer</b><span>Brand &amp; taste</span></button>
-                                        <button type="button" class="arch-card" data-arch="Operator" data-skill="operations: process, logistics, keeping the machine running"><b class="arch-operator">Operator</b><span>Process &amp; loops</span></button>
-                                    </div>
+                                    <label for="in-pitch">Describe your ideal one-person business</label>
+                                    <textarea id="in-pitch" rows="3" class="cc-textarea" placeholder="The skill you trade and who you help with it. e.g. I'm a software engineer - I build the systems and tools that help small businesses run themselves."></textarea>
                                 </div>
                                 <div class="cc-field cc-mic-row">
-                                    <button id="mic" type="button" class="cc-flip-btn small cc-mic-btn" title="Speak your idea" aria-label="Speak your idea">&#127908; Speak Pitch</button>
+                                    <button id="mic" type="button" class="cc-flip-btn small cc-mic-btn" title="Speak your business" aria-label="Speak your business">Speak instead</button>
                                     <div id="mic-status" class="cc-mic-status"></div>
                                 </div>
                             </div>
@@ -1985,11 +2007,13 @@
             <div id="dilemma-tools" class="dilemma-tools"></div>
             <div id="dilemma-options" class="dilemma-options"></div>
             <div class="dilemma-own">
-                <button id="dilemma-own-btn" class="dilemma-opt own" type="button"><b>3 &middot; Chart your own path</b><span>type your call</span></button>
+                <button id="dilemma-own-btn" class="dilemma-opt own" type="button"><b>3 &middot; Talk it through &middot; chart your own path</b><span>speak or type your call</span></button>
                 <div id="dilemma-own-wrap" hidden>
-                    <input id="dilemma-own-input" placeholder="Your decision, in one sentence..." />
+                    <input id="dilemma-own-input" placeholder="Speak or type your decision..." />
+                    <button id="dilemma-own-mic" class="mic-btn dilemma-mic" type="button" title="Speak with your workforce" aria-label="Speak your decision">&#127908;</button>
                     <button id="dilemma-own-go" class="btn primary" type="button">Commit</button>
                 </div>
+                <div id="dilemma-own-status" class="dilemma-mic-status" hidden></div>
             </div>
             <div id="dilemma-countdown" class="dilemma-countdown" hidden></div>
         </div>
@@ -2007,7 +2031,7 @@
     </div>
 
     <script src="/game/game/audio.js?v=11"></script>
-    <script type="module" src="/game/game/story.js?v=150"></script>
-    <script src="/game/game/intro.js?v=29"></script>
+    <script type="module" src="/game/game/story.js?v=156"></script>
+    <script src="/game/game/intro.js?v=30"></script>
 </body>
 </html>

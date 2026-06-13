@@ -131,7 +131,7 @@ def _load_local() -> List[Dict[str, Any]]:
         if not MEMORY_FILE.exists():
             return []
         try:
-            data = json.loads(MEMORY_FILE.read_text())
+            data = json.loads(MEMORY_FILE.read_text(encoding="utf-8"))
             return data if isinstance(data, list) else []
         except Exception:
             return []
@@ -141,7 +141,18 @@ def _save_local(items: List[Dict[str, Any]]) -> None:
     with _lock:
         try:
             MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-            MEMORY_FILE.write_text(json.dumps(items[-200:], indent=1))
+            import tempfile
+            fd, temp_path = tempfile.mkstemp(dir=str(MEMORY_FILE.parent), prefix="memory_tmp_")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(items[-200:], f, indent=1)
+                os.replace(temp_path, str(MEMORY_FILE))
+            except Exception:
+                try:
+                    os.unlink(temp_path)
+                except Exception:
+                    pass
+                raise
         except Exception:
             pass  # memory must never break the game loop
 
