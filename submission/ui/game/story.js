@@ -127,23 +127,41 @@ function setInferredArchetype(name, skill) {
 
 let typeToken = 0;
 let lastSpeech = Promise.resolve(); // completion of the previous narrated line
+const spokenLines = {};
 
-// The dialogue nameplate: who is speaking this line. Pulls the active agent's
-// role color, in-world name, and portrait so every line reads like a character
-// speaking (visual-novel style) instead of a faceless caption.
+function activeSpeakerSnapshot() {
+    const aw = state.activeWorker || {};
+    const role = aw.role || "narrator";
+    const name = aw.displayName || ROLE_NAME[role] || role;
+    return { role, name, heroName: CAST_NAME[role] || ROLE_NAME[role] || role };
+}
+
+function rememberSpokenLine(text) {
+    const speaker = activeSpeakerSnapshot();
+    const key = speaker.name || speaker.heroName || speaker.role;
+    if (!key || !text) return;
+    spokenLines[key] = (spokenLines[key] || []).concat({ text, ts: Date.now(), role: speaker.role }).slice(-4);
+}
+
+// The speaker card: who is speaking this line. Pulls the active agent's role
+// color, in-world name, and portrait so every line reads as coming from a card,
+// not from a permanent subtitle slab.
 function setNarrationSpeaker() {
     const line = $("narration-line");
     const chip = $("narration-speaker");
     const nameEl = $("narration-speaker-name");
+    const roleEl = $("narration-speaker-role");
     const portrait = $("narration-portrait");
     if (!line || !chip) return;
-    const aw = state.activeWorker || {};
-    const role = aw.role || "narrator";
+    const speaker = activeSpeakerSnapshot();
+    const role = speaker.role || "narrator";
     const color = ROLE_COLOR[role] || T.narrator;
     const portraitKey = ROLE_PORTRAIT[role] || "narrator";
-    const heroName = CAST_NAME[role] || ROLE_NAME[role] || role;
-    line.style.setProperty("--spk", color);
-    if (nameEl) nameEl.textContent = heroName;
+    document.documentElement.style.setProperty("--spk", color);
+    const alphaColor = color.startsWith("#") ? color + "26" : color;
+    document.documentElement.style.setProperty("--spk-alpha", alphaColor);
+    if (nameEl) nameEl.textContent = speaker.heroName;
+    if (roleEl) roleEl.textContent = ROLE_NAME[role] || role;
     if (portrait) { portrait.style.display = ""; portrait.src = `/game/assets/generated/${portraitKey}.png`; }
     chip.hidden = false;
 }
@@ -162,12 +180,16 @@ async function narrate(text, speed = 18) {
     let speechP = Promise.resolve();
     if (A.speak) { try { speechP = A.speak(text, { voice: currentVoice }) || Promise.resolve(); } catch (e) { /* narration optional */ } }
     lastSpeech = speechP;
-    // The live transcription lives in exactly one place - the narration track.
-    // It reads as a game DIALOGUE LINE: a colored speaker nameplate + a tight
-    // line of text, not a big floating caption block.
+    // The live transcription lives in exactly one place: the temporary speaker
+    // card above the hand. The card disappears after the line finishes, while
+    // the text is retained on the agent's dossier.
     setNarrationSpeaker();
     const track = $("narration");
-    if (track) track.classList.add("show");
+    if (track) {
+        track.hidden = false;
+        track.removeAttribute("aria-hidden");
+        track.classList.add("show");
+    }
     el.innerHTML = "";
     const caret = document.createElement("span");
     caret.className = "caret";
@@ -181,6 +203,26 @@ async function narrate(text, speed = 18) {
     }
     await sleep(450);
     if (myToken === typeToken && caret.parentNode) caret.remove();
+    if (myToken === typeToken) {
+        rememberSpokenLine(text);
+        await sleep(900);
+        const track = $("narration");
+        if (track) {
+            track.classList.remove("show");
+            setTimeout(() => {
+                if (myToken === typeToken && !track.classList.contains("show")) {
+                    const textEl = $("narration-text");
+                    if (textEl) textEl.innerHTML = "";
+                    const nameEl = $("narration-speaker-name");
+                    const roleEl = $("narration-speaker-role");
+                    if (nameEl) nameEl.textContent = "";
+                    if (roleEl) roleEl.textContent = "";
+                    track.hidden = true;
+                    track.setAttribute("aria-hidden", "true");
+                }
+            }, 240);
+        }
+    }
     // Hold the beat until the voice finishes the line - the typewriter runs
     // ~3x faster than speech, and cutting the narrator mid-sentence was the
     // top playtest complaint. Capped, and abandoned if a newer beat starts.
@@ -836,6 +878,9 @@ function dossierBackHTML(ev) {
         : `<span class="cc-chip dim">no tool calls yet</span>`;
     const memChips = (ev.mafMemory || []).map((m) =>
         `<span class="cc-chip mem">${m.kind === "ceo_decision" ? "&#9819;" : m.kind === "agent_memory" ? "&#9851;" : "&#9783;"} ${esc((m.text || "").slice(0, 30))}</span>`).join(" ");
+    const spoken = (spokenLines[ev.name] || []).slice(-3).map((line) =>
+        `<div class="cc-spoken-line">&ldquo;${esc((line.text || "").slice(0, 120))}${(line.text || "").length > 120 ? "&hellip;" : ""}&rdquo;</div>`
+    ).join("");
     let traceHtml = "";
     (ev.trace || []).forEach((t) => {
         const argStr = t.args ? esc(JSON.stringify(t.args)).slice(0, 64) : "";
@@ -849,6 +894,7 @@ function dossierBackHTML(ev) {
         + (ev.deployment ? `<div class="cc-deploy">${esc(ev.deployment)}</div>` : ``)
         + `</div><div class="cc-score"><b>${score}</b><span>/100</span></div></div>`
         + `<div class="cc-section"><div class="cc-h">Tools the model called</div><div class="cc-chips">${toolChips}</div></div>`
+        + (spoken ? `<div class="cc-section"><div class="cc-h">Spoken lines</div>${spoken}</div>` : ``)
         + (memChips ? `<div class="cc-section"><div class="cc-h">Memory injected</div><div class="cc-chips">${memChips}</div></div>` : ``)
         + (traceHtml ? `<div class="cc-section"><div class="cc-h">tools/call trace</div><div class="cc-trace">${traceHtml}</div></div>` : ``)
         + (ev.reasoningPreview ? `<div class="cc-section"><div class="cc-h">Reasoning${ev.reasoningTokens ? ` &middot; ${ev.reasoningTokens} tok` : ""}</div><div class="cc-text quote">&ldquo;${esc((ev.reasoningPreview || "").slice(0, 150))}&hellip;&rdquo;</div></div>` : ``)
@@ -974,7 +1020,6 @@ function openAgentInspector() {
     castRole = key;
     stage.className = "inspect show";
     document.body.classList.add("inspecting-agent");
-    upgradeCastToClip(key, stage);
 }
 function closeAgentInspector() {
     inspectorOpen = false;
@@ -1594,9 +1639,8 @@ async function beginStory() {
     await revealSelfOrganization();
     await revealVentureGraph();
 
-    $("next").disabled = false;
-    $("auto").disabled = false;
-    $("hint").textContent = "Press Next to run the first chapter";
+    // Start auto-play by default!
+    autoPlay();
 }
 
 async function revealSelfOrganization() {
@@ -1959,8 +2003,8 @@ async function runNextChapter() {
     if (state.idx >= state.chapters.length) return;
     const ch = state.chapters[state.idx];
     const ownerName = ch.assigned_worker_title || ROLE_NAME[ch.owner_role] || ch.owner_role;
-    $("next").disabled = true;
-    $("auto").disabled = true;
+    const nextBtn = $("next"); if (nextBtn) nextBtn.disabled = true;
+    const autoBtn = $("auto"); if (autoBtn) autoBtn.disabled = true;
     markProgress(state.idx);
 
     setSceneHead(`Chapter ${state.idx + 1}`, ch.title,
@@ -2008,9 +2052,10 @@ async function runNextChapter() {
         } catch (e2) {
             if (A.thinkingStop) A.thinkingStop();
             theaterClose();
-            $("hint").textContent = "Chapter failed - press Next to retry";
-            await narrate(`The worker could not finish: ${e2.message}. Press Next to send it back in.`);
-            $("next").disabled = false;
+            $("hint").textContent = "Chapter failed - press Retry to resume";
+            await narrate(`The worker could not finish: ${e2.message}. Click Retry to send it back in.`);
+            const retry = $("retry");
+            if (retry) retry.classList.remove("is-hidden");
             return;
         }
     }
@@ -2084,9 +2129,9 @@ async function runNextChapter() {
     } else {
         // The CEO decision gate: pick a path before the next worker spins up.
         await runDilemmaGate(chapter, state.autoMode);
-        $("next").disabled = false;
-        $("auto").disabled = false;
-        $("hint").textContent = "Press Next for the following chapter";
+        const next = $("next"); if (next) next.disabled = false;
+        const auto = $("auto"); if (auto) auto.disabled = false;
+        $("hint").textContent = "Resuming campaign...";
     }
 }
 
@@ -2666,7 +2711,7 @@ $("begin").addEventListener("mouseenter", () => {
 // `mission` = {company, pitch, archetype: {name, skill}|null}. The film picks
 // the front + archetype; this fills the founding fields and starts the run
 // while the overlay is still fading - the script IS the gameplay.
-window.DungeonStory = {
+window.CampaignStory = window.DungeonStory = {
     start(mission) {
         if (state.phase !== "title") return;
         mission = mission || {};
@@ -2683,9 +2728,32 @@ window.DungeonStory = {
         beginStory();
     },
 };
-$("next").addEventListener("click", runNextChapter);
-$("auto").addEventListener("click", autoPlay);
-$("reset").addEventListener("click", resetStory);
+
+const nextBtn = $("next");
+if (nextBtn) nextBtn.addEventListener("click", runNextChapter);
+const autoBtn = $("auto");
+if (autoBtn) autoBtn.addEventListener("click", autoPlay);
+const resetBtn = $("reset");
+if (resetBtn) resetBtn.addEventListener("click", resetStory);
+const retryBtn = $("retry");
+if (retryBtn) {
+    retryBtn.addEventListener("click", async () => {
+        retryBtn.classList.add("is-hidden");
+        await autoPlay();
+    });
+}
+const advBtn = $("btn-cc-adv");
+if (advBtn) {
+    advBtn.addEventListener("click", () => {
+        const ccHidden = document.querySelector(".cc-hidden");
+        if (ccHidden) {
+            const hidden = ccHidden.hidden;
+            ccHidden.hidden = !hidden;
+            ccHidden.setAttribute("aria-hidden", String(hidden));
+            advBtn.textContent = hidden ? "Hide Advanced Settings" : "Advanced Settings";
+        }
+    });
+}
 
 // Ops rail toggle (button or R key): full-screen cinema vs full telemetry.
 const railToggle = $("rail-toggle");

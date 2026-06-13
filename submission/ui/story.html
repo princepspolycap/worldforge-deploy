@@ -59,12 +59,12 @@
             /* the gold seal - one gradient, shared by every human-consequence
                button (Begin, approve, seal) so the seal never drifts. */
             --gold-grad: linear-gradient(180deg, var(--gold-soft), var(--gold-deep));
-                /* screen grammar */
-                --footer-h: 64px;
-                --hand-bottom: 70px;
-                --hand-card-h: 236px;
-                --dialogue-bottom: calc(var(--hand-bottom) + var(--hand-card-h) + 40px);
-                --lower-stage-reserve: calc(var(--dialogue-bottom) + 116px);
+            /* screen grammar */
+            --footer-h: 64px;
+            --hand-bottom: 70px;
+            --hand-card-h: 236px;
+            --dialogue-bottom: calc(var(--hand-bottom) + var(--hand-card-h) + 22px);
+            --lower-stage-reserve: calc(var(--dialogue-bottom) + 102px);
         }
 
         * { box-sizing: border-box; }
@@ -460,6 +460,22 @@
         }
         .first-step .creator-card .cta:hover { transform: translateY(-2px); box-shadow: 0 24px 58px -14px rgba(245,200,122,0.85), inset 0 1px 0 rgba(255,255,255,0.5); }
         .cc-hidden { display: none; }
+        .cc-hidden.cc-advanced {
+            border-top: 1px dashed var(--line); margin-top: 18px; padding-top: 14px;
+            flex-direction: column; gap: 14px;
+        }
+        .cc-advanced:not([hidden]) { display: flex; }
+        .cc-adv-toggle { margin-top: 14px; text-align: center; }
+        .cc-inline { display: inline-block; }
+        .cc-textarea {
+            width: 100%; border: 1px solid var(--line); border-radius: var(--radius-sm);
+            background: rgba(0,0,0,0.2); color: var(--ink); padding: 8px 10px;
+            font-family: inherit; font-size: 13px; resize: vertical;
+        }
+        .cc-mic-row { flex-direction: row; align-items: center; gap: 10px; }
+        .cc-mic-btn { margin-top: 0; width: auto; font-size: 14px; padding: 6px 12px; }
+        .cc-mic-status { font-family: var(--font-mono); font-size: 9px; color: var(--ink-faint); margin-top: 0; }
+        .is-hidden { display: none !important; }
         /* Two-step flow: only the active step shows; steps fade/slide in. */
         .cc-step { display: flex; flex-direction: column; gap: 16px; }
         .cc-step[hidden] { display: none; }
@@ -836,7 +852,7 @@
            (tool calls, reasoning, memory, receipts). One home for cards. */
         #party {
             position: fixed; left: 44px; right: 44px; bottom: var(--hand-bottom); z-index: 18;
-            display: flex; align-items: flex-end; flex-wrap: nowrap;
+            display: flex; align-items: flex-end; justify-content: center; flex-wrap: nowrap;
             gap: 12px; padding: 14px 6px 6px;
             overflow-x: auto; overflow-y: hidden;
             pointer-events: none;
@@ -871,8 +887,14 @@
         }
         .pa-back { transform: rotateY(180deg); overflow-y: auto; }
         .party-agent.active .pa-front {
-            border-color: rgba(91,140,255,0.78);
-            background: linear-gradient(180deg, rgba(91,140,255,0.18), rgba(7,10,20,0.78));
+            border-color: var(--spk, rgba(91,140,255,0.78));
+            background: linear-gradient(180deg, var(--spk-alpha, rgba(91,140,255,0.18)), rgba(7,10,20,0.78));
+            box-shadow: 0 0 20px -2px var(--spk, rgba(91,140,255,0.4));
+            animation: activeCardPulse 2.8s ease-in-out infinite;
+        }
+        @keyframes activeCardPulse {
+            0%, 100% { box-shadow: 0 0 14px -3px var(--spk, rgba(91,140,255,0.35)); }
+            50% { box-shadow: 0 0 24px -1px var(--spk, rgba(91,140,255,0.6)); }
         }
         .party-agent.done .pa-front { border-color: rgba(52,211,153,0.5); }
         .party-agent:not(.active):not(.flipped) .pa-front { opacity: 0.9; }
@@ -1026,6 +1048,12 @@
         }
         .cc-text { font-size: 13px; line-height: 1.5; color: var(--ink); }
         .cc-text.quote { color: var(--ink-dim); font-style: italic; }
+        .cc-spoken-line {
+            margin-top: 6px; padding: 7px 9px;
+            border: 1px solid rgba(255,255,255,0.06); border-radius: 9px;
+            background: rgba(255,255,255,0.025);
+            color: var(--ink-dim); font-size: 11.5px; line-height: 1.4; font-style: italic;
+        }
         .cc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
         .cc-chip {
             font-family: var(--font-mono); font-size: 10px; color: var(--blue-soft);
@@ -1087,10 +1115,15 @@
         #cast-stage.inspect {
             display: block; pointer-events: auto; z-index: 30;
         }
-        body.inspecting-agent #narration,
-        body.inspecting-agent #party {
-            opacity: 0.34;
-            transition: opacity 180ms ease;
+        body.inspecting-agent #diagram,
+        body.inspecting-agent #scene-head,
+        body.inspecting-agent #party,
+        body.inspecting-agent #theater,
+        body.inspecting-agent #narration {
+            opacity: 0.22;
+            filter: blur(5px);
+            pointer-events: none;
+            transition: opacity 240ms ease, filter 240ms ease;
         }
         /* The character art stays gorgeous and visible up top; the dossier is a
            glass panel over the lower portion of the card so the agent and its
@@ -1465,11 +1498,9 @@
         .rub-num { flex: 0 0 24px; text-align: right; font-variant-numeric: tabular-nums; }
         .rub-src { margin-top: 3px; font-size: 10px; color: var(--ink-faint); }
 
-        /* ---- Narration track: a game dialogue line, not a caption block ---- */
-        /* Visual-novel / RPG style: a compact subtitle bar with the SPEAKER
-           highlighted (their portrait + name in their role color), then a tight
-           line of dialogue. Sits low, above the footer, narrow and centered so
-           it never eats the stage the way the old big serif block did. */
+          /* ---- Speaker card: temporary on-card transcription ---- */
+          /* The active speaker pops a compact card above the hand. The words type
+              inside that card, then the card clears when the line finishes. */
         #narration {
             position: fixed; left: 0; right: 0; bottom: var(--dialogue-bottom); z-index: 19;
             display: flex; justify-content: center;
@@ -1477,26 +1508,22 @@
         }
         #stage.rail-hidden #narration { right: 0; }
         #narration-line {
-            display: inline-flex; align-items: flex-start; gap: 12px;
-            max-width: 760px; padding: 12px 18px;
-            border-radius: 16px;
-            background: rgba(8,12,22,0.74);
+            display: flex; flex-direction: column; gap: 10px;
+            width: min(560px, calc(100vw - 88px)); padding: 13px 16px 15px;
+            border-radius: 15px;
+            background: linear-gradient(180deg, rgba(12,18,32,0.9), rgba(7,10,20,0.82));
             border: 1px solid var(--line);
-            box-shadow: 0 18px 50px -24px rgba(0,0,0,0.9);
+            box-shadow: 0 20px 58px -30px rgba(0,0,0,0.94), 0 0 34px -22px var(--spk, transparent);
             -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
-            opacity: 0; transform: translateY(8px);
-            transition: opacity 240ms ease, transform 240ms ease;
+            opacity: 0; transform: translateY(14px) scale(0.985);
+            transition: opacity 220ms ease, transform 220ms cubic-bezier(.2,.7,.2,1);
         }
         #narration.show #narration-line { opacity: 1; transform: none; }
-        /* The speaker nameplate: a colored chip (role color via --spk) with the
-           active character's portrait, so you always see WHO is talking. */
         #narration-speaker {
-            display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto;
-            padding-right: 12px; margin-top: 1px;
-            border-right: 1px solid var(--line);
+            display: inline-flex; align-items: center; gap: 10px; align-self: flex-start;
         }
         #narration-portrait {
-            width: 30px; height: 30px; border-radius: 8px; object-fit: cover;
+            width: 32px; height: 32px; border-radius: 9px; object-fit: cover;
             border: 1px solid var(--spk, var(--line));
             box-shadow: 0 0 14px -2px var(--spk, transparent);
             flex: 0 0 auto;
@@ -1505,6 +1532,11 @@
             font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em;
             text-transform: uppercase; color: var(--spk, var(--ink-dim));
             white-space: nowrap; font-weight: 600;
+        }
+        #narration-speaker-role {
+            display: block; margin-top: 2px;
+            font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.18em;
+            text-transform: uppercase; color: var(--ink-faint);
         }
         #narration-text {
             font-family: var(--font-body); font-size: clamp(14px, 1.35vw, 17px);
@@ -1862,34 +1894,51 @@
                                     <span class="cc-hint">If the profile is restricted, the run falls back to the default mission and inferred handle.</span>
                                 </div>
                                 <button id="begin" class="cta">Begin the run &rarr;</button>
+                                <div class="cc-adv-toggle">
+                                    <button id="btn-cc-adv" type="button" class="cc-flip-btn small cc-inline">Advanced Settings</button>
+                                </div>
                             </div>
 
                             <!-- Derived/hidden: company name + pitch ride along with
                                  defaults so the run starts in one press. The URL (if
                                  given) is what actually drives company analysis. -->
-                            <div class="cc-hidden" hidden aria-hidden="true">
-                                <input id="in-company" value="World Improvement Mission" />
-                                <textarea id="in-pitch" rows="2">A founder-led world improvement mission: use a reasoning-agent workforce to turn personal strengths, public profile signals, and a concrete social need into verified artifacts, operating loops, and human-approved next steps.</textarea>
-                                <input id="in-founder-name" value="" />
-                                <div id="arch-row" class="arch-row">
-                                    <button type="button" class="arch-card" data-arch="Builder" data-skill="building product: shipping software, prototypes, systems"><b class="arch-builder">Builder</b><span>Product &amp; prototypes</span></button>
-                                    <button type="button" class="arch-card" data-arch="Seller" data-skill="selling: closing deals, partnerships, growth conversations"><b class="arch-seller">Seller</b><span>Customers &amp; deals</span></button>
-                                    <button type="button" class="arch-card" data-arch="Designer" data-skill="design: brand, product experience, storytelling"><b class="arch-designer">Designer</b><span>Brand &amp; taste</span></button>
-                                    <button type="button" class="arch-card" data-arch="Operator" data-skill="operations: process, logistics, keeping the machine running"><b class="arch-operator">Operator</b><span>Process &amp; loops</span></button>
+                            <div class="cc-hidden cc-advanced" hidden aria-hidden="true">
+                                <div class="cc-field">
+                                    <label for="in-founder-name">Founder Name Override</label>
+                                    <input id="in-founder-name" value="" placeholder="Inferred from URL handle" autocomplete="off" />
                                 </div>
-                                <button id="mic" type="button" title="Speak your idea" aria-label="Speak your idea">&#127908;</button>
-                                <div id="mic-status"></div>
+                                <div class="cc-field">
+                                    <label for="in-company">Company Name</label>
+                                    <input id="in-company" value="World Improvement Mission" autocomplete="off" />
+                                </div>
+                                <div class="cc-field">
+                                    <label for="in-pitch">Mission Pitch / Description</label>
+                                    <textarea id="in-pitch" rows="3" class="cc-textarea">A founder-led world improvement mission: use a reasoning-agent workforce to turn personal strengths, public profile signals, and a concrete social need into verified artifacts, operating loops, and human-approved next steps.</textarea>
+                                </div>
+                                <div class="cc-field">
+                                    <label>Founder Archetype Override</label>
+                                    <div id="arch-row" class="arch-row">
+                                        <button type="button" class="arch-card" data-arch="Builder" data-skill="building product: shipping software, prototypes, systems"><b class="arch-builder">Builder</b><span>Product &amp; prototypes</span></button>
+                                        <button type="button" class="arch-card" data-arch="Seller" data-skill="selling: closing deals, partnerships, growth conversations"><b class="arch-seller">Seller</b><span>Customers &amp; deals</span></button>
+                                        <button type="button" class="arch-card" data-arch="Designer" data-skill="design: brand, product experience, storytelling"><b class="arch-designer">Designer</b><span>Brand &amp; taste</span></button>
+                                        <button type="button" class="arch-card" data-arch="Operator" data-skill="operations: process, logistics, keeping the machine running"><b class="arch-operator">Operator</b><span>Process &amp; loops</span></button>
+                                    </div>
+                                </div>
+                                <div class="cc-field cc-mic-row">
+                                    <button id="mic" type="button" class="cc-flip-btn small cc-mic-btn" title="Speak your idea" aria-label="Speak your idea">&#127908; Speak Pitch</button>
+                                    <div id="mic-status" class="cc-mic-status"></div>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div id="narration">
+            <div id="narration" hidden aria-hidden="true">
                 <div id="narration-line">
                     <span id="narration-speaker" hidden>
                         <img id="narration-portrait" alt="" onerror="this.style.display='none'" />
-                        <span id="narration-speaker-name"></span>
+                        <span><span id="narration-speaker-name"></span><span id="narration-speaker-role"></span></span>
                     </span>
                     <span id="narration-text"></span>
                 </div>
@@ -1914,8 +1963,7 @@
             <div class="controls">
                 <span id="hint" class="hint">Enter a pitch to begin</span>
                 <button id="mute" class="iconbtn" title="Toggle audio">&#9834;</button>
-                <button id="auto" class="btn ghost" disabled>Auto-play</button>
-                <button id="next" class="btn primary" disabled>Next &rarr;</button>
+                <button id="retry" class="btn primary is-hidden">Retry</button>
                 <button id="reset" class="btn" disabled>Reset</button>
             </div>
         </footer>
@@ -1959,7 +2007,7 @@
     </div>
 
     <script src="/game/game/audio.js?v=11"></script>
-    <script type="module" src="/game/game/story.js?v=143"></script>
+    <script type="module" src="/game/game/story.js?v=150"></script>
     <script src="/game/game/intro.js?v=29"></script>
 </body>
 </html>

@@ -58,31 +58,68 @@ def _require(condition: bool, message: str) -> None:
         raise SmokeError(message)
 
 
-def check_quest_path(base: str, pitch: str) -> None:
-    """Init a quest, then execute+approve every step like the manual demo."""
-    print("\n[1/2] QUEST MANUAL PATH")
+def check_campaign_step_by_step_path(base: str, pitch: str) -> None:
+    """Run the step-by-step Campaign path: analyze, design, run chapters, dilemma, decision, standup."""
+    print("\n[1/2] CAMPAIGN STEP-BY-STEP PATH")
     _post(base, "/api/reset")
-    out = _post(base, "/api/init", {"pitch": pitch, "company_name": "SmokeCo"})
-    steps = (out.get("state", {}).get("active_quest") or {}).get("steps", [])
-    _require(len(steps) == 3, f"expected 3 quest steps, got {len(steps)}")
-    print(f"  decomposed -> {', '.join(s['assigned_to'] for s in steps)}")
+    
+    # 1. Analyze profile / pitch
+    analyze_res = _post(base, "/api/company/analyze", {"pitch": pitch, "company_name": "SmokeCo"})
+    org = analyze_res.get("org") or {}
+    _require(org.get("headcount", 0) > 0, "failed to design workforce org blueprint")
+    print(f"  workforce designed -> {org.get('headcount')} seat(s) created")
 
-    for i in range(3):
-        ex = _post(base, "/api/step/execute")
-        st = ex.get("current_step", {})
-        artifact = st.get("artifact_data") or {}
-        vr = st.get("validation_results") or {}
-        score = vr.get("score")
-        role = st.get("assigned_to", "?")
-        _require(bool(artifact), f"step {i+1} ({role}) produced an empty artifact")
-        _require(isinstance(score, (int, float)), f"step {i+1} ({role}) score is {score!r}, not a number")
-        print(f"  step{i+1} {role:<11} score={score} keys={list(artifact)[:3]}")
-        _post(base, "/api/step/approve")
+    # 2. Design Campaign Graph
+    design_res = _post(base, "/api/world/design", {"pitch": pitch, "company_name": "SmokeCo"})
+    world = design_res.get("state", {}).get("world") or {}
+    chapters = world.get("chapters") or []
+    _require(len(chapters) == 5, f"expected 5 campaign chapters, got {len(chapters)}")
+    print(f"  campaign graph constructed -> {len(chapters)} chapters")
 
+    # 3. Step through chapters sequentially
+    for idx, ch in enumerate(chapters, start=1):
+        ch_id = ch["id"]
+        role = ch["owner_role"]
+        
+        # A. Execute Chapter
+        run_res = _post(base, "/api/world/run-next")
+        run_ch = run_res.get("chapter") or {}
+        artifact = run_ch.get("artifact") or {}
+        score = run_ch.get("validation_score")
+        _require(bool(artifact), f"chapter {idx} ({ch_id}) produced an empty artifact")
+        _require(isinstance(score, (int, float)), f"chapter {idx} ({ch_id}) score is {score!r}, not a number")
+        print(f"  chapter {idx}/5 {role:<11} score={score} keys={list(artifact)[:2]}")
+
+        # B. Get dilemma
+        dil_res = _post(base, "/api/dilemma", {"chapter_id": ch_id})
+        options = dil_res.get("options") or []
+        _require(len(options) == 2, f"expected 2 options for dilemma, got {len(options)}")
+
+        # C. Commit decision (auto-select option 1)
+        selected_opt = options[0]
+        dec_res = _post(base, "/api/decision", {
+            "chapter_id": ch_id,
+            "option": selected_opt["option"],
+            "tradeoff": selected_opt.get("tradeoff", ""),
+            "prompt": dil_res.get("prompt", ""),
+            "custom": False,
+            "rule_id": selected_opt["rule_id"],
+            "option_id": selected_opt["id"],
+            "scene_id": dil_res.get("scene_id", "")
+        })
+        conseq = dec_res.get("consequence") or {}
+        _require(bool(conseq.get("summary")), f"chapter {idx} ({ch_id}) choice consequence summary is empty")
+
+        # D. Get standup reaction
+        standup_res = _post(base, "/api/world/standup", {"chapter_id": ch_id})
+        turns = standup_res.get("turns") or []
+        _require(len(turns) > 0, f"expected active standup turns for chapter {idx}")
+
+    # 4. Verify terminal state
     state = _get(base, "/api/state")["state"]
-    _require(state["stage"] == "validated", f"quest did not reach 'validated' (stage={state['stage']})")
-    _require((state.get("active_quest") or {}).get("status") == "completed", "quest status not 'completed'")
-    print(f"  OK -> stage=validated xp={state['xp']} level={state['level']}")
+    _require(state["stage"] == "launched", f"campaign did not reach 'launched' (stage={state['stage']})")
+    _require((state.get("world") or {}).get("status") == "completed", "world status not 'completed'")
+    print(f"  OK -> stage=launched xp={state['xp']} level={state['level']}")
 
 
 def check_world_path(base: str, pitch: str) -> None:
@@ -225,7 +262,7 @@ def main() -> int:
         return 2
 
     try:
-        check_quest_path(args.base, args.pitch)
+        check_campaign_step_by_step_path(args.base, args.pitch)
         if not args.skip_world:
             check_world_path(args.base, args.pitch)
             check_evidence_path(args.base)

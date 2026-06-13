@@ -1,5 +1,17 @@
 # Model Cost Policy
 
+## Routing principle
+
+The default runtime posture is **local-first**:
+
+1. Local agent for normal gameplay.
+2. Cheap cloud Foundry deployment when local output fails, is unavailable, or we
+   need integration evidence.
+3. Larger cloud Foundry deployment only for final visible reasoning passes.
+
+This keeps the game cheap to play repeatedly while preserving the Microsoft
+Foundry path required for the demo and rubric.
+
 ## Current routing
 
 All reasoning calls route through [agents/model_config.py](../agents/model_config.py).
@@ -29,11 +41,37 @@ Use `DEMO_MODE=simulation` while iterating on UI, layout, copy, card motion, and
 DAG interactions. This makes no Foundry calls and still exercises the playable
 flow with deterministic outputs.
 
+## Local play profile
+
+The normal playable game should run on a local agent by default. Local inference
+is not just an emergency fallback; it is the primary runtime for repeated play
+sessions, UI exploration, and player experimentation.
+
+Use local agents for:
+
+- NPC dialogue, card reactions, short worker banter, and inter-agent dynamics.
+- Graph labels, mission summaries, lightweight profile cleanup, and replay text.
+- Full local gameplay loops where the player is exploring the system rather than
+  preparing a judged demo run.
+
+Keep the local path compatible with the same agent contracts as the cloud path:
+workers still return structured JSON, emit replay events, and pass through the
+same verification gates. That lets the game feel real locally while preserving
+the option to escalate selected turns to cloud Foundry.
+
+Cloud Foundry becomes the fallback/escalation layer:
+
+- If the local agent is unavailable.
+- If a local response fails schema validation or quality gates.
+- If a run needs official Foundry proof points for demo, judging, or recording.
+- If a specific chapter needs deeper reasoning than the local model can provide.
+
 ## Cheap live profile
 
-When a real Foundry call is needed during active UI iteration, bind every
+When a cloud Foundry call is needed during active UI iteration, bind every
 reasoning role to the smallest, cheapest deployment available in the current
-Foundry project:
+Foundry project. This is the first fallback after local agents, not the default
+play path:
 
 ```env
 DEMO_MODE=live
@@ -46,8 +84,8 @@ NPC_FAST_MODEL=<cheap-fast-foundry-deployment>
 FOUNDRY_FALLBACK_MODEL=<cheap-fast-foundry-deployment>
 ```
 
-This is the right setting for repeated onboarding, profile URL, carousel, graph,
-and verification-gate tests.
+This is the right cloud setting for repeated onboarding, profile URL, carousel,
+graph, and verification-gate tests when local execution is not enough.
 
 ## Demo-quality profile
 
@@ -64,6 +102,7 @@ for short reactive text, not deep reasoning.
 
 ## Operating rule
 
-Do not spend large-model tokens on UI churn. Iterate in simulation first, use the
-cheap live profile for integration checks, then switch only the final visible
+Do not spend cloud tokens on UI churn or normal play. Iterate in simulation
+first, run normal gameplay through a local agent by default, use cheap cloud
+Foundry as the fallback/integration path, then switch only the final visible
 reasoning roles to larger deployments when the screen flow is stable.
