@@ -216,13 +216,22 @@
         }
         body.prestart #app { height: auto; min-height: 100vh; }
         body.prestart #stage { overflow-y: auto; }
+        /* The opening view is the Earth the film ends on - full-bleed behind
+           the one "first step" message. The header is hidden so nothing
+           competes with the planet. */
+        body.prestart header { display: none; }
         body.prestart #scene {
             position: relative;
             inset: auto;
             min-height: 100vh;
             width: 100%;
-            padding: 92px 44px 84px;
+            padding: 44px;
             overflow: visible;
+            background:
+                radial-gradient(1200px 900px at 50% 42%, rgba(5,8,16,0) 38%, rgba(5,8,16,0.55) 100%),
+                linear-gradient(180deg, rgba(5,8,16,0.35) 0%, rgba(5,8,16,0) 30%, rgba(5,8,16,0.65) 100%),
+                url("/game/assets/generated/lore/firststep_bg.jpg") center/cover no-repeat,
+                #05070f;
         }
         body.prestart #diagram {
             height: auto;
@@ -297,23 +306,33 @@
             place-items: center;
             max-width: 760px;
         }
+        /* The first step sits over the Earth: no heavy box, just luminous text
+           and one seal-gold button, lifted off the planet by soft shadow. */
         .first-step {
             text-align: center;
             display: flex; flex-direction: column; align-items: center;
-            gap: 18px; padding: 56px 30px;
-            border: 1px solid rgba(91,140,255,0.24);
-            border-radius: 26px;
-            background: linear-gradient(180deg, rgba(91,140,255,0.12), rgba(7,10,20,0.24)),
-                radial-gradient(560px 340px at 50% 0%, rgba(45,212,191,0.12), transparent 68%);
-            box-shadow: 0 28px 80px -44px rgba(91,140,255,0.9);
+            gap: 22px; padding: 40px 24px;
         }
         .first-step .kicker {
             font-family: var(--font-mono); font-size: 11px;
-            letter-spacing: 0.34em; text-transform: uppercase; color: #8eb3ff;
+            letter-spacing: 0.42em; text-transform: uppercase; color: #bcd2ff;
+            text-shadow: 0 1px 18px rgba(5,8,16,0.95);
         }
-        .first-step h1 { margin: 0; font-size: clamp(34px, 5vw, 58px); }
-        .first-step p { margin: 0; max-width: 520px; font-size: 16px; color: var(--ink-dim); }
-        .first-step .cta { margin-top: 8px; }
+        .first-step h1 {
+            margin: 0; font-family: var(--font-display); font-weight: 600;
+            font-size: clamp(40px, 6.4vw, 78px); line-height: 0.98;
+            letter-spacing: -0.01em;
+            background: var(--title-grad);
+            -webkit-background-clip: text; background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 4px 30px rgba(5,8,16,0.95));
+        }
+        .first-step p {
+            margin: 0; max-width: 540px; font-size: clamp(16px, 1.7vw, 19px);
+            line-height: 1.55; color: #dbe6f5;
+            text-shadow: 0 1px 16px rgba(5,8,16,0.95);
+        }
+        .first-step .cta { margin-top: 10px; }
 
         /* Founding scene: replaces the form the moment the descent begins. */
         .founding { text-align: center; }
