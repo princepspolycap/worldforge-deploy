@@ -1,4 +1,7 @@
 import json
+import os
+import tempfile
+import threading
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
 
@@ -190,58 +193,76 @@ class StateStore:
     def __init__(self, filepath: Optional[str] = None):
         self.filepath = filepath
         self.state: Optional[CompanyState] = None
+        self._lock = threading.RLock()
 
     def initialize_new_company(self, name: str, pitch: str, description: str = "") -> CompanyState:
-        self.state = CompanyState(
-            name=name,
-            description=description,
-            pitch=pitch,
-            agents={
-                "strategist": CharacterState(
-                    name="Soren",
-                    role="Strategist",
-                    personality="Analytical, structured, lean startup advocate",
-                    skills=["positioning", "icp", "market_sizing"]
-                ),
-                "designer": CharacterState(
-                    name="Dahlia",
-                    role="Designer",
-                    personality="Visual, user-obsessed, detail-oriented",
-                    skills=["landing_page", "ux_flows"]
-                ),
-                "marketer": CharacterState(
-                    name="Maddox",
-                    role="Marketer",
-                    personality="Persuasive, conversion-driven, copywriter",
-                    skills=["email_campaign", "copywriting"]
-                )
-            }
-        )
-        self.save()
-        return self.state
+        with self._lock:
+            self.state = CompanyState(
+                name=name,
+                description=description,
+                pitch=pitch,
+                agents={
+                    "strategist": CharacterState(
+                        name="Soren",
+                        role="Strategist",
+                        personality="Analytical, structured, lean startup advocate",
+                        skills=["positioning", "icp", "market_sizing"]
+                    ),
+                    "designer": CharacterState(
+                        name="Dahlia",
+                        role="Designer",
+                        personality="Visual, user-obsessed, detail-oriented",
+                        skills=["landing_page", "ux_flows"]
+                    ),
+                    "marketer": CharacterState(
+                        name="Maddox",
+                        role="Marketer",
+                        personality="Persuasive, conversion-driven, copywriter",
+                        skills=["email_campaign", "copywriting"]
+                    )
+                }
+            )
+            self.save()
+            return self.state
 
     def load(self) -> Optional[CompanyState]:
         if not self.filepath:
             return self.state
-        try:
-            with open(self.filepath, 'r') as f:
-                data = json.load(f)
-                self.state = CompanyState(**data)
-                return self.state
-        except (FileNotFoundError, json.JSONDecodeError):
-            return None
+        with self._lock:
+            try:
+                with open(self.filepath, 'r') as f:
+                    data = json.load(f)
+                    self.state = CompanyState(**data)
+                    return self.state
+            except (FileNotFoundError, json.JSONDecodeError):
+                return None
 
     def save(self) -> None:
         if self.filepath and self.state:
-            with open(self.filepath, 'w') as f:
-                json.dump(self.state.model_dump(), f, indent=2)
+            with self._lock:
+                dirpath = os.path.dirname(os.path.abspath(self.filepath))
+                os.makedirs(dirpath, exist_ok=True)
+                
+                fd, temp_path = tempfile.mkstemp(dir=dirpath, prefix="state_", suffix=".json.tmp")
+                try:
+                    with os.fdopen(fd, 'w') as f:
+                        json.dump(self.state.model_dump(), f, indent=2)
+                    os.replace(temp_path, self.filepath)
+                except Exception as e:
+                    if os.path.exists(temp_path):
+                        try:
+                            os.remove(temp_path)
+                        except OSError:
+                            pass
+                    raise e
 
     def log_event(self, event_type: str, actor: str, message: str, payload: Optional[Dict[str, Any]] = None) -> None:
-        if self.state:
-            self.state.replay_log.append({
-                "event_type": event_type,
-                "actor": actor,
-                "message": message,
-                "payload": payload or {}
-            })
-            self.save()
+        with self._lock:
+            if self.state:
+                self.state.replay_log.append({
+                    "event_type": event_type,
+                    "actor": actor,
+                    "message": message,
+                    "payload": payload or {}
+                })
+                self.save()
