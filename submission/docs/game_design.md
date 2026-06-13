@@ -104,6 +104,12 @@ Choices must have visible consequences: the org chart re-renders, the burn
 number moves, the next chapter's brief references the decision. Memory is
 what makes a choice feel real.
 
+**Current contract:** `/api/dilemma` returns a structured scene packet, not
+just text. Each option carries an explicit `rule_id`, an `effect_preview`
+receipt, and a short effect line. `/api/decision` commits that `rule_id` and
+returns the mutated state. This means later voice/avatar scenes can reuse the
+same dilemma contract without inventing a second decision path.
+
 ## 6. The org chart - the central artifact
 
 The org the player builds is not a list of agents. It is **three lanes**:

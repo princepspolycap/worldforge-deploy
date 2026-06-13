@@ -290,6 +290,31 @@
             body.prestart .cta { justify-content: center; }
         }
 
+        /* First-step handoff: the film ends, this is all that remains - one
+           message and one press. The founding inputs stay hidden but live. */
+        body.prestart .title-card {
+            grid-template-columns: 1fr;
+            place-items: center;
+            max-width: 760px;
+        }
+        .first-step {
+            text-align: center;
+            display: flex; flex-direction: column; align-items: center;
+            gap: 18px; padding: 56px 30px;
+            border: 1px solid rgba(91,140,255,0.24);
+            border-radius: 26px;
+            background: linear-gradient(180deg, rgba(91,140,255,0.12), rgba(7,10,20,0.24)),
+                radial-gradient(560px 340px at 50% 0%, rgba(45,212,191,0.12), transparent 68%);
+            box-shadow: 0 28px 80px -44px rgba(91,140,255,0.9);
+        }
+        .first-step .kicker {
+            font-family: var(--font-mono); font-size: 11px;
+            letter-spacing: 0.34em; text-transform: uppercase; color: #8eb3ff;
+        }
+        .first-step h1 { margin: 0; font-size: clamp(34px, 5vw, 58px); }
+        .first-step p { margin: 0; max-width: 520px; font-size: 16px; color: var(--ink-dim); }
+        .first-step .cta { margin-top: 8px; }
+
         /* Founding scene: replaces the form the moment the descent begins. */
         .founding { text-align: center; }
         .founding .kicker {
@@ -784,6 +809,12 @@
         .dilemma-kicker { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.18em;
             text-transform: uppercase; color: var(--marketer); margin-bottom: 10px; }
         .dilemma-prompt { font-family: var(--font-display); font-size: 22px; line-height: 1.35; margin-bottom: 18px; }
+        .dilemma-tools { display: grid; gap: 6px; margin: -4px 0 14px; }
+        .dilemma-tool { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start;
+            padding: 8px 9px; border: 1px solid rgba(91,140,255,0.20); border-radius: 10px;
+            background: rgba(91,140,255,0.07); }
+        .dilemma-tool code { font-family: var(--font-mono); color: var(--blue-soft); font-size: 11px; }
+        .dilemma-tool span { color: var(--ink-dim); font-size: 11px; line-height: 1.4; }
         .dilemma-options { display: flex; flex-direction: column; gap: 10px; }
         .dilemma-opt { background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 12px;
             padding: 13px 16px; cursor: pointer; text-align: left; color: var(--ink); font-family: inherit;
@@ -791,6 +822,11 @@
         .dilemma-opt:hover { border-color: var(--blue); background: rgba(91,140,255,0.10); }
         .dilemma-opt b { display: block; font-size: 14.5px; margin-bottom: 4px; }
         .dilemma-opt span { display: block; font-size: 12px; color: var(--ink-dim); }
+        .dilemma-opt em { display: block; margin-top: 8px; font-style: normal; color: var(--gold-soft);
+            font-size: 12px; line-height: 1.45; }
+        .dilemma-opt small { display: inline-block; margin-top: 7px; font-family: var(--font-mono);
+            font-size: 10px; color: var(--ink-faint); letter-spacing: 0.04em; }
+        .dilemma-opt:disabled { opacity: 0.55; cursor: wait; }
         .dilemma-own { margin-top: 10px; }
         .dilemma-own .own b { color: var(--ink-dim); }
         #dilemma-own-wrap { display: flex; gap: 8px; margin-top: 10px; }
@@ -904,7 +940,7 @@
         .intro-bg.on { opacity: 1; }
         .intro-bg video {
             position: absolute; inset: 0; width: 100%; height: 100%;
-            object-fit: cover; display: block;
+            object-fit: cover; display: block; background: #000;
         }
         .intro-bg.dimmed { filter: brightness(0.5) saturate(0.8); }
         .intro-bg.kb-in { animation: kbIn 16s ease-out forwards; }
@@ -956,8 +992,12 @@
         /* One-film mode: when a scene's clip carries its own narration the
            overlay gets out of the way - the scrim thins to a foot vignette and
            the card collapses to a lower-third kicker. The voice tells the story. */
+        /* The film fills the whole screen (cover); a thin top + bottom scrim
+           keeps the Skip button and footer hint readable over the picture. */
+        #intro-overlay.film-mode .intro-bg { inset: 0; transform: none; }
         #intro-overlay.film-mode #intro-scrim {
-            background: linear-gradient(180deg, rgba(5,8,16,0.18) 0%, transparent 30%, transparent 64%, rgba(5,8,16,0.62) 100%);
+            background:
+                linear-gradient(180deg, rgba(5,8,16,0.7) 0%, rgba(5,8,16,0.12) 12%, transparent 28%, transparent 64%, rgba(5,8,16,0.5) 84%, rgba(5,8,16,0.88) 100%);
         }
         #intro-overlay.film-mode .intro-card {
             position: absolute; left: 54px; bottom: 46px; max-width: none; text-align: left;
@@ -1157,57 +1197,27 @@
 
                 <div id="diagram">
                     <div class="title-card fade-scene">
-                        <div class="founder-hero">
-                            <div class="kicker">Founder Creation</div>
-                            <h1>Name the company. Build the workforce.</h1>
-                            <p>Start from a real company or URL, then take the one human seat. Microsoft Foundry reads the venture, designs the digital workforce, decomposes the work, and stops at every gate for your decision.</p>
-                            <div class="founder-promise">
-                                <div class="promise-row"><span class="promise-dot"></span><span><b>Game Master:</b> World Designer turns your brief into chapters.</span></div>
-                                <div class="promise-row"><span class="promise-dot" style="background:var(--designer)"></span><span><b>Party:</b> specialist workers build artifacts with tools and memory.</span></div>
-                                <div class="promise-row"><span class="promise-dot" style="background:var(--marketer)"></span><span><b>Rule:</b> nothing ships until the CEO approves the gate.</span></div>
-                            </div>
+                        <div class="first-step">
+                            <div class="kicker">A POLY186 experience</div>
+                            <h1>Let's take your first step.</h1>
+                            <p>Your workforce is ready. One press, and the journey to automate your basic needs begins.</p>
+                            <button id="begin" class="cta">Begin the journey &rarr;</button>
                         </div>
 
-                        <div class="founder-creator">
-                            <div class="creator-section">
-                                <div class="field">
-                                    <label>Step 1 &middot; Source company</label>
-                                    <div class="source-card">
-                                        <b>Microsoft Planetary Computer</b>
-                                        <span>A Microsoft sustainability venture that provides planetary-scale environmental data and APIs so teams can work with Earth observation, climate, land, water, and biodiversity signals.</span>
-                                    </div>
-                                    <input id="in-url" value="https://planetarycomputer.microsoft.com/" />
-                                </div>
-                                <div class="field">
-                                    <label>Step 2 &middot; Name the venture</label>
-                                    <input id="in-company" value="Microsoft Planetary Computer" />
-                                </div>
-                                <div class="field">
-                                    <label>Step 3 &middot; Venture brief from this source</label>
-                                    <div class="pitch-wrap">
-                                        <textarea id="in-pitch" rows="4">Microsoft Planetary Computer is the real-world company vehicle for this run: a Microsoft environmental intelligence platform that turns Earth observation, climate, land, water, and biodiversity data into actionable products for sustainability teams, under human approval gates.</textarea>
-                                        <button id="mic" class="mic-btn" type="button" title="Speak your idea" aria-label="Speak your idea">&#127908;</button>
-                                    </div>
-                                    <div id="mic-status" class="mic-status"></div>
-                                </div>
-                            </div>
-
-                            <div class="creator-section">
-                                <div class="field">
-                                    <label>Step 4 &middot; Pick your CEO class</label>
-                                    <div class="field-help">Your background defines what the human seat owns. The digital workers self-organize around everything you do not personally cover.</div>
-                                    <div id="arch-row" class="arch-row">
-                                        <button type="button" class="arch-card" data-arch="Builder" data-skill="building product: shipping software, prototypes, systems"><b>1 &middot; Builder CEO</b><span>You own product judgment, prototypes, and what is worth shipping.</span><em>Workers cover market, growth, ops</em></button>
-                                        <button type="button" class="arch-card" data-arch="Seller" data-skill="selling: closing deals, partnerships, growth conversations"><b>2 &middot; Seller CEO</b><span>You own customers, partnerships, and the revenue conversation.</span><em>Workers cover product, proof, ops</em></button>
-                                        <button type="button" class="arch-card" data-arch="Designer" data-skill="design: brand, product experience, storytelling"><b>3 &middot; Designer CEO</b><span>You own taste, narrative, and the user-facing experience.</span><em>Workers cover build, sales, ops</em></button>
-                                        <button type="button" class="arch-card" data-arch="Operator" data-skill="operations: process, logistics, keeping the machine running"><b>4 &middot; Operator CEO</b><span>You own process, constraints, and whether the machine actually runs.</span><em>Workers cover product, story, growth</em></button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="creator-action">
-                                <div class="creator-hint">First gate: confirm the source, choose your CEO seat, and let the workers organize around you.</div>
-                                <button id="begin" class="cta">Begin the journey &rarr;</button>
+                        <!-- The founding inputs still drive the run; they ship with
+                             sensible defaults and stay hidden behind the one-press
+                             "first step" handoff from the film. -->
+                        <div class="founder-creator" hidden aria-hidden="true">
+                            <input id="in-url" value="https://planetarycomputer.microsoft.com/" />
+                            <input id="in-company" value="Microsoft Planetary Computer" />
+                            <textarea id="in-pitch" rows="4">Microsoft Planetary Computer is the real-world company vehicle for this run: a Microsoft environmental intelligence platform that turns Earth observation, climate, land, water, and biodiversity data into actionable products for sustainability teams, under human approval gates.</textarea>
+                            <button id="mic" class="mic-btn" type="button" title="Speak your idea" aria-label="Speak your idea">&#127908;</button>
+                            <div id="mic-status" class="mic-status"></div>
+                            <div id="arch-row" class="arch-row">
+                                <button type="button" class="arch-card" data-arch="Builder" data-skill="building product: shipping software, prototypes, systems"><b>1 &middot; Builder CEO</b><span>You own product judgment, prototypes, and what is worth shipping.</span><em>Workers cover market, growth, ops</em></button>
+                                <button type="button" class="arch-card" data-arch="Seller" data-skill="selling: closing deals, partnerships, growth conversations"><b>2 &middot; Seller CEO</b><span>You own customers, partnerships, and the revenue conversation.</span><em>Workers cover product, proof, ops</em></button>
+                                <button type="button" class="arch-card" data-arch="Designer" data-skill="design: brand, product experience, storytelling"><b>3 &middot; Designer CEO</b><span>You own taste, narrative, and the user-facing experience.</span><em>Workers cover build, sales, ops</em></button>
+                                <button type="button" class="arch-card" data-arch="Operator" data-skill="operations: process, logistics, keeping the machine running"><b>4 &middot; Operator CEO</b><span>You own process, constraints, and whether the machine actually runs.</span><em>Workers cover product, story, growth</em></button>
                             </div>
                         </div>
                     </div>
@@ -1309,6 +1319,7 @@
                 </div>
             </div>
             <div id="dilemma-prompt" class="dilemma-prompt"></div>
+            <div id="dilemma-tools" class="dilemma-tools"></div>
             <div id="dilemma-options" class="dilemma-options"></div>
             <div class="dilemma-own">
                 <button id="dilemma-own-btn" class="dilemma-opt own" type="button"><b>3 &middot; Chart your own path</b><span>type your call</span></button>
@@ -1333,7 +1344,7 @@
     </div>
 
     <script src="/game/game/audio.js?v=8"></script>
-    <script type="module" src="/game/game/story.js?v=114"></script>
-    <script src="/game/game/intro.js?v=25"></script>
+    <script type="module" src="/game/game/story.js?v=118"></script>
+    <script src="/game/game/intro.js?v=28"></script>
 </body>
 </html>

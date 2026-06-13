@@ -302,14 +302,20 @@ Build realtime in phases so it does not destabilize the submission.
 
 ### Phase 1 - Story Mode Consequence Scenes
 
-No live mic yet. Upgrade current dilemma cards into structured scenes:
+Implemented baseline, no live mic yet. Current Story Mode dilemma cards are
+structured scenes:
 
 - `/api/dilemma` returns `DilemmaScenePacket`.
 - Options include `rule_id` and `effect_preview`.
-- The UI shows the speaking worker, caption, scene image slot, tool-call strip,
-  and before/after effects.
+- The UI shows the speaking worker, visible tool-call strip, option effect
+  lines, and before/after effects after commit.
 - `/api/decision` accepts `rule_id`, applies the consequence, and returns the
   new state.
+
+Still pending inside Phase 1:
+
+- a scene image slot wired to `image_prompt`;
+- full `AgentCharacter` persistence for voices, avatars, styles, and locales.
 
 ### Phase 2 - Realtime Voice For Dilemma Gate
 

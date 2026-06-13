@@ -59,6 +59,9 @@ const VOICE_BY_ROLE = {
     ops: "alloy",           // Operations - steady
 };
 const NARRATOR_VOICE = "onyx";
+const DEFAULT_COMPANY = "Microsoft Planetary Computer";
+const DEFAULT_URL = "https://planetarycomputer.microsoft.com/";
+const DEFAULT_PITCH = "Microsoft Planetary Computer is the real-world company vehicle for this run: a Microsoft environmental intelligence platform that turns Earth observation, climate, land, water, and biodiversity data into actionable products for sustainability teams, under human approval gates.";
 let currentVoice = NARRATOR_VOICE;
 
 let typeToken = 0;
@@ -974,9 +977,13 @@ function setHud(s) {
 // --- Beats -----------------------------------------------------------------
 async function beginStory() {
     if (A.unlock) A.unlock();
-    state.company = $("in-company").value.trim() || "QuestForge Ltd.";
-    state.pitch = $("in-pitch").value.trim();
-    state.url = ($("in-url").value || "").trim();
+    state.company = ($("in-company") && $("in-company").value.trim()) || DEFAULT_COMPANY;
+    state.pitch = ($("in-pitch") && $("in-pitch").value.trim()) || "";
+    state.url = ($("in-url") && $("in-url").value || "").trim();
+    if (!state.pitch && !state.url) {
+        state.pitch = DEFAULT_PITCH;
+        state.url = DEFAULT_URL;
+    }
     if (!state.pitch && !state.url) { $("hint").textContent = "Enter a pitch or a company URL first"; return; }
     if (state.phase !== "title") return; // already descending
     state.phase = "founding";
@@ -1178,7 +1185,7 @@ async function revealVentureGraph() {
     }
     await renderMermaid(def);
     const owners = state.chapters.map((c) => c.assigned_worker_title || ROLE_NAME[c.owner_role] || c.owner_role);
-    await narrate(`${state.chapters.length} chapters, each owned by ${state.org ? "one of the digital workers you just designed" : "a specialist agent"}: ${[...new Set(owners)].join(", ")}. Dependencies set the order. This graph is the world the Worker Factory will build.`);
+    void narrate(`${state.chapters.length} chapters, each owned by ${state.org ? "one of the digital workers you just designed" : "a specialist agent"}: ${[...new Set(owners)].join(", ")}. Dependencies set the order. This graph is the world the Worker Factory will build.`);
     markProgress(0);
 }
 
@@ -1406,6 +1413,11 @@ async function runDilemmaGate(chapter, auto) {
     if (!dilemma || !Array.isArray(dilemma.options) || dilemma.options.length < 2) return;
 
     $("dilemma-prompt").textContent = dilemma.prompt;
+    const speaker = dilemma.speaker || {};
+    const kicker = document.querySelector("#dilemma-overlay .dilemma-kicker");
+    if (kicker) {
+        kicker.textContent = `${speaker.display_name || "The Narrator"} - ${speaker.role || "CEO decision"} - your call shapes the next chapter`;
+    }
     // Provenance strip: the dilemma is written by the Narrator FROM the
     // artifact just sealed - show the reasoning trail, not a popup from nowhere.
     const trail = $("dilemma-trail");
@@ -1422,14 +1434,26 @@ async function runDilemmaGate(chapter, auto) {
         chips.push(`<span class="tchip">decision #${(state.decisions || []).length + 1} of this run</span>`);
         trail.innerHTML = chips.join("");
     }
+    const toolHost = $("dilemma-tools");
+    if (toolHost) {
+        const tools = Array.isArray(dilemma.tool_plan) ? dilemma.tool_plan.slice(0, 3) : [];
+        toolHost.innerHTML = tools.map((t) => `
+            <div class="dilemma-tool">
+                <code>${esc(t.tool || "tool")}</code>
+                <span>${esc(t.reason || "supports this decision")}</span>
+            </div>`).join("");
+    }
     const host = $("dilemma-options");
     host.innerHTML = "";
     dilemma.options.slice(0, 2).forEach((o, i) => {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "dilemma-opt";
-        btn.innerHTML = `<b>${i + 1} &middot; ${esc(o.option)}</b><span>tradeoff: ${esc(o.tradeoff || "none stated")}</span>`;
-        btn.addEventListener("click", () => decide(o.option, o.tradeoff, false));
+        btn.innerHTML = `<b>${i + 1} &middot; ${esc(o.option)}</b>`
+            + `<span>tradeoff: ${esc(o.tradeoff || "none stated")}</span>`
+            + (o.effect_line ? `<em>${esc(o.effect_line)}</em>` : "")
+            + (o.rule_id ? `<small>${esc(o.rule_id)}</small>` : "");
+        btn.addEventListener("click", () => decide(o, false));
         host.appendChild(btn);
     });
     $("dilemma-overlay").hidden = false;
@@ -1445,7 +1469,7 @@ async function runDilemmaGate(chapter, auto) {
     $("dilemma-own-btn").onclick = () => { $("dilemma-own-wrap").hidden = false; $("dilemma-own-input").focus(); };
     $("dilemma-own-go").onclick = () => {
         const v = $("dilemma-own-input").value.trim();
-        if (v) decide(v, "", true);
+        if (v) decide(v, true);
     };
 
     const picked = await new Promise((resolve) => {
@@ -1466,7 +1490,7 @@ async function runDilemmaGate(chapter, auto) {
                     if (left <= 0) {
                         clearInterval(tickDown);
                         if (cd) cd.hidden = true;
-                        if (dilemmaResolve) decide(dilemma.options[0].option, dilemma.options[0].tradeoff, false);
+                        if (dilemmaResolve) decide(dilemma.options[0], false);
                     } else {
                         if (cd) cd.textContent = `auto-deciding in ${left}s - press 1 / 2 / 3 to take the wheel`;
                         $("hint").textContent = `Your call, CEO - auto-deciding in ${left}s (press 1 / 2 / 3 to choose)`;
@@ -1476,16 +1500,23 @@ async function runDilemmaGate(chapter, auto) {
         }
     });
 
-    async function decide(option, tradeoff, custom) {
+    async function decide(choice, custom) {
         if (!dilemmaResolve) return;
+        const option = typeof choice === "string" ? choice : (choice.option || "");
+        const tradeoff = typeof choice === "string" ? "" : (choice.tradeoff || "");
         const r = dilemmaResolve; dilemmaResolve = null;
-        $("dilemma-overlay").hidden = true;
+        document.querySelectorAll("#dilemma-options .dilemma-opt, #dilemma-own-btn, #dilemma-own-go").forEach((el) => { el.disabled = true; });
+        $("hint").textContent = "Committing decision to company state...";
         let consequence = null;
         try {
             const res = await api("/api/decision", {
                 chapter_id: chapter.id, option, tradeoff: tradeoff || "",
                 prompt: dilemma.prompt, custom: !!custom,
+                rule_id: custom ? "" : (choice.rule_id || ""),
+                option_id: custom ? "custom" : (choice.id || ""),
+                scene_id: dilemma.scene_id || "",
             });
+            $("dilemma-overlay").hidden = true;
             state.decisions = res.decisions || state.decisions;
             consequence = res.consequence || (res.recorded && res.recorded.consequence) || null;
             if (res.state) {
@@ -1495,7 +1526,14 @@ async function runDilemmaGate(chapter, auto) {
                 setOrgPanel(state.org);
                 setResourcesFromEconomics(res.state.economics, state.org);
             }
-        } catch (_) { /* decision recording is additive */ }
+        } catch (_) {
+            dilemmaResolve = r;
+            $("dilemma-overlay").hidden = false;
+            document.querySelectorAll("#dilemma-options .dilemma-opt, #dilemma-own-btn, #dilemma-own-go").forEach((el) => { el.disabled = false; });
+            $("hint").textContent = "Decision did not persist - choose again to retry";
+            return;
+        }
+        document.querySelectorAll("#dilemma-options .dilemma-opt, #dilemma-own-btn, #dilemma-own-go").forEach((el) => { el.disabled = false; });
         refreshLearned(); // the workers just learned the CEO's operating pattern
         const summary = consequence && consequence.summary ? consequence.summary : "The next worker receives this as binding direction.";
         if (consequence) {
@@ -1699,10 +1737,11 @@ $("begin").addEventListener("click", beginStory);
 window.DungeonStory = {
     start(mission) {
         if (state.phase !== "title") return;
+        mission = mission || {};
         state.fromFilm = true; // the film was the welcome - the game continues it
         if (mission.company) $("in-company").value = mission.company;
         if (mission.pitch) $("in-pitch").value = mission.pitch;
-        $("in-url").value = "";
+        if (mission.pitch) $("in-url").value = "";
         if (mission.archetype) {
             state.archetype = mission.archetype;
             document.querySelectorAll("#arch-row .arch-card").forEach((c) => {

@@ -8,7 +8,7 @@ replay log.
 
 import re
 from copy import deepcopy
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from state.schema import Chapter, CompanyEconomics, CompanyState, OrgBlueprint, OrgRole
 
@@ -189,7 +189,7 @@ def apply_decision_consequence(
     before = _snapshot(state)
     _remove_old_consequence(state, old_entry)
 
-    rule_id = _select_rule_id(chapter.owner_role, choice, bool(choice.get("custom")))
+    rule_id = select_rule_id(chapter.owner_role, choice, bool(choice.get("custom")))
     rule = RULES[rule_id]
     role_id = ""
     if state.org:
@@ -218,16 +218,47 @@ def apply_decision_consequence(
     }
 
 
-def _select_rule_id(owner_role: str, choice: Dict[str, Any], custom: bool) -> str:
+def rule_ids_for_role(owner_role: str) -> List[str]:
+    """Return deterministic consequence rules available to a chapter owner."""
+    role = owner_role if owner_role in {"strategist", "designer", "marketer", "ops"} else "strategist"
+    return [rid for rid in RULES if rid.startswith(f"{role}.")]
+
+
+def select_rule_id(owner_role: str, choice: Dict[str, Any], custom: bool = False) -> str:
+    """Resolve a CEO choice to an explicit consequence rule.
+
+    The structured dilemma path sends `rule_id` directly. The text heuristic is
+    retained only as a fallback for old saved clients and custom local tests.
+    """
     if custom:
         return "custom.default"
-    role = owner_role if owner_role in {"strategist", "designer", "marketer", "ops"} else "strategist"
+    explicit = str(choice.get("rule_id") or "").strip()
+    allowed = rule_ids_for_role(owner_role)
+    if explicit in allowed or explicit == "custom.default":
+        return explicit
     text = f"{choice.get('option', '')} {choice.get('tradeoff', '')}".lower()
-    candidates = [rid for rid in RULES if rid.startswith(f"{role}.")]
-    for rid in candidates:
+    for rid in allowed:
         if any(token in text for token in RULES[rid].get("match", ())):
             return rid
-    return candidates[0] if candidates else "custom.default"
+    return allowed[0] if allowed else "custom.default"
+
+
+def preview_decision_consequence(
+    state: CompanyState,
+    chapter: Chapter,
+    rule_id: str,
+) -> Dict[str, Any]:
+    """Return the consequence receipt for a rule without mutating live state."""
+    shadow = deepcopy(state)
+    preview_chapter = next(
+        (ch for ch in (shadow.world.chapters if shadow.world else []) if ch.id == chapter.id),
+        chapter,
+    )
+    return apply_decision_consequence(
+        shadow,
+        preview_chapter,
+        {"rule_id": rule_id, "option": "", "tradeoff": ""},
+    )
 
 
 def _upsert_consequence_role(org: OrgBlueprint, chapter: Chapter, rule_id: str, rule: Dict[str, Any]) -> str:

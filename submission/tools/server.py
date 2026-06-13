@@ -5,7 +5,7 @@ import time
 import yaml
 import urllib.request
 import urllib.error
-from typing import Dict, Any, Optional, Tuple, Iterator
+from typing import Dict, Any, List, Optional, Tuple, Iterator
 from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -16,7 +16,13 @@ from pydantic import BaseModel
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from state.schema import StateStore, QuestState, QuestStep, CompanyState, WorldGraph, Chapter, OrgBlueprint
-from state.consequences import apply_decision_consequence, initialize_economics_from_org
+from state.consequences import (
+    apply_decision_consequence,
+    initialize_economics_from_org,
+    preview_decision_consequence,
+    rule_ids_for_role,
+    select_rule_id,
+)
 from state.api_contract import state_response, step_response, chapter_response, reset_response
 from agents.foundry_agents import MasterNarrator, StrategistAgent, DesignerAgent, MarketerAgent, generate_lore
 from agents.model_config import model_for, is_live, get_foundry_client, create_chat_completion
@@ -773,32 +779,109 @@ _CANNED_DILEMMAS = {
     "strategist": {
         "prompt": "Two wedges are open. Which do you take first?",
         "options": [
-            {"option": "Depth: one niche, one painful workflow, owned end to end", "tradeoff": "slower expansion, deeper moat"},
-            {"option": "Breadth: a broad beachhead across several workflows", "tradeoff": "faster reach, shallower proof"},
+            {"id": "depth", "rule_id": "strategist.depth", "option": "Depth: one niche, one painful workflow, owned end to end", "tradeoff": "slower expansion, deeper moat"},
+            {"id": "breadth", "rule_id": "strategist.breadth", "option": "Breadth: a broad beachhead across several workflows", "tradeoff": "faster reach, shallower proof"},
         ],
     },
     "designer": {
         "prompt": "The build is at 70%. Ship now or polish?",
         "options": [
-            {"option": "Ship the 70% this week and learn from real users", "tradeoff": "rough edges in public"},
-            {"option": "Take three more weeks to reach 95%", "tradeoff": "slower learning, higher burn"},
+            {"id": "ship", "rule_id": "designer.ship", "option": "Ship the 70% this week and learn from real users", "tradeoff": "rough edges in public"},
+            {"id": "polish", "rule_id": "designer.polish", "option": "Take three more weeks to reach 95%", "tradeoff": "slower learning, higher burn"},
         ],
     },
     "marketer": {
         "prompt": "Pricing sets the company's posture. Which way?",
         "options": [
-            {"option": "Price for adoption: low, grassroots, volume", "tradeoff": "thin margins, more support"},
-            {"option": "Price for runway: high, fewer, bigger accounts", "tradeoff": "slower community, longer sales"},
+            {"id": "adoption", "rule_id": "marketer.adoption", "option": "Price for adoption: low, grassroots, volume", "tradeoff": "thin margins, more support"},
+            {"id": "runway", "rule_id": "marketer.runway", "option": "Price for runway: high, fewer, bigger accounts", "tradeoff": "slower community, longer sales"},
         ],
     },
     "ops": {
         "prompt": "Support is scaling. Automate it fully?",
         "options": [
-            {"option": "Automate support fully - protect the margin", "tradeoff": "risk to trust at the edges"},
-            {"option": "Keep a human in the loop - protect the promise", "tradeoff": "margin pressure"},
+            {"id": "automate", "rule_id": "ops.automate", "option": "Automate support fully - protect the margin", "tradeoff": "risk to trust at the edges"},
+            {"id": "human_loop", "rule_id": "ops.human_loop", "option": "Keep a human in the loop - protect the promise", "tradeoff": "margin pressure"},
         ],
     },
 }
+
+
+def _scene_speaker_for_chapter(chapter: Chapter) -> Dict[str, str]:
+    cast = {
+        "strategist": {"display_name": "Soren", "role": "Strategist", "voice_id": "verse"},
+        "designer": {"display_name": "Dahlia", "role": "Designer", "voice_id": "alloy"},
+        "marketer": {"display_name": "Maddox", "role": "Marketer", "voice_id": "echo"},
+        "ops": {"display_name": "Orla", "role": "Operator", "voice_id": "sage"},
+    }
+    base = cast.get(chapter.owner_role, cast["strategist"])
+    return {
+        "worker_id": chapter.assigned_worker_id or chapter.owner_role,
+        "display_name": chapter.assigned_worker_title or base["display_name"],
+        "role": base["role"],
+        "voice_id": base["voice_id"],
+        "locale": "en-US",
+        "avatar_mode": "portrait",
+    }
+
+
+def _option_id(rule_id: str, fallback_index: int) -> str:
+    return (rule_id.split(".", 1)[-1] or f"option_{fallback_index + 1}").replace("_", "-")
+
+
+def _effect_line(preview: Dict[str, Any]) -> str:
+    before = preview.get("before") or {}
+    after = preview.get("after") or {}
+    org = preview.get("org_delta") or {}
+    parts: List[str] = []
+    for label, key in (("Proof", "proof"), ("Trust", "trust"), ("Velocity", "velocity"), ("Autonomy", "autonomy")):
+        delta = int((after.get(key) or 0) - (before.get(key) or 0))
+        if delta:
+            parts.append(f"{label} {delta:+d}")
+    burn_delta = int((after.get("monthly_burn_usd") or 0) - (before.get("monthly_burn_usd") or 0))
+    if burn_delta:
+        parts.append(f"burn {burn_delta:+,}/mo")
+    runway_delta = int((after.get("runway_months") or 0) - (before.get("runway_months") or 0))
+    if runway_delta:
+        parts.append(f"runway {runway_delta:+d}mo")
+    if org.get("added_role_title"):
+        parts.append(f"adds {org['added_role_title']}")
+    return ", ".join(parts) or "keeps the company steady"
+
+
+def _enrich_dilemma_options(
+    state: CompanyState,
+    chapter: Chapter,
+    options: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    allowed = rule_ids_for_role(chapter.owner_role)
+    enriched: List[Dict[str, Any]] = []
+    used = set()
+    for i, option in enumerate(options[:2]):
+        candidate = {
+            "option": str(option.get("option", ""))[:160],
+            "tradeoff": str(option.get("tradeoff", ""))[:120],
+            "rule_id": option.get("rule_id") or "",
+        }
+        rule_id = select_rule_id(chapter.owner_role, candidate)
+        if rule_id in used and i < len(allowed):
+            rule_id = allowed[i]
+        used.add(rule_id)
+        preview = preview_decision_consequence(state, chapter, rule_id)
+        enriched.append({
+            "id": option.get("id") or _option_id(rule_id, i),
+            "option": candidate["option"],
+            "tradeoff": candidate["tradeoff"],
+            "rule_id": rule_id,
+            "spoken_summary": preview.get("summary", ""),
+            "effect_line": _effect_line(preview),
+            "effect_preview": preview,
+            "tool_checks": [
+                {"tool": "calculate_consequence", "status": "previewed"},
+                {"tool": "render_org_graph", "status": "ready"},
+            ],
+        })
+    return enriched
 
 
 class DilemmaRequest(BaseModel):
@@ -864,10 +947,32 @@ def generate_dilemma(payload: DilemmaRequest):
     if not dilemma:
         canned = _CANNED_DILEMMAS.get(chapter.owner_role) or _CANNED_DILEMMAS["strategist"]
         dilemma = {**canned, "source": "canned"}
+    dilemma["options"] = _enrich_dilemma_options(state, chapter, dilemma.get("options") or [])
+    dilemma["scene_id"] = f"{chapter.id}:dilemma"
+    dilemma["speaker"] = _scene_speaker_for_chapter(chapter)
+    dilemma["caption_seed"] = dilemma["prompt"]
+    dilemma["image_prompt"] = (
+        f"A cinematic business-dungeon dilemma scene for {state.name}: "
+        f"{chapter.title}. The founder must choose how the company changes next."
+    )
+    dilemma["tool_plan"] = [
+        {"tool": "calculate_consequence", "reason": "Preview org and economics before the CEO commits."},
+        {"tool": "render_org_graph", "reason": "Redraw the workforce after the decision."},
+        {"tool": "write_memory", "reason": "Carry the CEO operating pattern into later worker briefs."},
+    ]
 
     store.log_event("DILEMMA_POSED", "narrator",
         f"Dilemma after '{chapter.title}': {dilemma['prompt']}",
-        {"chapter_id": chapter.id, "source": dilemma["source"], "options": dilemma["options"]})
+        {
+            "chapter_id": chapter.id,
+            "scene_id": dilemma["scene_id"],
+            "source": dilemma["source"],
+            "speaker": dilemma["speaker"],
+            "options": [
+                {k: o.get(k) for k in ("id", "option", "tradeoff", "rule_id", "effect_line")}
+                for o in dilemma["options"]
+            ],
+        })
     store.save()
     return {"chapter_id": chapter.id, **dilemma}
 
@@ -878,6 +983,9 @@ class DecisionRequest(BaseModel):
     tradeoff: Optional[str] = ""
     prompt: Optional[str] = ""
     custom: Optional[bool] = False
+    rule_id: Optional[str] = None
+    option_id: Optional[str] = None
+    scene_id: Optional[str] = None
 
 
 @app.post("/api/decision")
@@ -903,8 +1011,12 @@ def record_decision(payload: DecisionRequest):
         "option": payload.option[:200],
         "tradeoff": (payload.tradeoff or "")[:200],
         "custom": bool(payload.custom),
+        "rule_id": (payload.rule_id or "")[:80],
+        "option_id": (payload.option_id or "")[:80],
+        "scene_id": (payload.scene_id or "")[:120],
     }
     consequence = apply_decision_consequence(state, chapter, choice, old_entry=old_entry)
+    choice["rule_id"] = consequence["rule_id"]
     choice["consequence"] = consequence
     choice["consequence_summary"] = consequence["summary"]
     chapter.dilemma_choice = choice
