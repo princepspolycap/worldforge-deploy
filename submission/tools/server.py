@@ -54,7 +54,7 @@ from state.game_state import (
 from state.knowledge_records import profile_from_payload, record_world_day, refresh_session_knowledge
 from agents.foundry_agents import MasterNarrator, StrategistAgent, DesignerAgent, MarketerAgent, generate_lore
 from agents.model_config import model_for, is_live, runtime_mode, get_foundry_client, create_chat_completion
-from agents.world_designer import design_world, adapt_remaining_stages, derive_run_name, PLACEHOLDER_RUN_NAMES
+from agents.world_designer import design_world, design_world_named, adapt_remaining_stages, derive_run_name, PLACEHOLDER_RUN_NAMES
 from agents.worker_factory import run_world, execute_stage, bind_world_to_org
 from agents.org_designer import design_org
 from agents.retrieval import retrieve, brief_from_url
@@ -1353,7 +1353,16 @@ def design_world_endpoint(payload: AutoplayRequest):
     else:
         forge_antagonist(state, mission_brief=design_brief)
 
-    stages_data = design_world(design_brief)
+    run_name, stages_data = design_world_named(design_brief)
+    # Name a URL-only run from the World Designer's own venture name when the
+    # company is still a placeholder and the deterministic pitch path could not
+    # name it (the live model sees the full analyzed profile, not just a URL).
+    if run_name and company_name.strip().lower() in PLACEHOLDER_RUN_NAMES:
+        company_name = run_name
+        state.name = run_name
+        store.log_event("WORLD_NAMED", "world_designer",
+                        f"World Designer named the run '{run_name}' from the analyzed profile.",
+                        {"run_name": run_name})
     world = WorldGraph(
         brief=design_brief,
         stages=[Stage(**s) if isinstance(s, dict) else s for s in stages_data],

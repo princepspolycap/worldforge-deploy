@@ -277,12 +277,18 @@ def _normalize_stages(stages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return normalized if len(normalized) == 8 else FALLBACK_STAGES
 
 
-def design_world(brief: str) -> List[Dict[str, Any]]:
-    """Call the configured narrator deployment. Falls back to fallback stages."""
+def design_world_named(brief: str) -> tuple[str, List[Dict[str, Any]]]:
+    """Call the configured narrator deployment for the 8-stage world + a run name.
+
+    Returns (run_name, stages). The run_name is the model's own venture name when
+    the live path answers and it survives `derive_run_name`'s guards (so a generic
+    phrase is rejected); empty string otherwise. Simulation/cold-start returns the
+    fallback stages with no name, leaving naming to the deterministic pitch path.
+    """
     client = get_foundry_client()
     deployment = model_for("narrator")
     if not client or not deployment:
-        return FALLBACK_STAGES
+        return "", FALLBACK_STAGES
 
     user = USER_TEMPLATE.format(brief=brief)
 
@@ -298,10 +304,18 @@ def design_world(brief: str) -> List[Dict[str, Any]]:
         content = resp.choices[0].message.content or ""
         parsed = _extract_json(content)
         if parsed and isinstance(parsed.get("stages"), list) and len(parsed["stages"]) >= 8:
-            return _normalize_stages(parsed["stages"])
+            # Validate the model's name through the same guards as the pitch path
+            # so a generic/garbled name is dropped rather than shown.
+            run_name = derive_run_name(str(parsed.get("run_name") or ""), fallback="")
+            return run_name, _normalize_stages(parsed["stages"])
     except Exception:
         pass
-    return _normalize_stages(FALLBACK_STAGES)
+    return "", _normalize_stages(FALLBACK_STAGES)
+
+
+def design_world(brief: str) -> List[Dict[str, Any]]:
+    """Back-compat wrapper: the 8-stage world graph (stages only)."""
+    return design_world_named(brief)[1]
 
 
 # Generic run names the UI/server seed when the founder never typed a company
