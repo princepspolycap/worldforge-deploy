@@ -459,6 +459,45 @@ def _card_label(value: str, fallback: str = "") -> str:
     return text[:22].title() if text else fallback
 
 
+def _trace_leverage(inv: Optional[WorkerInvocation]) -> Dict[str, str]:
+    """The single most card-worthy tool/call the worker actually made this stage.
+
+    Reads the real `tool_trace` ledger ({tool, source, args, result, ms}) and
+    prefers the specific ACTION - the query the worker ran - over the bare tool
+    name, so a leverage card cites what the tool did ("Rural Clinic Solar")
+    rather than just naming it ("Web Search"). Returns {tool, action, source};
+    all empty when there is no usable receipt.
+    """
+    trace = (inv.tool_trace or []) if inv else []
+    if not trace:
+        return {"tool": "", "action": "", "source": ""}
+    # Prefer a substantive research call (one that carried a real query) over a
+    # generic validator/finalize receipt; fall back to the first call.
+    queried = [t for t in trace if str((t.get("args") or {}).get("query", "")).strip()]
+    entry = queried[0] if queried else trace[0]
+    tool = _card_label(entry.get("tool", ""))
+    query = str((entry.get("args") or {}).get("query", "")).strip()
+    # Trim a long query to its first whole words so a card NAME never cuts a
+    # word mid-syllable ("Rural Clinic Solar Demand Surge" -> "Rural Clinic Solar").
+    action = ""
+    if query:
+        words = re.sub(r"[_\-]+", " ", query).split()
+        phrase, acc = [], 0
+        for w in words:
+            if acc + len(w) > 22 and phrase:
+                break
+            phrase.append(w)
+            acc += len(w) + 1
+        # Drop dangling stop-words so a card name never trails on "for"/"the".
+        _stop = {"for", "the", "a", "an", "of", "and", "to", "in", "on", "with"}
+        while phrase and phrase[-1].lower() in _stop:
+            phrase.pop()
+        while phrase and phrase[0].lower() in _stop:
+            phrase.pop(0)
+        action = " ".join(phrase).title()
+    return {"tool": tool, "action": action, "source": str(entry.get("source", "") or "")}
+
+
 def _reward_cards_from_stage(state: CompanyState, stage: Stage) -> List[GameCard]:
     """Mint this stage's reward draft from the worker's REAL run receipts.
 
@@ -482,6 +521,8 @@ def _reward_cards_from_stage(state: CompanyState, stage: Stage) -> List[GameCard
     tools_used = (inv.maf_tools_called or inv.tools_drawn) if inv else []
     iq_sources = (inv.iq_sources or []) if inv else []
     reasoning = (inv.reasoning_preview or "") if inv else ""
+    events = (inv.current_events or []) if inv else []
+    signal = str(events[0].get("title", "")).strip() if events else ""
 
     # 1) PROOF - named for the knowledge the worker actually recalled.
     grounded = _card_label(iq_sources[0]) if iq_sources else ""
@@ -489,9 +530,18 @@ def _reward_cards_from_stage(state: CompanyState, stage: Stage) -> List[GameCard
     proof_desc = (f"Reusable proof {worker_title} grounded in {grounded}."
                   if grounded else f"Reusable proof earned from {stage.title}.")
 
-    # 2) LEVERAGE - the tool the worker actually used, banked as repeatable speed.
-    tool_label = _card_label(tools_used[0]) if tools_used else ""
-    if tool_label:
+    # 2) LEVERAGE - the tool the worker actually used, banked as repeatable
+    # speed. Named for the SPECIFIC call when the receipt carries one (the real
+    # query it ran), degrading to the bare tool name, then to a worker sprint.
+    leverage = _trace_leverage(inv)
+    tool_label = leverage["tool"] or (_card_label(tools_used[0]) if tools_used else "")
+    action = leverage["action"]
+    if action:
+        sprint_name = f"{action} Leverage"
+        sprint_desc = (f"Re-run {worker_title}'s {tool_label or 'research'} on \"{action}\" "
+                       f"to buy speed for fatigue.")
+        sprint_effects = {"economics_delta": {"velocity": velocity_delta, "autonomy": 2}, "party": {"fatigue": 6}}
+    elif tool_label:
         sprint_name = f"{tool_label} Leverage"
         sprint_desc = f"Re-run the {tool_label} this worker used to buy speed for fatigue."
         sprint_effects = {"economics_delta": {"velocity": velocity_delta, "autonomy": 2}, "party": {"fatigue": 6}}
@@ -504,6 +554,10 @@ def _reward_cards_from_stage(state: CompanyState, stage: Stage) -> List[GameCard
     counter_desc = (f"Answer {antagonist} with what {worker_title} proved: {reasoning[:60].strip()}"
                     if reasoning.strip()
                     else "Answer the antagonist's pressure with a focused counter-move.")
+    # A live market signal the worker actually pulled from the web beats canned
+    # flavor: the counter cites a real headline, so current events enter play.
+    if signal:
+        counter_desc = f"Answer {antagonist} with a live market signal: {signal[:60]}"
 
     return [
         GameCard(

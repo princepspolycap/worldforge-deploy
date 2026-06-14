@@ -340,14 +340,21 @@ _NAME_LEAD_WORDS = {
 # Where the head noun phrase ends - the first preposition/conjunction/clause word.
 _NAME_STOP_WORDS = {
     "for", "to", "that", "which", "with", "across", "using", "so", "serving",
-    "helping", "connecting", "and", "of", "in", "on", "at", "by", "via", "from",
-    "where", "while", "aimed", "targeting", "built", "powered",
+    "helping", "connecting", "and", "or", "of", "in", "on", "at", "by", "via",
+    "from", "where", "while", "aimed", "targeting", "built", "powered", "&",
 }
 # First word must not be one of these (a name that opens on a verb reads wrong).
 _NAME_BAD_HEAD = {
     "selling", "building", "making", "creating", "helping", "connecting",
     "providing", "offering", "launching", "developing", "running", "that",
     "which", "is", "are", "the", "a", "an",
+}
+# Filler that carries no venture identity; a name made ONLY of these is rejected.
+_NAME_GENERIC = {
+    "online", "digital", "small", "various", "general", "modern", "simple",
+    "product", "service", "services", "platform", "app", "application", "tool",
+    "tools", "business", "company", "venture", "mission", "startup", "solution",
+    "solutions", "system", "systems", "thing", "things", "stuff", "public",
 }
 # Tokens that should keep their existing casing (acronyms) when title-casing.
 _ACRONYMS = {"AI", "B2B", "B2C", "API", "ML", "AR", "VR", "NFT", "DAO", "EV",
@@ -403,6 +410,11 @@ def derive_run_name(pitch: str, fallback: str = "") -> str:
     if not head:
         return fallback
     if head[0].lower() in _NAME_BAD_HEAD:
+        return fallback
+    # Reject a name made entirely of generic filler ('Online Product', 'Digital
+    # Service', 'Small Digital-First Mission') - it reads no better than the
+    # placeholder. Check the first hyphen segment so 'digital-first' counts.
+    if all(w.lower().strip(".,").split("-")[0] in _NAME_GENERIC for w in head):
         return fallback
     name = _smart_title(" ".join(head))
     letters = sum(c.isalpha() for c in name)

@@ -560,6 +560,42 @@ def _world_state_block(ws: Dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _current_events_query(brief: str, stage: Stage) -> str:
+    """Build a plain web-search query for live market signal relevant to this
+    venture and stage. Plain text only - the keyless endpoints reject operators.
+    """
+    label = _short_brief(brief, words=8)
+    focus = {
+        "discovery": "market trends",
+        "positioning": "competitors news",
+        "mvp": "product launches",
+        "gtm": "growth marketing trends",
+        "retention": "customer retention trends",
+        "ops": "industry news",
+    }.get(lifecycle_for_stage(stage), "news")
+    return f"{label} {focus} 2026".strip()
+
+
+def _current_events_block(events: List[Dict[str, Any]]) -> str:
+    """Format real web-search results as a compact current-events brief.
+
+    Grounds the stage in live market signal (not only the static knowledge
+    base). Appended to the shared `user` prompt so BOTH reasoning paths (direct
+    + Microsoft Agent Framework) see it. Current events are public web results -
+    no secrets - and are passed through as plain text.
+    """
+    lines = ["\n\nLive current events (real web search - reason against this "
+             "recent market signal; cite it where it changes your move):"]
+    for ev in events[:3]:
+        title = str(ev.get("title", "")).strip()
+        snippet = str(ev.get("snippet", "")).strip()
+        if not title and not snippet:
+            continue
+        lines.append(f"- {title[:120]}" + (f" - {snippet[:160]}" if snippet else ""))
+    lines.append("Tie at least one of these signals into your artifact where relevant.")
+    return "\n".join(lines) + "\n"
+
+
 def execute_stage(
     stage: Stage,
     brief: str,
@@ -657,6 +693,29 @@ def execute_stage(
     # the real Foundry IQ knowledge base answered, local playbooks otherwise).
     invocation.iq_sources = [str(h.get("source", "")) for h in retrieval_hits if h.get("source")]
 
+    # Live current-events research: the worker pulls real, recent market signal
+    # from the web (keyless DuckDuckGo by default) and reasons against it - not
+    # just the static knowledge base. Only roles that DREW `web_search` from the
+    # toolbox actually make the call (diegetic: drawn == used). Any failure
+    # returns no events so offline/throttled runs still complete.
+    current_events: List[Dict[str, Any]] = []
+    if "web_search" in (invocation.tools_drawn or []):
+        ev_query = _current_events_query(brief, stage)
+        _t_web = time.perf_counter()
+        _web_res = tools_call("web_search", {"query": ev_query, "top_k": 3})
+        _web_ms = round((time.perf_counter() - _t_web) * 1000, 1)
+        current_events = ((_web_res.get("result") or {}).get("results") or [])[:3]
+        invocation.tool_trace.append({
+            "tool": "web_search",
+            "source": _web_res.get("source", "local"),
+            "args": {"query": ev_query[:80], "top_k": 3},
+            "result": f"{len(current_events)} hits: " + (", ".join(str(h.get('title', ''))[:40] for h in current_events[:3]) or "none"),
+            "ms": _web_ms,
+        })
+        if current_events:
+            user += _current_events_block(current_events)
+    invocation.current_events = current_events
+
     # Agent memory (NOT IQ): what the workers have learned from this CEO -
     # gate-decision patterns, founder profile, prior artifact summaries.
     # Foundry Agent Service memory store when configured, local ledger always.
@@ -673,6 +732,8 @@ def execute_stage(
         injected.append({"kind": "ceo_decision", "text": text[:120]})
     for h in retrieval_hits[:2]:
         injected.append({"kind": "iq_recall", "text": str(h.get("source", ""))[:120]})
+    for ev in current_events[:2]:
+        injected.append({"kind": "current_event", "text": str(ev.get("title", ""))[:120]})
     for m in memories[:3]:
         injected.append({"kind": "agent_memory", "text": str(m.get("text", ""))[:120]})
     # Proof point: the live world-state the worker was briefed with - shown on
@@ -848,9 +909,7 @@ def _trace_validators(invocation: WorkerInvocation, role: str, artifact: Optiona
     """
     if not artifact:
         return
-    for name in tools_for_role(role):
-        if name == "recall":
-            continue
+    for name in _ROLE_VALIDATORS.get(role, {}):
         payload = _landing_payload(artifact) if name == "validate_landing_page" else artifact
         t0 = time.perf_counter()
         res = tools_call(name, {"artifact": payload})

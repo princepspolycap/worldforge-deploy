@@ -221,17 +221,16 @@ money rarely ends a run, the antagonist does. The loop, all in
 
 ### Open threads to tidy (wire through the source, do not patch the UI)
 
-- **The run is named from the pitch, but URL-only sim runs still fall back.** `derive_run_name`
-  ([world_designer.py](../../submission/agents/world_designer.py)) deterministically names the run
-  from a real pitch ("Solar microgrids for rural clinics" -> "Solar Microgrids"), wired into both
-  `/api/founder/analyze` and `/api/world/design` and carried forward on resume. It is gated to a
-  real pitch (never a bare URL) and bails to the placeholder for anything ambiguous. The remaining
-  gap: a **URL-only** LinkedIn run in simulation still shows the placeholder; the proper fix is to
-  have the live World Designer emit a `run_name` (and personalize the 8 beat titles) from the
-  analyzed profile, so the live path names URL runs too. **Resume is not broken** -
-  `restoreRunFromState` faithfully rehydrates stages, index, org, and economics from `state.json`.
-  The fix is upstream: have the World Designer name the run and title the 8 beats from the analyzed
-  profile so saved data reads as _this founder's_ run, then resume shows the personalized world.
+- **The run is named from the pitch; the live World Designer also names URL-only runs.**
+  `derive_run_name` ([world_designer.py](../../submission/agents/world_designer.py)) deterministically
+  names the run from a real pitch ("Solar microgrids for rural clinics" -> "Solar Microgrids"), wired
+  into both `/api/founder/analyze` and `/api/world/design` and carried forward on resume; it is gated
+  to a real pitch and rejects generic/garbled phrases. For a **URL-only** run the live World Designer
+  now emits its own `run_name` (`design_world_named`), validated through the same guards, applied when
+  the company is still a placeholder. In **simulation** a URL-only run has no model and no pitch, so it
+  honestly keeps the placeholder. **Resume is not broken** - `restoreRunFromState` faithfully rehydrates
+  stages, index, org, and economics from `state.json`. Remaining polish: personalize the 8 Story-Circle
+  beat _titles_ from the profile on the live path (the model already receives the grounded brief).
 - **Hand legibility - done; keep it.** Each `#card-hand` card shows a kind badge (color-coded),
   cost, name, polarity-colored consequence chips (`cardEffectChips`: gain / cost / threat /
   customers), and a provenance line (`cardSourceLine`: "starter deck", "your signature move", or

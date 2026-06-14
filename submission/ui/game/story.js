@@ -765,16 +765,6 @@ const RESOURCE_SPEC = {
     autonomy: { label: "Autonomy", color: T.ops },
 };
 
-const RESOURCE_BY_ROLE = {
-    narrator: ["proof", "trust"],
-    orgdesigner: ["autonomy", "burn"],
-    strategist: ["proof", "trust"],
-    designer: ["proof", "velocity"],
-    marketer: ["velocity", "trust"],
-    ops: ["autonomy", "burn"],
-    founder: ["trust", "autonomy"],
-};
-
 function clamp(n, min = 0, max = 100) {
     return Math.max(min, Math.min(max, Math.round(Number(n) || 0)));
 }
@@ -1269,10 +1259,6 @@ function roleForStage(stage) {
     return "strategist";
 }
 
-function resourceKeysForRole(role) {
-    return RESOURCE_BY_ROLE[role] || RESOURCE_BY_ROLE.strategist;
-}
-
 function resourceMeterMarkup(keys, cls) {
     return (keys || []).map((key) => {
         const spec = RESOURCE_SPEC[key];
@@ -1286,8 +1272,62 @@ function resourceMeterMarkup(keys, cls) {
 }
 
 function partyMetricMarkup(member) {
-    const keys = resourceKeysForRole(member.role).slice(0, 2);
-    return `<div class="party-metrics">${resourceMeterMarkup(keys, "party")}</div>`;
+    // Game-master agents (Worldkeeper / Org Designer) don't ship gated work and
+    // aren't on payroll - show their layer, not a fake quality bar.
+    if (isGameMaster(member.role)) {
+        return `<div class="party-econ gm"><span class="pe-role">Worldkeeper &middot; authors the run</span></div>`;
+    }
+    // Each digital worker shows ITS OWN numbers, never the shared company meters
+    // (which were identical on every card): the gate score IT shipped, and the
+    // cheap run cost vs the human salary IT replaces (the A+ leverage headline).
+    const role = orgRoleForMember(member);
+    const quality = workerQuality(member);
+    const qVal = quality === null ? 0 : clamp(quality);
+    const qLabel = quality === null ? "&mdash;" : String(qVal);
+    const qBar = `<div class="party-metric" title="Quality: the highest gate score this worker has shipped${quality === null ? " (no stage shipped yet)" : ""}.">`
+        + `<div class="party-metric-top"><span>Quality</span><b>${qLabel}</b></div>`
+        + `<div class="party-metric-track"><span style="width:${qVal}%;background:${T.good}"></span></div>`
+        + `</div>`;
+    let econLine = "";
+    if (role && role.kind !== "human") {
+        const cost = Number(role.monthly_cost_usd) || 0;
+        const human = Number(role.human_median_usd) || 0;
+        const saves = Math.max(0, human - cost);
+        econLine = `<div class="party-econ" title="This worker runs for ${fmtMoney(cost)}/mo and replaces a ${fmtMoney(human)}/mo human seat.">`
+            + `<span class="pe-cost">${fmtMoney(cost)}/mo</span>`
+            + (saves > 0 ? `<span class="pe-saves">saves ${fmtMoneyShort(saves)}</span>` : "")
+            + `</div>`;
+    }
+    return `<div class="party-metrics single">${qBar}</div>${econLine}`;
+}
+
+// The designed org seat backing a party member (by bound id, then title). The
+// seat carries the worker's real economics; null for game-master agents or a
+// run with no chartered org yet.
+function orgRoleForMember(member) {
+    const roles = (state.org && Array.isArray(state.org.roles)) ? state.org.roles : [];
+    if (!roles.length || !member) return null;
+    return (member.workerId && roles.find((r) => r.id === member.workerId))
+        || roles.find((r) => r.title === member.name)
+        || null;
+}
+
+// The highest gate score this worker has actually shipped across the stages it
+// owns (null until it ships one) - a real, per-worker quality signal.
+function workerQuality(member) {
+    if (!member) return null;
+    const owned = (state.stages || []).filter((ch) =>
+        (member.workerId && ch.assigned_worker_id === member.workerId)
+        || ch.assigned_worker_title === member.name
+        || (!ch.assigned_worker_title && (ROLE_NAME[ch.owner_role] || ch.owner_role) === member.name));
+    const scored = owned.filter((ch) => ch.status === "completed" && Number.isFinite(Number(ch.validation_score)));
+    return scored.length ? Math.max(...scored.map((ch) => Number(ch.validation_score))) : null;
+}
+
+// Compact money for the tight worker card: $15.4k / $980.
+function fmtMoneyShort(n) {
+    const v = Math.round(Number(n) || 0);
+    return Math.abs(v) >= 1000 ? `$${(v / 1000).toFixed(1).replace(/\.0$/, "")}k` : `$${v}`;
 }
 
 function partyMembers() {
@@ -1299,6 +1339,7 @@ function partyMembers() {
                 key: name,
                 role: ch.owner_role || "strategist",
                 name,
+                workerId: ch.assigned_worker_id || "",
                 stageId: ch.id,
                 title: ch.title,
                 status: ch.status,
@@ -1317,6 +1358,7 @@ function partyMembers() {
                 key: r.id || r.title,
                 role: roleForStage(r.lifecycle_stage || r.deployment_hint || r.title),
                 name: r.title,
+                workerId: r.id || "",
                 title: r.mandate || r.why,
                 status: "waiting",
             }));
@@ -1326,6 +1368,11 @@ function partyMembers() {
         { key: "narrator", role: "narrator", name: "World Designer", title: "maps the run", status: "waiting" },
     ];
 }
+
+// Which party card is currently flipped to its dossier (by owner name), or
+// null. Tracked at module scope so a re-render (every state tick) keeps the
+// open card flipped instead of snapping it back to its front face.
+let flippedOwner = null;
 
 function setParty(activeKey, line, activeName) {
     const host = $("party");
@@ -1346,12 +1393,13 @@ function setParty(activeKey, line, activeName) {
         const hasCard = !!cardEvidence[m.name];
         const score = hasCard ? clamp(cardEvidence[m.name].score) : null;
         const gm = isGameMaster(m.role);
-        // Each agent is a board piece: who it is + the world meters it moves +
-        // live state. Tapping opens its dossier as a dialog (the inspector
-        // overlay) so the full receipts are never clipped by the hand rail.
-        return `<div class="party-agent${active ? " active" : ""}${done ? " done" : ""}"`
-            + ` data-owner="${esc(m.name)}" role="button" tabindex="0"`
-            + ` title="${esc(m.name)} - tap to open its dossier">`
+        const flipped = m.name === flippedOwner;
+        // The card IS the inspector. Front = glanceable identity + the world
+        // meters it moves; tapping flips it in place to its receipts dossier
+        // (the same cc-* renderer), never a second modal.
+        return `<div class="party-agent${active ? " active" : ""}${done ? " done" : ""}${flipped ? " flipped" : ""}"`
+            + ` data-owner="${esc(m.name)}" role="button" tabindex="0" aria-pressed="${flipped ? "true" : "false"}"`
+            + ` title="${esc(m.name)} - tap to flip to its dossier">`
             + `<div class="pa-inner">`
             + `<div class="pa-face pa-front">`
             + `<div class="pa-layer ${gm ? "gm" : "dw"}">${gm ? "Game Master" : "Digital Worker"}</div>`
@@ -1360,8 +1408,9 @@ function setParty(activeKey, line, activeName) {
             + `<div class="party-role">${esc(ROLE_NAME[m.role] || m.role || "agent")}</div>`
             + partyMetricMarkup(m)
             + `<div class="party-line">${esc(statusLine).slice(0, 110)}</div>`
-            + `<div class="party-badge">${hasCard ? `open &middot; ${score}/100` : `tap to open`}</div>`
+            + `<div class="party-badge">${hasCard ? `receipts &middot; ${score}/100` : `tap to flip`}</div>`
             + `</div>`
+            + `<div class="pa-face pa-back">${dossierBackHTML(partyCardEv(m))}</div>`
             + `</div></div>`;
     }).join("");
 }
@@ -1396,6 +1445,7 @@ function liveCardEvidence(name) {
         trace: [],
         mafTools: [],
         mafMemory: [],
+        currentEvents: [],
         reasoningTokens: 0,
         reasoningPreview: currentLine,
         latency: 0,
@@ -1419,11 +1469,34 @@ function dossierBackHTML(ev) {
     const roleName = ev.roleLabel || ROLE_NAME[ev.role] || ev.role || "agent";
     const score = (ev.score === undefined || ev.score === null) ? "--" : ev.score;
     const worldStats = resourceMeterMarkup(Object.keys(RESOURCE_SPEC), "cc");
+    // Per-worker economics: the cheap run cost vs the human seat it replaces -
+    // distinct per worker, sourced from its designed org seat (when chartered).
+    const seat = (state.org && Array.isArray(state.org.roles))
+        ? state.org.roles.find((r) => r.title === ev.name)
+        : null;
+    let econHtml = "";
+    if (seat && seat.kind !== "human") {
+        const cost = Number(seat.monthly_cost_usd) || 0;
+        const human = Number(seat.human_median_usd) || 0;
+        const saves = Math.max(0, human - cost);
+        econHtml = `<div class="cc-econ-grid">`
+            + `<div class="cc-econ"><span>Run cost</span><b>${fmtMoney(cost)}/mo</b></div>`
+            + `<div class="cc-econ"><span>Replaces human</span><b>${fmtMoney(human)}/mo</b></div>`
+            + `<div class="cc-econ gold"><span>Saves</span><b>${fmtMoney(saves)}/mo</b></div>`
+            + (seat.runs_on_model ? `<div class="cc-econ"><span>Runs on</span><b>${esc(seat.runs_on_model)}</b></div>` : "")
+            + `</div>`;
+    }
     const toolChips = (ev.mafTools || []).length
         ? ev.mafTools.map((t) => `<span class="cc-chip">&#9874; ${esc(t)}</span>`).join(" ")
         : `<span class="cc-chip dim">no tool calls yet</span>`;
     const memChips = (ev.mafMemory || []).map((m) =>
-        `<span class="cc-chip mem">${m.kind === "ceo_decision" ? "&#9819;" : m.kind === "agent_memory" ? "&#9851;" : "&#9783;"} ${esc((m.text || "").slice(0, 30))}</span>`).join(" ");
+        `<span class="cc-chip mem">${m.kind === "ceo_decision" ? "&#9819;" : m.kind === "agent_memory" ? "&#9851;" : m.kind === "current_event" ? "&#128240;" : "&#9783;"} ${esc((m.text || "").slice(0, 30))}</span>`).join(" ");
+    const eventsHtml = (ev.currentEvents || []).slice(0, 3).map((e) => {
+        const title = esc(String(e.title || "").slice(0, 90));
+        const url = String(e.url || "");
+        const head = url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${title}</a>` : title;
+        return `<div class="cc-trace-line"><span class="cc-call">&#128240; ${head}</span></div>`;
+    }).join("");
     const spoken = (spokenLines[ev.name] || []).slice(-3).map((line) =>
         `<div class="cc-spoken-line">&ldquo;${esc((line.text || "").slice(0, 120))}${(line.text || "").length > 120 ? "&hellip;" : ""}&rdquo;</div>`
     ).join("");
@@ -1439,13 +1512,60 @@ function dossierBackHTML(ev) {
         + `<div class="cc-role">${esc(roleName)} &middot; receipts</div>`
         + (ev.deployment ? `<div class="cc-deploy">${esc(ev.deployment)}</div>` : ``)
         + `</div><div class="cc-score"><b>${score}</b><span>/100</span></div></div>`
+        + (econHtml ? `<div class="cc-section"><div class="cc-h">This worker's economics</div>${econHtml}</div>` : ``)
         + `<div class="cc-section"><div class="cc-h">Tools the model called</div><div class="cc-chips">${toolChips}</div></div>`
         + (spoken ? `<div class="cc-section"><div class="cc-h">Spoken lines</div>${spoken}</div>` : ``)
         + (memChips ? `<div class="cc-section"><div class="cc-h">Memory injected</div><div class="cc-chips">${memChips}</div></div>` : ``)
+        + (eventsHtml ? `<div class="cc-section"><div class="cc-h">Live current events researched</div><div class="cc-trace">${eventsHtml}</div></div>` : ``)
         + (traceHtml ? `<div class="cc-section"><div class="cc-h">tools/call trace</div><div class="cc-trace">${traceHtml}</div></div>` : ``)
         + (ev.reasoningPreview ? `<div class="cc-section"><div class="cc-h">Reasoning${ev.reasoningTokens ? ` &middot; ${ev.reasoningTokens} tok` : ""}</div><div class="cc-text quote">&ldquo;${esc((ev.reasoningPreview || "").slice(0, 150))}&hellip;&rdquo;</div></div>` : ``)
-        + `<div class="cc-section"><div class="cc-h">World it moves</div><div class="cc-metric-grid">${worldStats}</div></div>`
+        + `<div class="cc-section"><div class="cc-h">Company state it shifts</div><div class="cc-metric-grid">${worldStats}</div></div>`
         + `<div class="cc-badge-back">tap to return</div>`;
+}
+
+// The dossier source for a party card's back face. Reuses the same recorded
+// receipts the modal uses (real run evidence, then the live fallback), so the
+// flip and the footer-mini inspector share one source of truth.
+function partyCardEv(m) {
+    const ev = cardEvidence[m.name] || liveCardEvidence(m.name);
+    if (ev) {
+        if (!ev.roleLabel) ev.roleLabel = ROLE_NAME[m.role] || m.role;
+        return ev;
+    }
+    return {
+        role: m.role || "narrator",
+        name: m.name,
+        roleLabel: ROLE_NAME[m.role] || m.role,
+        score: "--",
+        tools: [], trace: [], mafTools: [], mafMemory: [],
+        reasoningPreview: m.title || "",
+        reasoningTokens: 0,
+        deployment: "awaiting a completed run",
+    };
+}
+
+// Flip a party card to its dossier in place (toggle), and keep every other card
+// front-side up. Toggling the class on the live element animates the 3D flip;
+// flippedOwner persists the choice across setParty re-renders.
+function setPartyFlip(owner) {
+    flippedOwner = (flippedOwner === owner) ? null : owner;
+    const host = $("party");
+    if (!host) return;
+    host.querySelectorAll(".party-agent").forEach((tile) => {
+        const on = !!flippedOwner && tile.dataset.owner === flippedOwner;
+        tile.classList.toggle("flipped", on);
+        tile.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+}
+function clearPartyFlip() {
+    if (!flippedOwner) return;
+    flippedOwner = null;
+    const host = $("party");
+    if (!host) return;
+    host.querySelectorAll(".party-agent.flipped").forEach((tile) => {
+        tile.classList.remove("flipped");
+        tile.setAttribute("aria-pressed", "false");
+    });
 }
 
 function setWorker(role, deployLabel, stateText, thinking, displayName) {
@@ -1533,7 +1653,7 @@ function activeAgentEv() {
         roleLabel: aw.displayName || ROLE_NAME[aw.role] || aw.role || "Agent",
         deployment: aw.deployLabel || "",
         score: "--",
-        tools: [], trace: [], mafTools: [], mafMemory: [],
+        tools: [], trace: [], mafTools: [], mafMemory: [], currentEvents: [],
         reasoningPreview: aw.stateText || "",
         reasoningTokens: 0,
     };
@@ -1734,7 +1854,7 @@ function setReasoning(inv) {
     // briefed directly otherwise) and the FunctionTools the model called.
     if (isMaf || hasMem) {
         const mem = (inv.maf_memory || []).map((m) =>
-            `<span class="tool-chip">${m.kind === "ceo_decision" ? "&#9819; decision" : m.kind === "agent_memory" ? "&#9851; memory" : "&#9783; IQ"}: ${esc((m.text || "").slice(0, 36))}</span>`).join(" ");
+            `<span class="tool-chip">${m.kind === "ceo_decision" ? "&#9819; decision" : m.kind === "agent_memory" ? "&#9851; memory" : m.kind === "current_event" ? "&#128240; live" : "&#9783; IQ"}: ${esc((m.text || "").slice(0, 36))}</span>`).join(" ");
         const called = (inv.maf_tools_called || []).map((t) =>
             `<span class="tool-chip">&#9874; ${esc(t)}</span>`).join(" ");
         if (isMaf) html += `<div class="rz-head" style="margin-top:8px">&#10038; Agent Framework run</div>`;
@@ -1848,7 +1968,7 @@ function mafRunLand(inv) {
     const hasMem = !!(inv && (inv.maf_memory || []).length);
     if (!isMaf && !hasMem) { if (live) live.remove(); return; }
     const mem = (inv.maf_memory || []).map((m) =>
-        `<span class="maf-chip mem">${m.kind === "ceo_decision" ? "&#9819;" : m.kind === "agent_memory" ? "&#9851;" : "&#9783;"} ${esc((m.text || "").slice(0, 34))}</span>`).join(" ")
+        `<span class="maf-chip mem">${m.kind === "ceo_decision" ? "&#9819;" : m.kind === "agent_memory" ? "&#9851;" : m.kind === "current_event" ? "&#128240;" : "&#9783;"} ${esc((m.text || "").slice(0, 34))}</span>`).join(" ")
         || `<span class="maf-chip">none this run</span>`;
     const called = (inv.maf_tools_called || []).map((t) =>
         `<span class="maf-chip called">&#9874; ${esc(t)}</span>`).join(" ")
@@ -3384,6 +3504,8 @@ async function runNextChapter() {
     // Feed the Judge's Lens with this run's real evidence.
     const iqN = (res.memory || []).length;
     if (iqN) lens("accuracy", `chapter grounded in ${iqN} cited IQ source${iqN > 1 ? "s" : ""} + validator-checked artifact`);
+    const evN = (inv.current_events || []).length;
+    if (evN) lens("accuracy", `worker pulled ${evN} live current-event${evN > 1 ? "s" : ""} from the web into its reasoning`);
     const memN = (inv.maf_memory || []).length;
     lens("reasoning", `${memN} memory item${memN === 1 ? "" : "s"} injected, multi-step run on ${inv.deployment || "simulation"}${inv.maf_tools_called && inv.maf_tools_called.length ? `, model called ${inv.maf_tools_called.length} tool(s)` : ""}`);
     const deployLabel = (inv.deployment || "simulation")
@@ -3404,6 +3526,7 @@ async function runNextChapter() {
         trace: inv.tool_trace || [],
         mafTools: inv.maf_tools_called || [],
         mafMemory: inv.maf_memory || [],
+        currentEvents: inv.current_events || [],
         reasoningTokens: inv.reasoning_tokens || 0,
         reasoningPreview: inv.reasoning_preview || "",
         latency: inv.latency_s ?? 0,
@@ -3499,6 +3622,12 @@ async function runDilemmaGate(stage) {
         const villain = dilemma.antagonist || null;
         if (villain && villain.name) {
             chips.push(`<span class="tchip rival">&#9876; ${esc(villain.name)} (${esc(villain.archetype || "rival")}) pressures this call</span>`);
+        }
+        // What the worker brought back to the CEO (real research receipts).
+        const report = dilemma.field_report || null;
+        if (report && report.headline) {
+            const icon = report.signal ? "&#128240;" : "&#9783;";
+            chips.push(`<span class="tchip report">${icon} ${esc(report.worker || "your worker")} reports: ${esc(report.headline.slice(0, 70))}</span>`);
         }
         if (iqN) chips.push(`<span class="tchip">&#9783; ${iqN} IQ source${iqN > 1 ? "s" : ""}</span>`);
         if (memN) chips.push(`<span class="tchip">&#9851; ${memN} memory items in brief</span>`);
@@ -4043,12 +4172,12 @@ $("begin").addEventListener("mouseenter", () => {
     if (party) {
         party.addEventListener("click", (e) => {
             const tile = e.target.closest(".party-agent");
-            if (tile && tile.dataset.owner) { openAgentInspector(tile.dataset.owner); if (A.cardDraw) { try { A.cardDraw(); } catch (_) {} } }
+            if (tile && tile.dataset.owner) { setPartyFlip(tile.dataset.owner); if (A.cardDraw) { try { A.cardDraw(); } catch (_) {} } }
         });
         party.addEventListener("keydown", (e) => {
             if (e.key !== "Enter" && e.key !== " ") return;
             const tile = e.target.closest(".party-agent");
-            if (tile && tile.dataset.owner) { e.preventDefault(); openAgentInspector(tile.dataset.owner); }
+            if (tile && tile.dataset.owner) { e.preventDefault(); setPartyFlip(tile.dataset.owner); }
         });
         party.addEventListener("mouseover", (e) => {
             if (!e.target.closest(".party-agent")) return;
@@ -4082,12 +4211,14 @@ $("begin").addEventListener("mouseenter", () => {
     }
     // Click anywhere outside the open dossier (and not on its trigger) closes it.
     document.addEventListener("click", (e) => {
+        // A click outside the hand rail returns any flipped card to its front.
+        if (!e.target.closest("#party")) clearPartyFlip();
         if (!inspectorOpen) return;
         if (e.target.closest("#cast-stage") || e.target.closest("#worker") || e.target.closest("#party")) return;
         closeAgentInspector();
     });
     document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") closeAgentInspector();
+        if (e.key === "Escape") { closeAgentInspector(); clearPartyFlip(); }
     });
 })();
 

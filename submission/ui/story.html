@@ -1137,6 +1137,40 @@
         }
         .party-agent.done .pa-front { border-color: rgba(52,211,153,0.5); }
         .party-agent:not(.active) .pa-front { opacity: 0.9; }
+        /* The back face: the receipts dossier flipped in place (no modal). It
+           reuses the cc-* dossier renderer; the rules below only tighten the
+           spacing and add scroll so the same receipts fit the hand-card. */
+        .pa-back {
+            transform: rotateY(180deg);
+            padding: 10px 10px 9px;
+            overflow-y: auto; overflow-x: hidden;
+            border-color: rgba(245,200,122,0.42);
+            box-shadow: 0 0 22px -6px rgba(245,200,122,0.45);
+        }
+        .party-agent.flipped { z-index: 7; }
+        .party-agent.flipped .pa-inner { transform: rotateY(180deg); }
+        .pa-back::-webkit-scrollbar { width: 4px; }
+        .pa-back::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.16); border-radius: 999px; }
+        .pa-back .cc-head { margin-bottom: 9px; padding-bottom: 8px; gap: 8px; }
+        .pa-back .cc-name { font-size: 12.5px; }
+        .pa-back .cc-role { font-size: 7.5px; letter-spacing: 0.12em; margin-top: 2px; }
+        .pa-back .cc-deploy { font-size: 8px; margin-top: 2px; }
+        .pa-back .cc-score b { font-size: 17px; }
+        .pa-back .cc-score span { font-size: 9px; }
+        .pa-back .cc-section { margin-bottom: 9px; }
+        .pa-back .cc-h { font-size: 7.5px; letter-spacing: 0.13em; margin-bottom: 5px; }
+        .pa-back .cc-text { font-size: 9.5px; line-height: 1.42; }
+        .pa-back .cc-spoken-line { font-size: 8.5px; padding: 5px 7px; margin-top: 4px; }
+        .pa-back .cc-chip { font-size: 8px; padding: 2px 7px; }
+        .pa-back .cc-trace { font-size: 8.5px; }
+        .pa-back .cc-metric-grid { gap: 5px; }
+        .pa-back .cc-metric { padding: 6px; }
+        .pa-back .cc-metric-top { font-size: 7.5px; }
+        .pa-back .cc-badge-back {
+            margin-top: 4px; text-align: center;
+            font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.13em;
+            text-transform: uppercase; color: var(--gold-soft); opacity: 0.85;
+        }
         .pa-layer {
             align-self: flex-start; font-family: var(--font-mono); font-size: 7px;
             letter-spacing: 0.16em; text-transform: uppercase;
@@ -1178,6 +1212,14 @@
         .party-metric-track span {
             display: block; height: 100%; border-radius: inherit; transition: width 500ms ease;
         }
+        /* Per-worker economics row: the A+ leverage headline, distinct per seat. */
+        .party-econ {
+            margin-top: 7px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+            font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.04em;
+        }
+        .party-econ .pe-cost { color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+        .party-econ .pe-saves { color: var(--gold-soft); font-variant-numeric: tabular-nums; }
+        .party-econ.gm .pe-role { color: var(--ink-faint); letter-spacing: 0.1em; text-transform: uppercase; font-size: 8px; }
         /* the card lifts on hover; the front face shows the gold edge */
         .party-agent:hover .pa-face {
             border-color: rgba(245,200,122,0.7);
@@ -1287,6 +1329,17 @@
         .cc-ms { color: var(--ink-faint); }
         .cc-metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
         .cc-metric-grid.owned { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        /* Per-worker economics grid on the card back (run cost vs human seat). */
+        .cc-econ-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+        .cc-econ {
+            padding: 7px 9px; border: 1px solid rgba(255,255,255,0.06); border-radius: 10px;
+            background: rgba(255,255,255,0.025);
+            display: flex; flex-direction: column; gap: 3px;
+            font-family: var(--font-mono);
+        }
+        .cc-econ span { font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
+        .cc-econ b { font-size: 12px; color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+        .cc-econ.gold b { color: var(--gold-soft); }
         .cc-metric {
             padding: 9px; border: 1px solid rgba(255,255,255,0.06); border-radius: 11px;
             background: rgba(255,255,255,0.025);
@@ -1313,6 +1366,7 @@
         .cc-flip-btn.small { width: auto; margin-left: auto; margin-top: 0; padding: 8px 10px; }
         @media (prefers-reduced-motion: reduce) {
             .cc-card-inner { transition: none; }
+            .pa-inner { transition: none; }
         }
 
         /* ---- Agent inspector card ---- */
@@ -1850,6 +1904,7 @@
             margin: 0 4px 0 0; color: var(--ink-dim); background: rgba(255,255,255,0.03); }
         .dilemma-trail .tchip.gold { color: var(--gold-soft); border-color: rgba(244,201,93,0.35); }
         .dilemma-trail .tchip.rival { color: #ff9b8a; border-color: rgba(255,107,90,0.42); background: rgba(255,107,90,0.07); }
+        .dilemma-trail .tchip.report { color: #7fe0c4; border-color: rgba(91,224,196,0.40); background: rgba(91,224,196,0.07); }
         .dilemma-countdown { margin-top: 10px; font-family: var(--font-mono); font-size: 12px;
             color: var(--gold-soft); letter-spacing: 0.04em; text-align: center; }
         .dilemma-kicker { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.18em;
@@ -2964,7 +3019,7 @@
     </div>
 
     <script src="/game/game/audio.js?v=11"></script>
-    <script type="module" src="/game/game/story.js?v=195"></script>
+    <script type="module" src="/game/game/story.js?v=199"></script>
     <script src="/game/game/intro.js?v=30"></script>
 </body>
 </html>

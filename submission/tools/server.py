@@ -50,6 +50,7 @@ from state.game_state import (
     record_choice_game_state,
     record_stage_encounter,
     start_player_turn,
+    _invocation_for_stage as latest_invocation_for_stage,
 )
 from state.knowledge_records import profile_from_payload, record_world_day, refresh_session_knowledge
 from agents.foundry_agents import MasterNarrator, StrategistAgent, DesignerAgent, MarketerAgent, generate_lore
@@ -1676,9 +1677,31 @@ def generate_dilemma(payload: DilemmaRequest):
         f"A cinematic cosmic-mainframe dilemma scene for {state.name}: "
         f"{stage.title}. The founder must choose how the company changes its loop next."
     )
+    # The worker comes back to the CEO with information: the live signal it
+    # researched and the knowledge it grounded in. Surfaced on the gate so the
+    # CEO decides FROM what the workforce actually found, not a blank prompt.
+    report = _worker_field_report(state, stage)
+    dilemma["field_report"] = {
+        "worker": _worker_title_for_stage(stage),
+        "role": stage.owner_role,
+        "headline": report["headline"],
+        "signal": report["signal"],
+        "source": report["source"],
+        "events": report["events"],
+        "tools_called": report["tools_called"],
+    }
+    # The tool plan leads with the REAL tools the worker just used (recall /
+    # web_search / validators), then the forward consequence-preview tools.
+    real_tool_reasons = {
+        "recall": "Grounded this stage in the venture knowledge base (Foundry IQ).",
+        "web_search": "Pulled live current events from the web into the reasoning.",
+        "map_company": "Mapped a public company URL into a venture profile.",
+    }
     dilemma["tool_plan"] = [
+        {"tool": t, "reason": real_tool_reasons.get(t, "Validated the artifact before it reached the gate.")}
+        for t in report["tools_called"][:2]
+    ] + [
         {"tool": "calculate_consequence", "reason": "Preview org and economics before the CEO commits."},
-        {"tool": "render_org_graph", "reason": "Redraw the workforce after the decision."},
         {"tool": "write_memory", "reason": "Carry the CEO operating pattern into later worker briefs."},
     ]
 
@@ -1919,6 +1942,46 @@ def _worker_title_for_stage(stage: Optional[Stage]) -> str:
     return stage.assigned_worker_title or _ROLE_DISPLAY.get(stage.owner_role, stage.owner_role)
 
 
+def _worker_field_report(state: CompanyState, stage: Optional[Stage]) -> Dict[str, Any]:
+    """What the stage's worker brought back to the CEO.
+
+    Reads the worker's REAL run record (the same invocation the card-back
+    receipts render) and distills the information it actually gathered: the live
+    market signal it researched (web_search), the knowledge it grounded in
+    (Foundry IQ recall), and the genuine tools it called. This is the single
+    source for the worker's report-back turn in the standup and the field-report
+    strip on the CEO dilemma, so "the worker comes back with information" is the
+    same real data everywhere - never invented.
+    """
+    inv = latest_invocation_for_stage(state, stage) if (state and stage) else None
+    events = list(getattr(inv, "current_events", None) or []) if inv else []
+    iq = list(getattr(inv, "iq_sources", None) or []) if inv else []
+    tools_called = []
+    seen = set()
+    for entry in (getattr(inv, "tool_trace", None) or []) if inv else []:
+        name = str(entry.get("tool") or "").strip()
+        if name and name not in seen:
+            seen.add(name)
+            tools_called.append(name)
+    signal = str(events[0].get("title", "")).strip() if events else ""
+    source = str(iq[0]).strip() if iq else ""
+    if signal:
+        tool, headline = "web_search", f"live market signal - {signal[:90]}"
+    elif source:
+        tool, headline = "recall", f"grounded in {source[:60]}"
+    else:
+        tool, headline = "", ""
+    return {
+        "tool": tool,
+        "headline": headline,
+        "signal": signal,
+        "source": source,
+        "events": events[:3],
+        "iq_sources": iq[:3],
+        "tools_called": tools_called[:5],
+    }
+
+
 def _speaker_profile(speaker: str, role: str, worker_id: str = "") -> Dict[str, Any]:
     normalized_role = role or "narrator"
     portrait = _ROLE_PORTRAIT.get(normalized_role, _ROLE_PORTRAIT["narrator"])
@@ -2058,16 +2121,35 @@ def _build_standup_turns(
     next_title = _worker_title_for_stage(next_stage)
     next_role = next_stage.owner_role if next_stage else "narrator"
 
+    # The owning worker reports back to the CEO with what it actually found in
+    # the field (real research receipts), referencing the real tool it used.
+    report = _worker_field_report(state, stage)
+    owner_tool = report["tool"] or "calculate_consequence"
+    if report["signal"]:
+        brought = f"a live signal from the field - {report['signal'][:80]}"
+    elif report["source"]:
+        brought = f"work grounded in {report['source'][:60]}"
+    else:
+        brought = ""
+    if brought:
+        owner_message = (
+            f"Back to you, CEO - I brought {brought}. "
+            f"Reading your call as '{option}': {summary} "
+            f"{next_title if next_stage else 'CEO'}, which constraint are you carrying instead of resetting?"
+        )
+    else:
+        owner_message = (
+            f"I read the CEO call as '{option}': {summary} "
+            f"{next_title if next_stage else 'CEO'}, which constraint are you carrying instead of resetting?"
+        )
+
     turns: List[Dict[str, Any]] = [
         _standup_turn(
             speaker=owner_title,
             role=stage.owner_role,
             worker_id=stage.assigned_worker_id or stage.owner_role,
-            tool="calculate_consequence",
-            message=(
-                f"I read the CEO call as '{option}': {summary} "
-                f"{next_title if next_stage else 'CEO'}, which constraint are you carrying instead of resetting?"
-            ),
+            tool=owner_tool,
+            message=owner_message,
             handoff_to=next_title if next_stage else "",
         )
     ]

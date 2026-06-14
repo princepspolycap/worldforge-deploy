@@ -405,6 +405,10 @@ class WorkerInvocation(BaseModel):
     # Foundry IQ recall that grounded this run (source names; cited when the
     # real IQ knowledge base answered, local playbook files otherwise).
     iq_sources: List[str] = Field(default_factory=list)
+    # Live current-events research (real web_search hits that grounded this
+    # run): [{title, url, snippet, origin}]. Surfaced on the card-back receipts
+    # and minted into reward cards so real-world signal enters gameplay.
+    current_events: List[Dict[str, Any]] = Field(default_factory=list)
     latency_s: float = 0.0
     error: Optional[str] = None
 
