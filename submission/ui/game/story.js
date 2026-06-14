@@ -8,6 +8,8 @@
 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
 import { T, ROLE_COLOR, mermaidThemeVariables } from "./tokens.js";
 import { toggleCollapsible } from "./motion.js";
+import { scramble, idleGlitch, loopScramble, prefersReduced } from "./anim.js";
+import { runPreflightConsole, classifyProfileUrl } from "./preflight.js?v=2";
 
 mermaid.initialize({
     startOnLoad: false,
@@ -115,6 +117,30 @@ function founderNameFromProfileUrl(url) {
     }
 }
 
+// Derive the world/quest title from the SCRAPED FOUNDER, never a generic
+// placeholder. The run is that founder's character, so the title must speak the
+// person we analyzed: their venture brand if the profile names one (e.g.
+// "Founder @ Poly186" -> "Poly186"), else "<Name>'s Venture", else the default.
+// Single source of truth so the ready card, scene head, and run agree.
+function ventureNameFromProfile(profile, founderName) {
+    const summary = (profile && profile.company_summary) || "";
+    const brand = summary.match(/(?:@\s*|founder\s+(?:of|at)\s+)([A-Z][A-Za-z0-9.&'-]{1,28})/i);
+    if (brand && brand[1]) return brand[1].trim();
+    const name = (founderName && founderName !== "Founder") ? founderName.trim() : "";
+    if (name) return `${name}'s Venture`;
+    return DEFAULT_COMPANY;
+}
+
+function cleanProfileSummaryForPlayer(summary) {
+    const raw = String(summary || "").trim();
+    if (!raw) return "";
+    // Keep the identity signal, drop backend-process narration.
+    return raw
+        .replace(/\.?\s*Public profile pieced together from open-web findings\.?/ig, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+}
+
 function setInferredArchetype(name, skill) {
     const cleanName = ARCHETYPE_SKILL[name] ? name : "Builder";
     const cleanSkill = skill || ARCHETYPE_SKILL[cleanName] || ARCHETYPE_SKILL.Builder;
@@ -127,6 +153,7 @@ function setInferredArchetype(name, skill) {
 let typeToken = 0;
 let lastSpeech = Promise.resolve(); // completion of the previous narrated line
 const spokenLines = {};
+let liveCaptionPinned = false;
 
 function activeSpeakerSnapshot() {
     const aw = state.activeWorker || {};
@@ -163,6 +190,27 @@ function setNarrationSpeaker() {
     if (roleEl) roleEl.textContent = ROLE_NAME[role] || role;
     if (portrait) { portrait.style.display = ""; portrait.src = `/game/assets/generated/${portraitKey}.png`; }
     chip.hidden = false;
+    setSceneStatus({ speaking: speaker.heroName || speaker.name || ROLE_NAME[role] || role });
+}
+
+function pinLiveAgentCaption(text) {
+    const track = $("narration");
+    const textEl = $("narration-text");
+    if (!track || !textEl) return;
+    setNarrationSpeaker();
+    textEl.textContent = text || "";
+    track.hidden = false;
+    track.removeAttribute("aria-hidden");
+    track.classList.add("show");
+    track.classList.add("live");
+    liveCaptionPinned = true;
+}
+
+function clearLiveAgentCaption() {
+    const track = $("narration");
+    if (!track) return;
+    track.classList.remove("live");
+    liveCaptionPinned = false;
 }
 
 async function narrate(text, speed = 18) {
@@ -183,6 +231,7 @@ async function narrate(text, speed = 18) {
     // card above the hand. The card disappears after the line finishes, while
     // the text is retained on the agent's dossier.
     setNarrationSpeaker();
+    clearLiveAgentCaption();
     const track = $("narration");
     if (track) {
         track.hidden = false;
@@ -532,11 +581,11 @@ function retentionMermaid(artifact) {
     return def;
 }
 
-// --- Company graph (grows as chapters complete) ----------------------------
-const completedChapters = [];
+// --- Company graph (grows as stages complete) ----------------------------
+const completedStages = [];
 function companyGraphDef() {
     let def = "graph TD\n  FOUNDER([\"Founder\"])\n";
-    completedChapters.forEach((c, i) => {
+    completedStages.forEach((c, i) => {
         const color = ROLE_COLOR[c.role] || T.blue;
         def += `  FOUNDER --> CH${i}["${san(c.title)}"]\n`;
         def += `  style CH${i} stroke:${color},stroke-width:2px\n`;
@@ -552,7 +601,8 @@ const state = {
     pitch: "",
     url: "",
     org: null,
-    chapters: [],
+    game: null,      // authoritative card-building roguelike state from backend
+    stages: [],
     decisions: [],   // CEO gate decisions (session memory ledger)
     archetype: null, // {name, skill} - character creation, seeds the org brief
     fromFilm: false, // true when the intro film handed off - the welcome already happened
@@ -568,6 +618,34 @@ const state = {
         autonomy: 8,
     },
 };
+
+const sceneStatus = {
+    actor: "World Designer",
+    speaking: "The Worldkeeper",
+    source: "live session",
+};
+
+function chapterProgressLabel() {
+    const total = Array.isArray(state.stages) ? state.stages.length : 0;
+    if (!total) return "1/1";
+    const current = Math.min(total, Math.max(1, (Number(state.idx) || 0) + 1));
+    return `${current}/${total}`;
+}
+
+function setSceneStatus(patch) {
+    if (patch && typeof patch === "object") Object.assign(sceneStatus, patch);
+    const host = $("scene-status");
+    if (!host) return;
+    const progressEl = $("scene-progress");
+    const actorEl = $("scene-actor");
+    const speakingEl = $("scene-speaking");
+    const sourceEl = $("scene-source");
+    if (progressEl) progressEl.textContent = chapterProgressLabel();
+    if (actorEl) actorEl.textContent = sceneStatus.actor || "World Designer";
+    if (speakingEl) speakingEl.textContent = sceneStatus.speaking || sceneStatus.actor || "The Worldkeeper";
+    if (sourceEl) sourceEl.textContent = sceneStatus.source || "live session";
+    host.classList.add("show");
+}
 
 const RESOURCE_SPEC = {
     proof: { label: "Proof", color: T.good },
@@ -589,6 +667,16 @@ const RESOURCE_BY_ROLE = {
 
 function clamp(n, min = 0, max = 100) {
     return Math.max(min, Math.min(max, Math.round(Number(n) || 0)));
+}
+
+function escText(s) {
+    return String(s ?? "").replace(/[&<>"']/g, (ch) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;",
+    }[ch]));
 }
 
 function renderResources() {
@@ -639,6 +727,209 @@ function setResourcesFromEconomics(economics, org) {
     };
     renderResources();
 }
+
+function cardEffectLine(card) {
+    const effects = card && card.effects ? card.effects : {};
+    const parts = [];
+    const econ = effects.economics_delta || {};
+    Object.entries(econ).forEach(([key, value]) => {
+        const signed = Number(value) > 0 ? `+${value}` : `${value}`;
+        parts.push(`${signed} ${key.replace("_", " ")}`);
+    });
+    if (effects.antagonist_threat_delta) {
+        const v = Number(effects.antagonist_threat_delta);
+        parts.push(`${v > 0 ? "+" : ""}${v} threat`);
+    }
+    if (effects.draw) parts.push(`draw ${effects.draw}`);
+    if (effects.party && effects.party.fatigue) parts.push(`fatigue +${effects.party.fatigue}`);
+    return parts.join(" / ") || card.description || card.kind || "card";
+}
+
+let rewardResolve = null;
+
+let layoutSyncRaf = 0;
+let footerLayoutObserver = null;
+
+function syncFooterAwareLayout() {
+    const scene = $("scene");
+    const footer = document.querySelector("footer");
+    if (!scene || !footer) return;
+    document.body.classList.toggle("compact-ui", window.innerWidth <= 1100);
+    const footerHeight = Math.ceil(footer.getBoundingClientRect().height || 0);
+    if (!footerHeight) return;
+    // Keep stage overlays (party rail, dialogue reserve, inspector lift) tied
+    // to the REAL footer stack height, not static breakpoint assumptions.
+    scene.style.setProperty("--hand-bottom", `${footerHeight + 28}px`);
+}
+
+function queueFooterAwareLayoutSync() {
+    if (layoutSyncRaf) cancelAnimationFrame(layoutSyncRaf);
+    layoutSyncRaf = requestAnimationFrame(() => {
+        layoutSyncRaf = 0;
+        syncFooterAwareLayout();
+    });
+}
+
+function ensureFooterLayoutObserver() {
+    if (footerLayoutObserver || typeof ResizeObserver === "undefined") return;
+    const footer = document.querySelector("footer");
+    const hand = $("card-hand");
+    if (!footer) return;
+    footerLayoutObserver = new ResizeObserver(() => queueFooterAwareLayoutSync());
+    footerLayoutObserver.observe(footer);
+    if (hand) footerLayoutObserver.observe(hand);
+}
+
+function renderGameHand(game) {
+    const host = $("card-hand");
+    if (!host) return;
+    if (!game) {
+        host.hidden = true;
+        host.innerHTML = "";
+        queueFooterAwareLayoutSync();
+        return;
+    }
+    const hand = Array.isArray(game.hand) ? game.hand : [];
+    const pending = Array.isArray(game.pending_rewards) ? game.pending_rewards : [];
+    host.hidden = false;
+    const energy = Number(game.energy || 0);
+    const stats = `<div class="hand-stat"><b>${energy}/${game.max_energy ?? 0}</b>energy &middot; deck ${game.deck ? game.deck.length : 0} &middot; discard ${game.discard ? game.discard.length : 0}${pending.length ? ` &middot; draft ${pending.length}` : ""}</div>`;
+    const cards = hand.map((card) => {
+        const cost = Number(card.cost || 0);
+        const disabled = cost > energy ? "disabled" : "";
+        return `<button class="game-card-btn" type="button" data-card-id="${escText(card.id)}" ${disabled} title="${escText(card.description || "")}">
+            <span class="game-card-top"><span class="game-card-name">${escText(card.name)}</span><span class="game-card-cost">${cost}</span></span>
+            <span class="game-card-kind">${escText(card.kind || "card")} &middot; ${escText(cardEffectLine(card))}</span>
+        </button>`;
+    }).join("");
+    const draft = pending.length
+        ? `<button class="game-card-btn pending" type="button" data-open-reward="1">
+            <span class="game-card-top"><span class="game-card-name">Draft ready</span><span class="game-card-cost">${pending.length}</span></span>
+            <span class="game-card-kind">choose one stage reward</span>
+        </button>`
+        : "";
+    host.innerHTML = stats + cards + draft;
+    host.querySelectorAll("[data-card-id]").forEach((btn) => {
+        btn.addEventListener("click", () => playGameCard(btn.dataset.cardId));
+    });
+    const draftBtn = host.querySelector("[data-open-reward]");
+    if (draftBtn) draftBtn.addEventListener("click", () => renderRewardDraft(game, true));
+    queueFooterAwareLayoutSync();
+}
+
+function renderRewardDraft(game, forceOpen = false) {
+    const overlay = $("reward-overlay");
+    const host = $("reward-options");
+    if (!overlay || !host) return;
+    const pending = game && Array.isArray(game.pending_rewards) ? game.pending_rewards : [];
+    if (!pending.length) {
+        overlay.hidden = true;
+        host.innerHTML = "";
+        return;
+    }
+    host.innerHTML = pending.slice(0, 3).map((card, i) => `
+        <button class="reward-pick" type="button" data-reward-card-id="${escText(card.id)}">
+            <b>${i + 1} &middot; ${escText(card.name)} <span class="game-card-cost">${Number(card.cost || 0)}</span></b>
+            <span>${escText(card.description || "")}</span>
+            <em>${escText(cardEffectLine(card))}${card.upgraded ? " / upgraded" : ""}${card.exhausts ? " / exhausts" : ""}</em>
+        </button>`).join("");
+    host.querySelectorAll("[data-reward-card-id]").forEach((btn) => {
+        btn.addEventListener("click", () => claimRewardCard(btn.dataset.rewardCardId));
+    });
+    if (forceOpen || !overlay.dataset.seenRewardIds || overlay.dataset.seenRewardIds !== pending.map((c) => c.id).join("|")) {
+        overlay.dataset.seenRewardIds = pending.map((c) => c.id).join("|");
+        overlay.hidden = false;
+    }
+    setSceneStatus({ source: prov || (state.live ? "live foundry session" : "simulation session") });
+}
+
+function syncGameState(game) {
+    if (!game) return;
+    state.game = game;
+    renderGameHand(game);
+    renderRewardDraft(game);
+    const hand = Array.isArray(game.hand) ? game.hand : [];
+    const arc = game.antagonist_arc || {};
+    const handLine = hand.length
+        ? `hand: ${hand.map((c) => `${c.name}(${c.cost})`).join(", ")}`
+        : "hand empty";
+    lens("reasoning", `card turn ${game.turn_index || 0}: energy ${game.energy ?? 0}/${game.max_energy ?? 0}, ${handLine}`);
+    if (arc.threat_level !== undefined) {
+        lens("reliability", `antagonist ${arc.escalation_stage || "watching"}: threat ${arc.threat_level}/100`);
+    }
+}
+
+async function playGameCard(cardId, targetId = "") {
+    if (!cardId) return null;
+    const stage = state.stages[state.idx] || {};
+    try {
+        const res = await api("/api/game/card/play", {
+            card_id: cardId,
+            target_id: targetId,
+            stage_id: stage.id || "",
+        });
+        if (res.state) {
+            setHud(res.state);
+            setResourcesFromEconomics(res.state.economics, res.state.org || state.org);
+            syncGameState(res.state.game);
+        }
+        const move = res.move || {};
+        lens("reasoning", `played ${move.card_id || cardId}: ${move.summary || "card effects applied"}`);
+        return res;
+    } catch (e) {
+        $("hint").textContent = "Card could not be played.";
+        lens("reliability", `card play rejected: ${e.message || e}`);
+        return null;
+    }
+}
+
+async function claimRewardCard(cardId) {
+    if (!cardId) return null;
+    document.querySelectorAll("[data-reward-card-id]").forEach((el) => { el.disabled = true; });
+    try {
+        const res = await api("/api/game/reward/claim", { card_id: cardId });
+        if (res.state) {
+            setHud(res.state);
+            setResourcesFromEconomics(res.state.economics, res.state.org || state.org);
+            syncGameState(res.state.game);
+        }
+        const overlay = $("reward-overlay");
+        if (overlay && (!res.state || !res.state.game || !(res.state.game.pending_rewards || []).length)) {
+            overlay.hidden = true;
+        }
+        const move = res.move || {};
+        lens("reasoning", `drafted ${move.card_id || cardId}: ${move.summary || "reward added to discard"}`);
+        if (rewardResolve) {
+            const done = rewardResolve;
+            rewardResolve = null;
+            done(res);
+        }
+        return res;
+    } catch (e) {
+        document.querySelectorAll("[data-reward-card-id]").forEach((el) => { el.disabled = false; });
+        $("hint").textContent = "Reward could not be drafted.";
+        lens("reliability", `reward draft rejected: ${e.message || e}`);
+        return null;
+    }
+}
+
+async function runRewardDraftGate(game, auto = false) {
+    const pending = game && Array.isArray(game.pending_rewards) ? game.pending_rewards : [];
+    if (!pending.length) return null;
+    renderRewardDraft(game, true);
+    $("hint").textContent = "Choose one reward card for the run deck.";
+    return new Promise((resolve) => {
+        rewardResolve = resolve;
+        if (auto) {
+            setTimeout(() => {
+                if (rewardResolve && pending[0]) claimRewardCard(pending[0].id);
+            }, 2500);
+        }
+    });
+}
+
+window.playGameCard = playGameCard;
+window.claimRewardCard = claimRewardCard;
 
 function resourceDeltaForDecision(option, tradeoff) {
     const text = `${option || ""} ${tradeoff || ""}`.toLowerCase();
@@ -737,15 +1028,15 @@ function partyMetricMarkup(member) {
 }
 
 function partyMembers() {
-    if (state.chapters.length) {
+    if (state.stages.length) {
         const seen = new Set();
-        return state.chapters.map((ch) => {
+        return state.stages.map((ch) => {
             const name = ch.assigned_worker_title || ROLE_NAME[ch.owner_role] || ch.owner_role;
             return {
                 key: name,
                 role: ch.owner_role || "strategist",
                 name,
-                chapterId: ch.id,
+                stageId: ch.id,
                 title: ch.title,
                 status: ch.status,
             };
@@ -812,6 +1103,7 @@ function setParty(activeKey, line, activeName) {
             + `<div class="pa-face pa-back">${dossierBackHTML(ev)}</div>`
             + `</div></div>`;
     }).join("");
+    document.body.classList.toggle("party-flipped", flippedOwners.size > 0);
 }
 
 // --- Character cards: a face AND a presence -------------------------------
@@ -911,6 +1203,7 @@ function flipCard(owner) {
     document.querySelectorAll("#party .party-agent").forEach((el) => {
         el.classList.toggle("flipped", el.dataset.owner === owner && willFlip);
     });
+    document.body.classList.toggle("party-flipped", willFlip);
     if (A.cardDraw) { try { A.cardDraw(); } catch (_) { /* audio optional */ } }
 }
 
@@ -919,6 +1212,7 @@ function unflipAllCards() {
     if (!flippedOwners.size) return;
     flippedOwners.clear();
     document.querySelectorAll("#party .party-agent.flipped").forEach((el) => el.classList.remove("flipped"));
+    document.body.classList.remove("party-flipped");
 }
 
 function setWorker(role, deployLabel, stateText, thinking, displayName) {
@@ -950,7 +1244,19 @@ function setWorker(role, deployLabel, stateText, thinking, displayName) {
     if (stateEl) stateEl.innerHTML = thinking
         ? `<span class="pulse"></span> ${stateText}`
         : stateText;
+    // Keep a plain-language, speaker-attributed caption on screen while an
+    // agent is actively working so players can track who is doing what.
+    if (thinking) {
+        pinLiveAgentCaption(`${displayName || ROLE_NAME[role] || role}: ${stateText}`);
+    } else if (liveCaptionPinned) {
+        clearLiveAgentCaption();
+    }
     setParty(role, stateText, displayName);
+    setSceneStatus({
+        actor: displayName || ROLE_NAME[role] || role,
+        speaking: (activeSpeakerSnapshot().heroName || displayName || ROLE_NAME[role] || role),
+        source: deployLabel || sceneStatus.source,
+    });
     if (inspectorOpen) openAgentInspector();
 }
 
@@ -1091,7 +1397,7 @@ function setMemory(hits) {
     const host = $("memory");
     if (!host) return;
     if (!hits || hits.length === 0) {
-        host.innerHTML = `<div class="mem-empty">No memory recalled for this chapter.</div>`;
+        host.innerHTML = `<div class="mem-empty">No memory recalled for this stage.</div>`;
         return;
     }
     host.innerHTML = "";
@@ -1245,6 +1551,11 @@ function esc(s) {
 
 renderResources();
 setParty("narrator", "waiting for your founding brief");
+setSceneStatus({
+    actor: "World Designer",
+    speaking: "The Worldkeeper",
+    source: "waiting for founder brief",
+});
 
 // Dynamic org blueprint -> Mermaid org chart. The human operator is the root;
 // digital workers (the execution layer) hang beneath, colored by kind.
@@ -1427,6 +1738,88 @@ function setHud(s) {
     if (!s) return;
     const lvl = $("hud-level"); if (lvl) lvl.textContent = s.level ?? 1;
     const xp = $("hud-xp"); if (xp) xp.textContent = s.xp ?? 0;
+    if (s.game) syncGameState(s.game);
+    updateWorldStatePanel(s);
+    renderHeroJourneyMap(s);
+}
+
+// Render the Hero's Journey map: all stages with current position and status.
+// Shows visual progress through the world's quest graph.
+function renderHeroJourneyMap(s) {
+    if (!s || !s.world || !s.world.stages) return;
+    const stages = s.world.stages || [];
+    const currentIdx = state.idx ?? 0;
+    const worldMapHost = $("world-journey-map");
+    if (!worldMapHost) return;
+
+    let html = `<div class="journey-header">Hero's Journey: ${currentIdx + 1}/${stages.length}</div>`;
+    html += `<div class="journey-stages">`;
+
+    stages.forEach((ch, i) => {
+        const isCompleted = ch.status === "completed";
+        const isCurrent = i === currentIdx;
+        const role = ch.owner_role || "unknown";
+        const roleColor = ROLE_COLOR[role] || "#999";
+
+        html += `<div class="journey-node" data-idx="${i}" style="--role-color: ${roleColor}">`
+            + `<div class="node-marker ${isCurrent ? 'current' : ''} ${isCompleted ? 'completed' : ''}">`
+            + `<span class="node-num">${i + 1}</span>`
+            + `</div>`
+            + `<div class="node-label">`
+            + `<div class="node-title">${esc(ch.title ? ch.title.split(':')[0].trim() : `Stage ${i + 1}`)}</div>`
+            + `<div class="node-role">${ROLE_NAME[role] || role}</div>`
+            + `<div class="node-status">${isCompleted ? '✓ Done' : isCurrent ? '→ Active' : 'Pending'}</div>`
+            + `</div>`
+            + `</div>`;
+
+        if (i < stages.length - 1) {
+            html += `<div class="journey-arrow"></div>`;
+        }
+    });
+
+    html += `</div>`;
+    worldMapHost.innerHTML = html;
+}
+
+// Update the world state info panel: company name, pitch, phase, decisions.
+function updateWorldStatePanel(s) {
+    if (!s) return;
+    const statePanel = $("world-state-panel");
+    if (!statePanel) return;
+
+    const stages = (s.world && s.world.stages) || [];
+    const decisions = (s.world && s.world.decisions) || [];
+    const completed = stages.filter((ch) => ch.status === "completed").length;
+
+    let html = `<div class="state-section">`
+        + `<div class="state-label">World</div>`
+        + `<div class="state-company">${esc(s.name || "(Loading...)")}</div>`
+        + `<div class="state-pitch" title="${esc(s.pitch || '')}">"${esc((s.pitch || '').substring(0, 45))}${(s.pitch || '').length > 45 ? '...' : ''}"</div>`
+        + `</div>`;
+
+    html += `<div class="state-section">`
+        + `<div class="state-label">Story Progress</div>`
+        + `<div class="state-metric">`
+        + `<span class="metric-label">Chapters</span>`
+        + `<span class="metric-value">${completed}/${stages.length}</span>`
+        + `</div>`
+        + `<div class="state-metric">`
+        + `<span class="metric-label">Phase</span>`
+        + `<span class="metric-value" style="text-transform: capitalize;">${state.phase || 'unknown'}</span>`
+        + `</div>`
+        + `</div>`;
+
+    if (decisions.length > 0) {
+        html += `<div class="state-section">`
+            + `<div class="state-label">Recent Decisions</div>`;
+        decisions.slice(-2).forEach((dec) => {
+            const decText = typeof dec === 'string' ? dec : dec.choice || dec.decision || String(dec);
+            html += `<div class="decision-item">• ${esc(decText.substring(0, 40))}${decText.length > 40 ? '...' : ''}</div>`;
+        });
+        html += `</div>`;
+    }
+
+    statePanel.innerHTML = html;
 }
 
 // --- Beats -----------------------------------------------------------------
@@ -1440,7 +1833,7 @@ function readFounderInputsFromForm() {
     // a public profile to scrape/OSINT, or a mission they actually wrote - is a
     // core game dynamic, enforced at the gate by hasRealSignal().
     // Name/archetype are profile-first: the URL handle gives a display name and
-    // /api/company/analyze can infer the archetype. Hidden manual cards override.
+    // /api/founder/analyze can infer the archetype. Hidden manual cards override.
     state.founderName = ($("in-founder-name") && $("in-founder-name").value.trim())
         || founderNameFromProfileUrl(state.url)
         || "Founder";
@@ -1478,7 +1871,7 @@ function hasRealSignal() {
 
 const NEED_SIGNAL_HINT = "Drop your LinkedIn (or describe your mission) - your agents need something real to build your character from.";
 
-// One payload shape for /api/company/analyze, used by the preflight gate and the
+// One payload shape for /api/founder/analyze, used by the preflight gate and the
 // cold-start fallback so the prefetched result is byte-identical.
 function analyzePayload() {
     return {
@@ -1493,6 +1886,41 @@ function analyzePayload() {
         founder_voice: state.founderVoice,
         founder_avatar: state.founderAvatar
     };
+}
+
+// Browser-side reuse cache: players never log in, but the founder inputs are a
+// stable key. Re-analyzing the same inputs is the most expensive hop in the run
+// (live scrape + open-web OSINT + Foundry reasoning + org design), so within a
+// tab we reuse the result instead of paying for it again. Survives the
+// Edit-details <-> Begin loop and a reload (sessionStorage). Keyed only on the
+// inputs that change the output, so editing the profile/mission busts it.
+const ANALYZE_REUSE_TTL_MS = 60 * 60 * 1000;
+let _analyzeReuse = null; // in-memory mirror of the sessionStorage entry
+
+function analyzeSignature() {
+    return JSON.stringify({
+        url: (state.url || "").trim().toLowerCase().replace(/\/+$/, ""),
+        pitch: (state.pitch || "").trim(),
+        arch: state.archetype ? state.archetype.name : null,
+    });
+}
+
+function analyzeReuseGet(sig) {
+    let entry = _analyzeReuse;
+    if (!entry) {
+        try { entry = JSON.parse(sessionStorage.getItem("qf_analyze_reuse") || "null"); }
+        catch (_) { entry = null; }
+    }
+    if (!entry || entry.sig !== sig) return null;
+    if (Date.now() - (entry.ts || 0) > ANALYZE_REUSE_TTL_MS) return null;
+    _analyzeReuse = entry;
+    return entry.ares || null;
+}
+
+function analyzeReusePut(sig, ares) {
+    _analyzeReuse = { sig: sig, ares: ares, ts: Date.now() };
+    try { sessionStorage.setItem("qf_analyze_reuse", JSON.stringify(_analyzeReuse)); }
+    catch (_) { /* private mode / quota: in-memory reuse still works */ }
 }
 
 // Preflight gate: the first "Begin" press. We do not start the run until we have
@@ -1510,22 +1938,44 @@ async function gatherAndReady() {
         return;
     }
 
-    const fromUrl = !!state.url;
     const beginBtn = $("begin");
-    if (beginBtn) {
-        if (!beginBtn.dataset.label) beginBtn.dataset.label = beginBtn.innerHTML;
-        beginBtn.disabled = true;
-        beginBtn.classList.add("is-loading");
-        beginBtn.innerHTML = fromUrl ? "Building your character&hellip;" : "Reading your mission&hellip;";
-    }
-    $("hint").textContent = fromUrl ? "Reading your profile and the open web..." : "Shaping the mission...";
-    if (A.thinkingStart) { try { A.thinkingStart(); } catch (_) {} }
+    if (beginBtn) beginBtn.disabled = true;
+
+    // Reuse: players don't log in, but their inputs are a stable key. Re-running
+    // analyze is the most expensive hop (scrape + OSINT + Foundry reasoning + org
+    // design), so if we already analyzed these exact inputs this session we reuse
+    // the result - the console fast-forwards and no network/model call is made.
+    const sig = analyzeSignature();
+    const reused = analyzeReuseGet(sig);
+
+    // Show, don't tell: mount the live preflight console where the step was, and
+    // run the real analyze call concurrently. The console narrates the real
+    // pipeline and resolves to the real numbers - no silent loading gap.
+    const card = document.querySelector(".creator-card");
+    const step = card && card.querySelector('.cc-step[data-step="1"]');
+    const toggle = card && card.querySelector(".cc-adv-toggle");
+    const advanced = card && card.querySelector(".cc-advanced");
+    const mount = document.createElement("div");
+    mount.className = "cc-preflight-mount";
+    if (step) { step.classList.add("is-hidden"); step.parentNode.insertBefore(mount, step); }
+    if (toggle) toggle.classList.add("is-hidden");
+    if (advanced) advanced.setAttribute("hidden", "");
+    $("hint").textContent = "";
+
+    const consoleCtl = runPreflightConsole({ url: state.url, pitch: state.pitch, mount, cached: !!reused });
+    const fetchP = reused ? Promise.resolve(reused) : api("/api/founder/analyze", analyzePayload());
 
     let ares;
     try {
-        ares = await api("/api/company/analyze", analyzePayload());
+        ares = await fetchP;
+        if (!reused) analyzeReusePut(sig, ares);
+        await consoleCtl.complete(ares);
     } catch (e) {
-        if (A.thinkingStop) { try { A.thinkingStop(); } catch (_) {} }
+        try { await consoleCtl.fail("Could not gather the profile"); } catch (_) {}
+        await sleep(900);
+        mount.remove();
+        if (step) step.classList.remove("is-hidden");
+        if (toggle) toggle.classList.remove("is-hidden");
         if (beginBtn) {
             beginBtn.disabled = false;
             beginBtn.classList.remove("is-loading");
@@ -1534,19 +1984,25 @@ async function gatherAndReady() {
         $("hint").textContent = "Could not gather the profile. Try again, or adjust the details.";
         return;
     }
-    if (A.thinkingStop) { try { A.thinkingStop(); } catch (_) {} }
     if (A.chime) { try { A.chime(); } catch (_) {} }
 
     // Stash the fetched result so beginStory consumes it instead of re-scraping.
+    mount.remove();
     state.preflight = { ares: ares, profile: ares.profile || null };
-    renderReadyCard(ares);
+    // Ground the world title in the scraped founder now, so the ready card and
+    // the run both speak the real venture instead of the generic placeholder.
+    if (!state.company || state.company === DEFAULT_COMPANY) {
+        state.company = ventureNameFromProfile(ares.profile, state.founderName);
+    }
+    renderReadyCard(ares, { reused: !!reused });
 }
 
 // The "ready" confirmation: shows what the preflight gathered and offers the
 // real Begin. Reversible - "Edit details" restores the form untouched.
-function renderReadyCard(ares) {
+function renderReadyCard(ares, opts) {
     const card = document.querySelector(".creator-card");
     if (!card) { beginStory(); return; }
+    const reused = !!(opts && opts.reused);
     const step = card.querySelector('.cc-step[data-step="1"]');
     const adv = card.querySelector(".cc-advanced");
     const toggle = card.querySelector(".cc-adv-toggle");
@@ -1556,20 +2012,30 @@ function renderReadyCard(ares) {
 
     const org = ares.org || {};
     const profile = ares.profile || null;
+    const ant = ares.antagonist || null;
     const host = profile && profile.host ? profile.host : "";
-    const verdict = (profile && profile.company_summary) || org.company_summary || state.pitch || "Default world-improvement mission";
     const signals = (profile && profile.signals) || [];
     const arch = (profile && profile.founder_archetype) || (state.archetype && state.archetype.name) || "Builder";
+    const verdictRaw = (profile && profile.company_summary) || org.company_summary || state.pitch || "Default world-improvement mission";
+    const verdict = cleanProfileSummaryForPlayer(verdictRaw) || `${state.founderName || "Founder"} enters as ${arch}.`;
     const dw = org.digital_worker_count != null ? org.digital_worker_count : "";
     const lev = org.leverage_ratio != null ? org.leverage_ratio : "";
+    const founderName = state.founderName && state.founderName !== "Founder" ? state.founderName : "";
 
-    const sourceLine = host
-        ? `Read <b>${esc(host)}</b> &middot; ${signals.length} public signal${signals.length === 1 ? "" : "s"}`
-        : "Mission described &middot; no public profile to gather";
+    const sourceLine = (host
+        ? `Profile locked from <b>${esc(host)}</b> &middot; ${signals.length} public signal${signals.length === 1 ? "" : "s"}`
+        : "Mission locked from your briefing")
+        + (reused ? ` &middot; <span class="cc-reused">reused</span>` : "");
     const chips = signals.slice(0, 4)
         .map((s) => `<span class="cc-chip">${esc(String(s).slice(0, 42))}</span>`).join("");
+    const idLine = founderName
+        ? `<div class="cc-ready-arch">${esc(founderName)} &middot; <b>${esc(arch)}</b> seat</div>`
+        : `<div class="cc-ready-arch">Founder seat: <b>${esc(arch)}</b></div>`;
     const leverLine = dw !== ""
         ? `<div class="cc-ready-stat"><b>${esc(dw)}</b> digital workers behind one human${lev !== "" ? ` &middot; <b>${esc(lev)}x</b> leverage` : ""}</div>`
+        : "";
+    const rivalLine = ant && ant.name
+        ? `<div class="cc-ready-rival">Rival forged: <b>${esc(ant.name)}</b>${ant.threat_type ? ` &middot; ${esc(ant.threat_type)} threat` : ""}</div>`
         : "";
 
     let ready = card.querySelector(".cc-ready");
@@ -1581,8 +2047,9 @@ function renderReadyCard(ares) {
         + `<div class="cc-ready-source">${sourceLine}</div>`
         + `<p class="cc-ready-verdict">${esc(verdict)}</p>`
         + (chips ? `<div class="cc-chips">${chips}</div>` : "")
-        + `<div class="cc-ready-arch">Founder seat: <b>${esc(arch)}</b></div>`
+        + idLine
         + leverLine
+        + rivalLine
         + `<button id="confirm-begin" class="cta">Begin the run &rarr;</button>`
         + `<button id="edit-details" type="button" class="cc-back">&larr; Edit details</button>`;
     card.appendChild(ready);
@@ -1605,20 +2072,35 @@ function restoreCreatorForm() {
     state.preflight = null;
     const card = document.querySelector(".creator-card");
     if (!card) return;
-    const ready = card.querySelector(".cc-ready");
-    if (ready) ready.remove();
     const step = card.querySelector('.cc-step[data-step="1"]');
     const toggle = card.querySelector(".cc-adv-toggle");
-    if (step) step.classList.remove("is-hidden");
-    if (toggle) toggle.classList.remove("is-hidden");
     const beginBtn = $("begin");
-    if (beginBtn) {
-        beginBtn.disabled = false;
-        beginBtn.classList.remove("is-loading");
-        beginBtn.innerHTML = beginBtn.dataset.label || "Begin the run &rarr;";
+
+    // Bring the form back the same way it left: fade the ready card down, then
+    // re-trigger the step's rise-in so the transition is animated both ways.
+    const showForm = () => {
+        if (step) {
+            step.classList.remove("is-hidden", "cc-anim");
+            void step.offsetWidth; // reflow so the animation replays
+            step.classList.add("cc-anim");
+        }
+        if (toggle) toggle.classList.remove("is-hidden");
+        if (beginBtn) {
+            beginBtn.disabled = false;
+            beginBtn.classList.remove("is-loading");
+            beginBtn.innerHTML = beginBtn.dataset.label || "Begin the run &rarr;";
+        }
+        $("hint").textContent = "";
+        try { $("in-url").focus(); } catch (_) {}
+    };
+
+    const ready = card.querySelector(".cc-ready");
+    if (ready) {
+        ready.classList.add("cc-leave");
+        setTimeout(() => { ready.remove(); showForm(); }, 200);
+    } else {
+        showForm();
     }
-    $("hint").textContent = "";
-    try { $("in-url").focus(); } catch (_) {}
 }
 
 async function beginStory() {
@@ -1667,7 +2149,12 @@ async function beginStory() {
         const seat = state.archetype
             ? `Your ${state.archetype.skill.split(":")[0].trim()} is the human seat.`
             : "You take the human seat.";
-        await narrate(`And it takes you. ${state.company} is chartered. ${seat} Everything else, you hire.`);
+        const runLabel = (state.company && state.company !== DEFAULT_COMPANY)
+            ? state.company
+            : (state.founderName && state.founderName !== "Founder"
+                ? `${state.founderName}'s Venture`
+                : "your venture");
+        await narrate(`And it takes you. ${runLabel} is chartered. ${seat} Everything else, you hire.`);
     } else {
         try {
             const loreRes = await api("/api/lore", { pitch: (state.pitch || state.url) + archNote, company_name: state.company });
@@ -1677,15 +2164,26 @@ async function beginStory() {
 
     // ---- Beat 1: scrape + reason (URL) -> design the digital workforce ----
     const fromUrl = !!state.url;
-    $("hint").textContent = fromUrl ? "Reading the profile signal..." : "Designing the org...";
-    setWorker(fromUrl ? "narrator" : "orgdesigner", fromUrl ? "profile scraper + STRATEGIST_MODEL (Foundry)" : "STRATEGIST_MODEL (Foundry)", fromUrl ? "Reading the public profile" : "Designing the org", true, fromUrl ? "Profile Analyst" : undefined);
+    const preflightDone = !!state.preflight;
+    $("hint").textContent = preflightDone
+        ? "Profile locked. Assembling the world..."
+        : (fromUrl ? "Reading the profile signal..." : "Designing the org...");
+    setWorker(
+        fromUrl ? "narrator" : "orgdesigner",
+        fromUrl ? "profile analyst + STRATEGIST_MODEL (Foundry)" : "STRATEGIST_MODEL (Foundry)",
+        preflightDone ? "Profile locked" : (fromUrl ? "Reading the public profile" : "Designing the org"),
+        true,
+        fromUrl ? "Profile Analyst" : undefined
+    );
     if (A.thinkingStart) A.thinkingStart();
     setSceneHead("Beat 1", fromUrl ? "Reading the founder signal, then the org" : "The org this mission needs");
-    await narrate(fromUrl
-        ? "Point this at a LinkedIn or public profile URL. First a guarded scraper reads the public signal it can access. Then a Profile Analyst reasons about the founder's operating posture before the Org Designer proposes the digital workforce around it."
-        : (state.fromFilm
-            ? "First room: the org. The Org Designer reasons out who you hire - every seat exists for a reason."
-            : "Before any work happens, an Org Designer agent decides what team this mission needs: one human operator, plus the digital workers that form its execution layer. Every role exists for a reason."));
+    await narrate(preflightDone
+        ? "Your founder signal is already locked. The world is being assembled now."
+        : (fromUrl
+            ? "Point this at a LinkedIn or public profile URL. First a guarded scraper reads the public signal it can access. Then a Profile Analyst reasons about the founder's operating posture before the Org Designer proposes the digital workforce around it."
+            : (state.fromFilm
+                ? "First room: the org. The Org Designer reasons out who you hire - every seat exists for a reason."
+                : "Before any work happens, an Org Designer agent decides what team this mission needs: one human operator, plus the digital workers that form its execution layer. Every role exists for a reason.")));
 
     let org;
     let profile = null;
@@ -1694,7 +2192,7 @@ async function beginStory() {
         // (the intro film handoff) hit the network here.
         const ares = state.preflight
             ? state.preflight.ares
-            : await api("/api/company/analyze", analyzePayload());
+            : await api("/api/founder/analyze", analyzePayload());
         org = ares.org;
         profile = ares.profile || null;
         if (!state.manualArchetype && profile && profile.founder_archetype) {
@@ -1708,6 +2206,13 @@ async function beginStory() {
         setResourcesFromEconomics(ares.state && ares.state.economics, org);
         setHud(ares.state);
         if (!state.pitch) state.pitch = org.company_summary || ares.brief || "";
+        // Cold-start (intro film) path skips the preflight gate, so the world
+        // title may still be the placeholder here - ground it in the scraped
+        // founder and re-title the scene so the run speaks the real venture.
+        if (!state.company || state.company === DEFAULT_COMPANY) {
+            state.company = ventureNameFromProfile(profile, state.founderName);
+            setSceneHead("Your quest", state.company);
+        }
     } catch (e) {
         if (A.thinkingStop) A.thinkingStop();
         $("hint").textContent = "Org design failed";
@@ -1716,7 +2221,7 @@ async function beginStory() {
     }
 
     // Make the scrape + reasoning visible before the org chart resolves.
-    if (fromUrl && profile) {
+    if (fromUrl && profile && !preflightDone) {
         setMemory((profile.signals || []).map((s) => ({ source: profile.host || "homepage", content: s })));
         setWorker("orgdesigner", "STRATEGIST_MODEL (Foundry)", "Designing the org", true);
         // Under the Hood: the URL path is a two-hop evidence chain - scrape
@@ -1775,7 +2280,7 @@ async function beginStory() {
     if (A.chime) A.chime();
 
     const world = res.state.world || {};
-    state.chapters = world.chapters || [];
+    state.stages = world.stages || [];
     state.decisions = world.decisions || [];
     if (res.state && res.state.org) state.org = res.state.org;
     setResourcesFromEconomics(res.state && res.state.economics, state.org);
@@ -1783,38 +2288,86 @@ async function beginStory() {
     state.phase = "designed";
     setHud(res.state);
 
-    buildProgress(state.chapters.length);
-    setWorker("narrator", "NARRATOR_MODEL (Foundry)", `Produced ${state.chapters.length} chapters`, false);
+    // Fallback: if the server's initialize_game_run didn't deal cards into the
+    // response (can happen on cold-start or when prior state carried through),
+    // start a fresh card turn now so the hand is never empty entering gameplay.
+    if (!state.game || !Array.isArray(state.game.hand) || !state.game.hand.length) {
+        try {
+            const turnRes = await api("/api/game/turn/start", { stage_id: "" });
+            if (turnRes && turnRes.state) {
+                setHud(turnRes.state);
+                setResourcesFromEconomics(turnRes.state.economics, state.org);
+            }
+        } catch (_) { /* cards are additive - never block the run */ }
+    }
 
-    await revealSelfOrganization();
-    await revealVentureGraph();
+    buildProgress(state.stages.length);
+    setWorker("narrator", "NARRATOR_MODEL (Foundry)", `Produced ${state.stages.length} stages`, false);
 
-    // Start auto-play by default!
-    autoPlay();
+    await revealWorldDrop();
+    state.phase = "ready";
+    $("hint").textContent = "World set. Press Next Chapter or Auto Play.";
+    $("next").disabled = false;
+    $("auto").disabled = false;
+}
+
+async function revealWorldDrop() {
+    const first = state.stages[0] || {};
+    const rival = (state.org && state.org.company_summary) ? state.org.company_summary : "your mission";
+    setSceneHead(
+        "World set",
+        state.company,
+        `${state.stages.length} stages loaded · first room: ${first.title || "opening move"}`
+    );
+    $("diagram").innerHTML = `<div class="founding fade-scene">`
+        + `<div class="kicker">World initialized</div>`
+        + `<h1>${esc(state.company)}</h1>`
+        + `<p>${esc(first.goal || "Your opening room is ready. Choose your first move.")}</p>`
+        + `</div>`;
+    await narrate(`The world is live. ${first.title ? `${first.title} is your opening room.` : "Your opening room is ready."} Make your move.`);
 }
 
 async function revealSelfOrganization() {
     setSceneHead("Beat 3", "The party self-organizes",
-        "\u2692 chapter ownership bound from the designed org to the worker party");
-    const chapters = state.chapters || [];
-    if (!chapters.length) return;
-    const members = chapters.slice(0, 6).map((ch, i) => {
+        "\u2692 stage ownership bound from the designed org to the worker party");
+    const stages = state.stages || [];
+    if (!stages.length) return;
+
+    // Deduplicate: show each unique digital worker once - they own multiple stages
+    // but only need to introduce themselves once in the council.
+    const seen = new Set();
+    const uniqueWorkers = [];
+    stages.forEach((ch) => {
+        const key = ch.assigned_worker_title || ch.owner_role;
+        if (!seen.has(key)) { seen.add(key); uniqueWorkers.push(ch); }
+    });
+
+    // Each archetype speaks in its own voice about what it actually does,
+    // not just who it depends on. This is their mission statement.
+    const ROLE_VOICE = {
+        strategist: (name) => `${name} here. I open the investigation - reading the market, naming the competitors, finding the gap this venture can own. Everything the party builds, I ground first.`,
+        designer: (name) => `${name}. I turn the strategic signal into a real product spec: user stories, feature bets, the build plan that makes the idea tangible and testable.`,
+        marketer: (name) => `I am ${name}. My chapter is the market - channel mix, pricing model, the message that makes a real person say yes. I hand the launch brief to whoever closes the loop.`,
+        ops: (name) => `${name} here. I hold the run together - delivery quality, retention loops, the cost structure that keeps this venture alive past the first sprint.`,
+    };
+
+    const members = uniqueWorkers.slice(0, 6).map((ch, i) => {
         const role = ch.owner_role || "strategist";
         const portrait = ROLE_PORTRAIT[role] || "narrator";
         const owner = ch.assigned_worker_title || ROLE_NAME[role] || role;
-        const shortTitle = String(ch.title || "").split(":")[0] || ch.title;
-        const line = i === 0
-            ? `I will open with ${shortTitle.toLowerCase()} so the rest of the party has evidence.`
-            : `I take ${shortTitle.toLowerCase()} after ${chapters[i - 1].assigned_worker_title || chapters[i - 1].owner_role} lands their artifact.`;
-        return `<div class="council-member" style="animation-delay:${i * 90}ms">`
-            + `<div class="council-top"><img class="council-face" src="/game/assets/generated/${portrait}.png" alt="" onerror="this.style.display='none'" />`
+        // Strip generic "Digital Worker" suffix to get a cleaner first-name for speech.
+        const shortName = owner.replace(/ Digital Worker$/, "").split(" ").slice(-2).join(" ") || owner;
+        const voiceFn = ROLE_VOICE[role] || ((name) => `${name} here. I carry my chapter so the next worker has grounded evidence to build on.`);
+        const line = voiceFn(shortName);
+        return `<div class="council-member" style="animation-delay:${i * 120}ms">`
+            + `<div class="council-top"><img class="council-face" src="/game/assets/generated/${portrait}.png" alt="" onerror="this.style.display='none'">`
             + `<div><div class="council-name">${esc(owner)}</div><div class="council-role">${esc(ROLE_NAME[role] || role)}</div></div></div>`
             + `<div class="council-says">&ldquo;${esc(line)}&rdquo;</div>`
             + `</div>`;
     }).join("");
     $("diagram").innerHTML = `<div class="council fade-scene">${members}</div>`;
-    setParty("narrator", "assigning rooms");
-    await narrate("The agents do not wait as a list. They organize as a party: each worker claims a room, names its dependency, and carries the previous artifact into the next brief. This is the workforce forming itself around your mission.");
+    setParty("narrator", "assembling the party");
+    await narrate(`These are your workers. Not a list - a party with a formation. ${uniqueWorkers.length} agents, each one owning a chapter of the build. Listen to them claim their stage.`);
     await sleep(700);
 }
 
@@ -1999,7 +2552,7 @@ async function renderAgentStandup(standup) {
 
                     // 3. Fetch next standup turns
                     const nextStandup = await api("/api/world/standup", {
-                        chapter_id: standup.chapter_id,
+                        stage_id: standup.stage_id,
                         history: accumulatedHistory,
                         selection_mode: STANDUP_SELECTION
                     });
@@ -2039,35 +2592,35 @@ async function renderAgentStandup(standup) {
 
 async function revealVentureGraph() {
     setSceneHead("Beat 4", "The venture, decomposed",
-        "\u2692 drawn live from the World Designer's chapter graph (JSON \u2192 Mermaid)");
+        "\u2692 drawn live from the World Designer's stage graph (JSON \u2192 Mermaid)");
     // The stage is a wide cinema frame - lay the quest line LEFT-TO-RIGHT so
-    // five chapters read as a path across the screen, not a column squeezed
+    // eight stages read as a path across the screen, not a column squeezed
     // under the header. Map nodes carry the short phase name only (the part
-    // before the colon); full titles live in the narration and chapter runs -
+    // before the colon); full titles live in the narration and stage runs -
     // a map wants landmarks, not paragraphs.
     let def = "graph LR\n";
     const idOf = (id) => `c_${id.replace(/[^a-zA-Z0-9_]/g, "")}`;
     const mapLabel = (t) => san(String(t || "").split(":")[0].trim() || t);
-    state.chapters.forEach((ch) => {
+    state.stages.forEach((ch) => {
         const color = ROLE_COLOR[ch.owner_role] || T.blue;
         def += `  ${idOf(ch.id)}["${mapLabel(ch.title)}"]\n`;
         def += `  style ${idOf(ch.id)} stroke:${color},stroke-width:2px\n`;
     });
-    state.chapters.forEach((ch) => {
+    state.stages.forEach((ch) => {
         (ch.depends_on || []).forEach((dep) => {
-            const depCh = state.chapters.find((c) => c.id === dep);
+            const depCh = state.stages.find((c) => c.id === dep);
             if (depCh) def += `  ${idOf(dep)} --> ${idOf(ch.id)}\n`;
         });
     });
     // chain fallback when no explicit deps
-    if (!state.chapters.some((c) => (c.depends_on || []).length)) {
-        for (let i = 1; i < state.chapters.length; i++) {
-            def += `  ${idOf(state.chapters[i - 1].id)} --> ${idOf(state.chapters[i].id)}\n`;
+    if (!state.stages.some((c) => (c.depends_on || []).length)) {
+        for (let i = 1; i < state.stages.length; i++) {
+            def += `  ${idOf(state.stages[i - 1].id)} --> ${idOf(state.stages[i].id)}\n`;
         }
     }
     await renderMermaid(def);
-    const owners = state.chapters.map((c) => c.assigned_worker_title || ROLE_NAME[c.owner_role] || c.owner_role);
-    void narrate(`${state.chapters.length} chapters, each owned by ${state.org ? "one of the digital workers you just designed" : "a specialist agent"}: ${[...new Set(owners)].join(", ")}. Dependencies set the order. This graph is the world the Worker Factory will build.`);
+    const owners = state.stages.map((c) => c.assigned_worker_title || ROLE_NAME[c.owner_role] || c.owner_role);
+    void narrate(`${state.stages.length} stages, each owned by ${state.org ? "one of the digital workers you just designed" : "a specialist agent"}: ${[...new Set(owners)].join(", ")}. Dependencies set the order. This graph is the world the Worker Factory will build.`);
     markProgress(0);
 }
 
@@ -2150,14 +2703,14 @@ function theaterClose() {
 }
 
 async function runNextChapter() {
-    if (state.idx >= state.chapters.length) return;
-    const ch = state.chapters[state.idx];
+    if (state.idx >= state.stages.length) return;
+    const ch = state.stages[state.idx];
     const ownerName = ch.assigned_worker_title || ROLE_NAME[ch.owner_role] || ch.owner_role;
     const nextBtn = $("next"); if (nextBtn) nextBtn.disabled = true;
     const autoBtn = $("auto"); if (autoBtn) autoBtn.disabled = true;
     markProgress(state.idx);
 
-    setSceneHead(`Chapter ${state.idx + 1}`, ch.title,
+    setSceneHead(`Stage ${state.idx + 1}`, ch.title,
         `\u2692 artifact + diagram by ${ownerName} (agent JSON \u2192 Mermaid)`);
     // Paint the scenario onto the world canvas (center stage) so the player has
     // the room's goal + success metric in view while the worker reasons. The
@@ -2187,7 +2740,7 @@ async function runNextChapter() {
     // narration runs underneath it (audio), the plan forms on screen (visual).
     mafRunStart(ownerName, ch.title);
     const theaterDone = theaterOpen(ch, ownerName, lastDecision);
-    narrate(`Chapter ${state.idx + 1}: ${goalLine}. ${ownerName} spins up on Foundry and recalls from IQ memory.${memoryLine}${recallLine}`);
+    narrate(`Stage ${state.idx + 1}: ${goalLine}. ${ownerName} spins up on Foundry and recalls from IQ memory.${memoryLine}${recallLine}`);
     await theaterDone;
 
     let res;
@@ -2195,7 +2748,7 @@ async function runNextChapter() {
         res = await api("/api/world/run-next", {});
     } catch (e) {
         // One silent retry: long reasoning calls can be cut by transient
-        // network blips; the server is idempotent on the pending chapter.
+        // network blips; the server is idempotent on the pending stage.
         try {
             await narrate("A network blip mid-reasoning. The worker picks its thread back up...");
             res = await api("/api/world/run-next", {});
@@ -2211,9 +2764,9 @@ async function runNextChapter() {
     }
     if (A.thinkingStop) A.thinkingStop();
 
-    const chapter = res.chapter || {};
+    const stage = res.stage || {};
     const inv = res.invocation || {};
-    const score = chapter.validation_score ?? 0;
+    const score = stage.validation_score ?? 0;
     nudgeResources({ proof: Math.max(4, Math.round(score / 10)), trust: score >= 80 ? 5 : -8, autonomy: 3 });
     // Stash this run's evidence so the dilemma gate can show its provenance.
     state.lastInv = inv;
@@ -2237,7 +2790,7 @@ async function runNextChapter() {
     // the card opens a dialog with these real receipts (tool calls, reasoning,
     // memory, score). One store, read by both the rail and the card dialog.
     recordCardEvidence(inv.worker_title || ownerName, ch.owner_role, {
-        chapter: ch.title,
+        stage: ch.title,
         score: score,
         deployment: deployLabel,
         tools: inv.tools_drawn || [],
@@ -2252,13 +2805,13 @@ async function runNextChapter() {
     await theaterReveal(inv);
 
     // Animate the artifact into a diagram.
-    const diag = diagramForArtifact(ch.owner_role, chapter.artifact);
+    const diag = diagramForArtifact(ch.owner_role, stage.artifact);
     if (diag && diag.type === "mermaid") await renderMermaid(diag.def);
     else if (diag && diag.type === "svg") { renderSvg(diag.svg); if (A.chime) A.chime(); }
-    else await narrate("This chapter produced a text artifact - no diagram shape detected.");
+    else await narrate("This stage produced a text artifact - no diagram shape detected.");
 
     await sleep(500);
-    setGate(score, chapter.rubric);
+    setGate(score, stage.rubric);
     if (score >= 80) { if (A.approve) A.approve(); } else if (A.reject) A.reject();
     lens("reliability", score >= 80
         ? `gate ${state.idx + 1} passed at ${score}/100 - validator floor held, human approval sealed it`
@@ -2266,19 +2819,20 @@ async function runNextChapter() {
     setHud(res.state);
 
     const artifactKind = describeArtifact(ch.owner_role);
-    const rubricLine = chapter.rubric && chapter.rubric.source === "foundry"
+    const rubricLine = stage.rubric && stage.rubric.source === "foundry"
         ? `A Foundry rubric evaluation scored it ${score} of 100 across four weighted dimensions, floored by the deterministic validator`
         : `The deterministic validator scored it ${score} of 100`;
     await narrate(`${ownerName} delivered ${artifactKind}. ${rubricLine} - ${score >= 80 ? "it passes the gate and the company graph grows." : "bronze, so it pauses for a human gate."}`);
+    await runRewardDraftGate(state.game, state.autoMode);
 
-    completedChapters.push({ title: ch.title, role: ch.owner_role });
+    completedStages.push({ title: ch.title, role: ch.owner_role });
     state.idx += 1;
 
-    if (state.idx >= state.chapters.length) {
+    if (state.idx >= state.stages.length) {
         await finale(res.state);
     } else {
         // The CEO decision gate: pick a path before the next worker spins up.
-        await runDilemmaGate(chapter, state.autoMode);
+        await runDilemmaGate(stage, state.autoMode);
         const next = $("next"); if (next) next.disabled = false;
         const auto = $("auto"); if (auto) auto.disabled = false;
         $("hint").textContent = "Resuming campaign...";
@@ -2311,10 +2865,10 @@ function hideDilemma() {
     dilemmaResolve = null;
 }
 
-async function runDilemmaGate(chapter, auto) {
+async function runDilemmaGate(stage, auto) {
     let dilemma;
     try {
-        dilemma = await api("/api/dilemma", { chapter_id: chapter.id });
+        dilemma = await api("/api/dilemma", { stage_id: stage.id });
     } catch (e) { return; /* dilemma is additive - never block the run */ }
     if (!dilemma || !Array.isArray(dilemma.options) || dilemma.options.length < 2) return;
 
@@ -2333,7 +2887,7 @@ async function runDilemmaGate(chapter, auto) {
         const memN = (inv.maf_memory || []).length;
         const chips = [
             `<span class="tchip gold">&#9818; posed by The Narrator</span>`,
-            `<span class="tchip">from &ldquo;${esc((chapter.title || "").slice(0, 34))}&rdquo; sealed at ${chapter.validation_score ?? "&mdash;"}/100</span>`,
+            `<span class="tchip">from &ldquo;${esc((stage.title || "").slice(0, 34))}&rdquo; sealed at ${stage.validation_score ?? "&mdash;"}/100</span>`,
         ];
         const villain = dilemma.antagonist || null;
         if (villain && villain.name) {
@@ -2450,7 +3004,7 @@ async function runDilemmaGate(chapter, auto) {
         let consequence = null;
         try {
             const res = await api("/api/decision", {
-                chapter_id: chapter.id, option, tradeoff: tradeoff || "",
+                stage_id: stage.id, option, tradeoff: tradeoff || "",
                 prompt: dilemma.prompt, custom: !!custom,
                 rule_id: custom ? "" : (choice.rule_id || ""),
                 option_id: custom ? "custom" : (choice.id || ""),
@@ -2461,7 +3015,7 @@ async function runDilemmaGate(chapter, auto) {
             consequence = res.consequence || (res.recorded && res.recorded.consequence) || null;
             if (res.state) {
                 state.org = res.state.org || state.org;
-                state.chapters = (res.state.world && res.state.world.chapters) || state.chapters;
+                state.stages = (res.state.world && res.state.world.stages) || state.stages;
                 setHud(res.state);
                 setOrgPanel(state.org);
                 setResourcesFromEconomics(res.state.economics, state.org);
@@ -2488,7 +3042,7 @@ async function runDilemmaGate(chapter, auto) {
             }
             try {
                 const standup = await api("/api/world/standup", {
-                    chapter_id: chapter.id,
+                    stage_id: stage.id,
                     selection_mode: STANDUP_SELECTION
                 });
                 await renderAgentStandup(standup);
@@ -2520,15 +3074,15 @@ document.addEventListener("keydown", (e) => {
 
 async function finale(s) {
     state.phase = "done";
-    markProgress(state.chapters.length, "done");
+    markProgress(state.stages.length, "done");
     setSceneHead("Finale", "Your mission has a working loop");
     if (A.complete) A.complete();
     await renderMermaid(companyGraphDef());
-    setWorker("narrator", "Venture: launched", "All chapters verified", false);
+    setWorker("narrator", "Venture: launched", "All stages verified", false);
     $("hint").textContent = "Venture launched";
     $("next").disabled = true;
     $("auto").disabled = true;
-    await narrate(`${state.chapters.length} chapters, ${state.chapters.length} verified gates. From one founder signal you now have an org, the systems it runs on, a launch plan, and the numbers behind it - level ${s.level ?? 1}, ${s.xp ?? 0} XP. That is the mission, mapped as a living system you changed.`);
+    await narrate(`${state.stages.length} stages, ${state.stages.length} verified gates. From one founder signal you now have an org, the systems it runs on, a launch plan, and the numbers behind it - level ${s.level ?? 1}, ${s.xp ?? 0} XP. That is the mission, mapped as a living system you changed.`);
     await incomeBeat(s);
 }
 
@@ -2542,7 +3096,7 @@ async function incomeBeat(s) {
     const org = state.org || {};
     const workers = (org.roles || []).filter((r) => r.kind !== "human");
     const fin = (() => {
-        for (const ch of state.chapters) {
+        for (const ch of state.stages) {
             const f = ch.artifact && (ch.artifact.financial_plan || ch.artifact.financials);
             if (f && typeof f === "object") return f;
         }
@@ -2584,7 +3138,7 @@ async function incomeBeat(s) {
 async function autoPlay() {
     $("auto").disabled = true;
     state.autoMode = true;
-    while (state.idx < state.chapters.length) {
+    while (state.idx < state.stages.length) {
         await runNextChapter();
         await sleep(900);
     }
@@ -2594,8 +3148,8 @@ async function autoPlay() {
 async function resetStory() {
     typeToken++;
     try { await api("/api/reset", {}); } catch (_) {}
-    completedChapters.length = 0;
-    state.chapters = [];
+    completedStages.length = 0;
+    state.stages = [];
     state.idx = 0;
     state.phase = "title";
     location.reload();
@@ -2647,7 +3201,8 @@ function bindSpeechRecognition(micBtn, inputEl, statusEl, onResultCallback) {
             listening = true;
             micBtn.classList.add("listening");
             if (statusEl) {
-                statusEl.textContent = "Listening - speak...";
+                statusEl.innerHTML = `<span class="cc-mic-rec"></span>Listening`
+                    + `<span class="cc-mic-eq"><span></span><span></span><span></span><span></span></span>`;
                 statusEl.classList.add("live");
             }
         };
@@ -2971,6 +3526,10 @@ if (railToggle) {
     });
 }
 
+window.addEventListener("resize", queueFooterAwareLayoutSync);
+ensureFooterLayoutObserver();
+queueFooterAwareLayoutSync();
+
 $("mute").addEventListener("click", () => {
     if (A.unlock) A.unlock();
     const muted = A.toggleMute ? A.toggleMute() : false;
@@ -2991,5 +3550,189 @@ fetch("/api/mode").then((r) => (r.ok ? r.json() : null)).then((d) => {
 // Enable speak-your-idea voice input on the pitch field (if the browser supports it).
 setupVoiceInput();
 
+// Make the character-creation text feel alive: scramble-decode the kicker on
+// entrance, keep a subtle idle flicker, and let the CSS RGB-split shimmer ride
+// on both the kicker and the headline. Degrades to static under reduced motion.
+function setupAliveText() {
+    const fs = document.querySelector(".first-step");
+    if (!fs) return;
+    const kicker = fs.querySelector(".creator-card .kicker");
+    const h1 = fs.querySelector(".creator-card h1");
+    let stopIdle = null;
+    let played = false;
+
+    function play() {
+        if (played || prefersReduced()) {
+            if (kicker) kicker.classList.add("glitch-alive");
+            if (h1) h1.classList.add("glitch-alive");
+            return;
+        }
+        played = true;
+        if (h1) h1.classList.add("glitch-alive");
+        if (kicker) {
+            const text = kicker.textContent;
+            scramble(kicker, text, { duration: 760 }).then(() => {
+                kicker.classList.add("glitch-alive");
+                if (stopIdle) stopIdle();
+                stopIdle = idleGlitch(kicker, { minGap: 3200, maxGap: 7000 });
+            });
+        }
+    }
+
+    if (fs.classList.contains("enter")) play();
+    // The intro film adds .enter when it hands off; replay the decode then.
+    const obs = new MutationObserver(() => {
+        if (fs.classList.contains("enter") && !played) play();
+    });
+    obs.observe(fs, { attributes: true, attributeFilter: ["class"] });
+}
+setupAliveText();
+
+// Live source detection under the URL field: as the founder types, echo what
+// kind of profile we resolved (LinkedIn, GitHub, personal site...) so they get
+// feedback before they ever press Begin. No network - pure client-side classify.
+function setupUrlEcho() {
+    const input = $("in-url");
+    if (!input) return;
+    const field = input.closest(".cc-field") || input.parentNode;
+    const echo = document.createElement("div");
+    echo.className = "cc-source-echo";
+    field.appendChild(echo);
+
+    let last = "";
+    let timer = null;
+    let stopLoop = null;
+    function render() {
+        const val = input.value.trim();
+        if (!val) {
+            echo.textContent = ""; echo.classList.remove("hit"); last = "";
+            if (stopLoop) { stopLoop(); stopLoop = null; }
+            return;
+        }
+        const src = classifyProfileUrl(val);
+        const label = src.host ? `${src.label} - ${src.host}` : src.label;
+        if (label === last) return;
+        last = label;
+        echo.classList.add("hit");
+        echo.innerHTML = `<span class="pip"></span><span class="cc-source-label"></span>`;
+        const labelEl = echo.querySelector(".cc-source-label");
+        const text = label + " detected";
+        // Pop in once, then keep it alive with a resting re-decode loop.
+        scramble(labelEl, text, { duration: 360 }).then(() => {
+            if (stopLoop) stopLoop();
+            stopLoop = loopScramble(labelEl, { text, period: 5200, duration: 420 });
+        });
+    }
+    input.addEventListener("input", () => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(render, 220);
+    });
+}
+setupUrlEcho();
+
 // Wire up name randomization, voice previews, and custom avatar generators
 setupCharacterCreation();
+
+// On page load: if there is a prior run on the server, offer to resume it.
+// This runs in the background - never blocks form interaction.
+async function bootFromSavedRun() {
+    let snap;
+    try {
+        const res = await fetch("/api/state");
+        if (!res.ok) return;
+        snap = await res.json();
+    } catch (_) { return; }
+
+    const s = snap && snap.state;
+    const stages = (s && s.world && s.world.stages) || [];
+    const company = (s && s.name) || "";
+    if (!stages.length || !company) return;
+
+    const completedCount = stages.filter((ch) => ch.status === "completed").length;
+    const resumeCard = document.createElement("div");
+    resumeCard.id = "resume-card";
+    resumeCard.className = "resume-card";
+    resumeCard.innerHTML =
+        `<div class="resume-kicker">Previous run found</div>`
+        + `<div class="resume-company">${esc(company)}</div>`
+        + `<div class="resume-progress">${completedCount} of ${stages.length} chapters complete</div>`
+        + `<div class="resume-actions">`
+        + `<button id="resume-btn" type="button" class="cta">Resume &rarr;</button>`
+        + `<button id="resume-dismiss" type="button" class="cc-flip-btn small">Start fresh</button>`
+        + `</div>`;
+
+    const host = document.querySelector(".creator-card .cc-step[data-step='1']");
+    if (host) host.prepend(resumeCard);
+
+    const resumeBtn = document.getElementById("resume-btn");
+    const dismissBtn = document.getElementById("resume-dismiss");
+    if (resumeBtn) resumeBtn.addEventListener("click", () => { resumeCard.remove(); restoreRunFromState(s); });
+    if (dismissBtn) dismissBtn.addEventListener("click", () => resumeCard.remove());
+}
+
+// Restore a saved server-state into the UI so the player can continue without
+// re-running world design. Sets up the game layer, party, and stage progress.
+function restoreRunFromState(s) {
+    if (!s) return;
+    const stages = (s.world && s.world.stages) || [];
+    if (!stages.length) return;
+
+    state.company = s.name || "";
+    state.pitch = s.pitch || "";
+    state.org = s.org || null;
+    state.stages = stages;
+    state.decisions = (s.world && s.world.decisions) || [];
+    state.phase = "designed";
+    const firstIncomplete = stages.findIndex((ch) => ch.status !== "completed");
+    state.idx = firstIncomplete >= 0 ? firstIncomplete : stages.length;
+
+    // Replay completed stages into the company graph.
+    completedStages.length = 0;
+    stages.filter((ch) => ch.status === "completed")
+        .forEach((ch) => completedStages.push({ title: ch.title, role: ch.owner_role }));
+
+    // Activate the game UI.
+    document.documentElement.classList.remove("prestart");
+    document.body.classList.remove("prestart");
+    const stageEl = document.getElementById("stage");
+    if (stageEl) stageEl.classList.remove("prestart", "rail-hidden");
+
+    // Pre-fill form so a later reset works correctly.
+    if ($("in-company")) $("in-company").value = state.company;
+    if ($("in-pitch")) $("in-pitch").value = state.pitch;
+    if ($("begin")) $("begin").disabled = true;
+    if ($("reset")) $("reset").disabled = false;
+
+    if (s.economics) setResourcesFromEconomics(s.economics, s.org);
+    else if (s.org) setResourcesFromOrg(s.org);
+
+    setHud(s);
+    setOrgPanel(s.org);
+    setEconHud(s.org);
+    buildProgress(stages.length);
+    markProgress(state.idx);
+    setParty("narrator", "run resumed");
+    setSceneStatus({
+        actor: "World Designer",
+        speaking: "The Worldkeeper",
+        source: "restored from saved state",
+    });
+    refreshLearned();
+
+    const done = completedStages.length;
+    setSceneHead("Resumed", `${state.company} - Chapter ${done + 1} of ${stages.length}`,
+        "restored from saved state");
+
+    $("diagram").innerHTML = `<div class="founding fade-scene">`
+        + `<div class="kicker">Run resumed</div>`
+        + `<h1>${esc(state.company)}</h1>`
+        + `<p>${done} of ${stages.length} chapters complete &mdash; press Next or Auto to continue.</p>`
+        + `</div>`;
+
+    const next = $("next"); if (next) next.disabled = false;
+    const auto = $("auto"); if (auto) auto.disabled = false;
+    $("hint").textContent = "Run restored - press Next or Auto to continue.";
+    queueFooterAwareLayoutSync();
+}
+
+(async function () { await bootFromSavedRun(); })().catch(() => {});

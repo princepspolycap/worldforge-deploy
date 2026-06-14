@@ -1,6 +1,6 @@
 """Worker Factory: schedules and executes workers against the WorldGraph.
 
-Walks chapters in dependency order, picks the right Foundry deployment per
+Walks stages in dependency order, picks the right Foundry deployment per
 owner_role, produces artifacts, runs validators, and records invocations.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ from agents.model_config import get_cloud_foundry_client, get_foundry_client, is
 from agents.maf_runtime import maf_available, run_maf_agent
 from agents.memory import recall_memories, remember
 from agents.retrieval import retrieve
-from state.schema import Chapter, OrgBlueprint, OrgRole, WorkerInvocation, WorldGraph
+from state.schema import Stage, OrgBlueprint, OrgRole, WorkerInvocation, WorldGraph
 from tools.toolbox import tools_call, tools_for_role
 from tools.code_interpreter_wrappers import (
     validate_financial_plan,
@@ -33,43 +33,43 @@ ROLE_PROMPTS: Dict[str, Dict[str, str]] = {
     "strategist": {
         "system": (
             "You are a lean-startup strategist. Produce a structured JSON artifact "
-            "matching the chapter goal. Include: target_audience, core_problem, "
+            "matching the stage goal. Include: target_audience, core_problem, "
             "value_proposition, primary_benefit, org_chart, okrs_q1 (list of "
             "objectives with key_results). Return ONLY valid JSON."
         ),
-        "user": "Company brief: {brief}\n\nChapter goal: {goal}\nSuccess metric: {metric}\n\nProduce JSON.",
+        "user": "Company brief: {brief}\n\nStage goal: {goal}\nSuccess metric: {metric}\n\nProduce JSON.",
     },
     "designer": {
         "system": (
             "You are a product/UX designer. Produce a structured JSON artifact for "
-            "the chapter goal. Include landing_page, hero_headline, cta_text, "
+            "the stage goal. Include landing_page, hero_headline, cta_text, "
             "features, url, integrations, wireframe_notes. The top-level JSON object "
             "must include hero_headline, cta_text, features, and url. Do not wrap "
-            "the artifact in chapter_goal or another container key. "
+            "the artifact in stage_goal or another container key. "
             "Return ONLY valid JSON."
         ),
-        "user": "Company brief: {brief}\n\nChapter goal: {goal}\nSuccess metric: {metric}\n\nProduce JSON.",
+        "user": "Company brief: {brief}\n\nStage goal: {goal}\nSuccess metric: {metric}\n\nProduce JSON.",
     },
     "marketer": {
         "system": (
             "You are a growth marketer. Produce a structured JSON artifact for the "
-            "chapter goal. Include gtm_channels with expected_cac_usd and "
+            "stage goal. Include gtm_channels with expected_cac_usd and "
             "weekly_hours, financial_plan, subject, body. Return ONLY valid JSON."
         ),
-        "user": "Company brief: {brief}\n\nChapter goal: {goal}\nSuccess metric: {metric}\n\nProduce JSON.",
+        "user": "Company brief: {brief}\n\nStage goal: {goal}\nSuccess metric: {metric}\n\nProduce JSON.",
     },
     "ops": {
         "system": (
             "You are a startup ops/retention specialist. Produce a structured JSON "
-            "artifact for the chapter goal. Include retention loops, churn drivers, "
+            "artifact for the stage goal. Include retention loops, churn drivers, "
             "NPS plan, support workflow, and financial_plan with target_mrr_usd_m1_to_m6, "
             "burn_usd_per_month, breakeven_month, and churn_target_pct. Return ONLY valid JSON."
         ),
-        "user": "Company brief: {brief}\n\nChapter goal: {goal}\nSuccess metric: {metric}\n\nProduce JSON.",
+        "user": "Company brief: {brief}\n\nStage goal: {goal}\nSuccess metric: {metric}\n\nProduce JSON.",
     },
 }
 
-# Human-readable fallback titles when no designed worker is bound to a chapter.
+# Human-readable fallback titles when no designed worker is bound to a stage.
 ROLE_TITLES: Dict[str, str] = {
     "strategist": "Strategist",
     "designer": "Designer",
@@ -79,12 +79,12 @@ ROLE_TITLES: Dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
-# Org binding: resolve each chapter's owner to one of the dynamically designed
+# Org binding: resolve each stage.s owner to one of the dynamically designed
 # digital workers (CompanyState.org). This closes the seam between the org the
-# LLM designs and the agents that actually do the chapter work.
+# LLM designs and the agents that actually do the stage work.
 # ---------------------------------------------------------------------------
 
-# Lifecycle stages in venture order. A chapter is matched to the org role whose
+# Lifecycle stages in venture order. A stage is matched to the org role whose
 # `lifecycle_stage` fits; archetype owner_role is the fallback signal.
 _STAGE_ORDER = ["discovery", "positioning", "mvp", "gtm", "retention", "ops"]
 
@@ -97,15 +97,15 @@ _ROLE_STAGE = {
 }
 
 
-def stage_for_chapter(chapter: Chapter) -> str:
-    """Infer a chapter's lifecycle stage from its id/title/goal, then its role."""
-    hay = f"{chapter.id} {chapter.title} {chapter.goal}".lower()
+def lifecycle_for_stage(stage: Stage) -> str:
+    """Infer a stage's lifecycle stage from its id/title/goal, then its role."""
+    hay = f"{stage.id} {stage.title} {stage.goal}".lower()
     if "go-to-market" in hay or "go to market" in hay:
         return "gtm"
-    for stage in _STAGE_ORDER:
-        if stage in hay:
-            return stage
-    return _ROLE_STAGE.get(chapter.owner_role, "ops")
+    for lifecycle_stage in _STAGE_ORDER:
+        if lifecycle_stage in hay:
+            return lifecycle_stage
+    return _ROLE_STAGE.get(stage.owner_role, "ops")
 
 
 def _worker_by_id(org: Optional[OrgBlueprint], worker_id: Optional[str]) -> Optional[OrgRole]:
@@ -117,8 +117,8 @@ def _worker_by_id(org: Optional[OrgBlueprint], worker_id: Optional[str]) -> Opti
     return None
 
 
-def resolve_worker_for_chapter(chapter: Chapter, org: Optional[OrgBlueprint]) -> Optional[OrgRole]:
-    """Pick the designed digital worker that should own this chapter.
+def resolve_worker_for_stage(stage: Stage, org: Optional[OrgBlueprint]) -> Optional[OrgRole]:
+    """Pick the designed digital worker that should own this stage.
 
     Prefers an exact lifecycle_stage match among non-human workers; falls back
     to the closest stage by venture order. Returns None when there is no org to
@@ -130,7 +130,7 @@ def resolve_worker_for_chapter(chapter: Chapter, org: Optional[OrgBlueprint]) ->
     if not workers:
         return None
 
-    stage = stage_for_chapter(chapter)
+    stage = lifecycle_for_stage(stage)
     exact = [r for r in workers if (r.lifecycle_stage or "").lower() == stage]
     if exact:
         return exact[0]
@@ -147,19 +147,19 @@ def resolve_worker_for_chapter(chapter: Chapter, org: Optional[OrgBlueprint]) ->
 
 
 def bind_world_to_org(world: WorldGraph, org: Optional[OrgBlueprint]) -> Dict[str, str]:
-    """Stamp each chapter with its owning digital worker. Returns id->title map.
+    """Stamp each stage with its owning digital worker. Returns id->title map.
 
     Idempotent (re-running rebinds) and a safe no-op when there is no org.
     """
     bindings: Dict[str, str] = {}
     if not org:
         return bindings
-    for chapter in world.chapters:
-        worker = resolve_worker_for_chapter(chapter, org)
+    for stage in world.stages:
+        worker = resolve_worker_for_stage(stage, org)
         if worker:
-            chapter.assigned_worker_id = worker.id
-            chapter.assigned_worker_title = worker.title
-            bindings[chapter.id] = worker.title
+            stage.assigned_worker_id = worker.id
+            stage.assigned_worker_title = worker.title
+            bindings[stage.id] = worker.title
     return bindings
 
 
@@ -323,7 +323,7 @@ def _rubric_from_floor(floor: int) -> Dict[str, Any]:
     }
 
 
-def rubric_evaluate(chapter: Chapter, brief: str, artifact: Optional[Dict[str, Any]],
+def rubric_evaluate(stage: Stage, brief: str, artifact: Optional[Dict[str, Any]],
                     floor: int) -> Dict[str, Any]:
     """Score an artifact against the gate rubric.
 
@@ -348,8 +348,8 @@ def rubric_evaluate(chapter: Chapter, brief: str, artifact: Optional[Dict[str, A
                     )},
                     {"role": "user", "content": (
                         f"Venture brief: {brief[:600]}\n"
-                        f"Chapter goal: {chapter.goal}\n"
-                        f"Success metric: {chapter.success_metric}\n\n"
+                        f"Stage goal: {stage.goal}\n"
+                        f"Success metric: {stage.success_metric}\n\n"
                         f"Artifact JSON:\n{json.dumps(artifact)[:4000]}"
                     )},
                 ],
@@ -410,7 +410,7 @@ def _short_brief(brief: str, words: int = 6) -> str:
     return " ".join(parts[:words]) if parts else "Venture"
 
 
-def _mock_artifact(role: str, chapter: Chapter, brief: str) -> Dict[str, Any]:
+def _mock_artifact(role: str, stage: Stage, brief: str) -> Dict[str, Any]:
     """Deterministic, diagram-ready artifacts for simulation (no Foundry).
 
     These mirror the shape of live worker output so the story renderer can
@@ -529,28 +529,28 @@ def _apply_decision_context_to_artifact(artifact: Dict[str, Any], decisions: Opt
         })
 
 
-def execute_chapter(
-    chapter: Chapter,
+def execute_stage(
+    stage: Stage,
     brief: str,
     previous_artifacts: Optional[List[Dict]] = None,
     org: Optional[OrgBlueprint] = None,
     decisions: Optional[List[Dict]] = None,
 ) -> Tuple[WorkerInvocation, Optional[Dict], int]:
-    """Execute a single chapter's worker and return (invocation, artifact, score).
+    """Execute a single stage's worker and return (invocation, artifact, score).
 
-    When an `org` is supplied, the chapter is executed by the dynamically designed
+    When an `org` is supplied, the stage is executed by the dynamically designed
     digital worker that owns it: the worker drives identity, deployment (via its
     `deployment_hint`) and reasoning grounding, while the archetype `role` still
     drives the prompt contract + deterministic validators. `decisions` is the
     CEO's gate-decision ledger (WorldGraph.decisions); when present it is
-    injected as binding direction so choices visibly chain across chapters.
+    injected as binding direction so choices visibly chain across stages.
     Returns a deterministic mock if live mode is off.
     """
-    role = chapter.owner_role if chapter.owner_role in ROLE_PROMPTS else "strategist"
+    role = stage.owner_role if stage.owner_role in ROLE_PROMPTS else "strategist"
 
-    # Resolve the designed digital worker that owns this chapter (pre-bound id
+    # Resolve the designed digital worker that owns this stage (pre-bound id
     # first, else match on lifecycle stage). None == no org -> fixed archetype.
-    worker = _worker_by_id(org, chapter.assigned_worker_id) or resolve_worker_for_chapter(chapter, org)
+    worker = _worker_by_id(org, stage.assigned_worker_id) or resolve_worker_for_stage(stage, org)
     hint = (worker.deployment_hint if worker else "") or ""
     worker_id = worker.id if worker else ""
     worker_title = worker.title if worker else ROLE_TITLES.get(role, role.title())
@@ -566,8 +566,8 @@ def execute_chapter(
         deployment_label = "simulation"
 
     invocation = WorkerInvocation(
-        id=f"inv_{chapter.id}_{int(time.time())}",
-        chapter_id=chapter.id,
+        id=f"inv_{stage.id}_{int(time.time())}",
+        stage_id=stage.id,
         role=role,
         worker_id=worker_id,
         worker_title=worker_title,
@@ -584,23 +584,23 @@ def execute_chapter(
         system += (
             f"\n\nYou are operating as the company's '{worker.title}', a "
             f"{hint or 'reasoning'} digital worker the Org Designer created for this "
-            f"venture. Your mandate: {worker.mandate or 'deliver this chapter.'} "
+            f"venture. Your mandate: {worker.mandate or 'deliver this stage.'} "
             "Stay true to this role."
         )
     user = prompts["user"].format(
         brief=brief,
-        goal=chapter.goal,
-        metric=chapter.success_metric,
+        goal=stage.goal,
+        metric=stage.success_metric,
     )
 
-    # Append context from previous chapters if available.
+    # Append context from previous stages if available.
     if previous_artifacts:
-        context_block = "\n\nPrior chapter artifacts (for reference):\n"
+        context_block = "\n\nPrior stage artifacts (for reference):\n"
         for i, art in enumerate(previous_artifacts[-3:], 1):
-            context_block += f"  Chapter {i}: {json.dumps(art)[:500]}\n"
+            context_block += f"  Stage {i}: {json.dumps(art)[:500]}\n"
         user += context_block
 
-    retrieval_query = f"{brief} {chapter.goal} {chapter.success_metric}"
+    retrieval_query = f"{brief} {stage.goal} {stage.success_metric}"
     _t_recall = time.perf_counter()
     _recall_res = tools_call("recall", {"query": retrieval_query, "top_k": 2})
     _recall_ms = round((time.perf_counter() - _t_recall) * 1000, 1)
@@ -620,7 +620,7 @@ def execute_chapter(
     # Agent memory (NOT IQ): what the workers have learned from this CEO -
     # gate-decision patterns, founder profile, prior artifact summaries.
     # Foundry Agent Service memory store when configured, local ledger always.
-    memories = recall_memories(f"{brief} {chapter.goal}", limit=3)
+    memories = recall_memories(f"{brief} {stage.goal}", limit=3)
 
     # Proof point baseline: memory_injected must be visible on EVERY path
     # (simulation and direct included), not only when MAF carries the run.
@@ -644,7 +644,7 @@ def execute_chapter(
     if decisions:
         user_direct += "\n\nCEO decisions made at earlier gates (binding direction):\n"
         for d in decisions[-3:]:
-            user_direct += (f"- After '{d.get('chapter_title', d.get('chapter_id', ''))}': "
+            user_direct += (f"- After '{d.get('stage_title', d.get('stage_id', ''))}': "
                             f"chose \"{d.get('option', '')}\""
                             + (f" (tradeoff accepted: {d.get('tradeoff', '')})" if d.get('tradeoff') else "")
                             + (f". Consequence now in company state: {d.get('consequence_summary', '')}" if d.get("consequence_summary") else "")
@@ -672,16 +672,16 @@ def execute_chapter(
     if not client or not deployment:
         # Simulation fallback: rich, diagram-ready artifacts so the story
         # renders org charts / integration maps / financials offline.
-        artifact = _mock_artifact(role, chapter, brief)
+        artifact = _mock_artifact(role, stage, brief)
         _apply_decision_context_to_artifact(artifact, decisions)
         invocation.status = "completed"
         invocation.completed_at = time.time()
         invocation.latency_s = 0.1
         floor = _score_artifact(role, artifact)
         _trace_validators(invocation, role, artifact)
-        rubric = rubric_evaluate(chapter, brief, artifact, floor)
-        chapter.rubric = rubric
-        _remember_chapter(chapter, worker_title, rubric["final"])
+        rubric = rubric_evaluate(stage, brief, artifact, floor)
+        stage.rubric = rubric
+        _remember_stage(stage, worker_title, rubric["final"])
         return invocation, artifact, rubric["final"]
 
     t0 = time.perf_counter()
@@ -733,9 +733,9 @@ def execute_chapter(
             # post-hoc sweep - chronological: recall -> mid-run -> sweep.
             invocation.tool_trace.extend(maf_meta.get("maf_tool_trace") or [])
             _trace_validators(invocation, role, artifact)
-            rubric = rubric_evaluate(chapter, brief, artifact, floor)
-            chapter.rubric = rubric
-            _remember_chapter(chapter, worker_title, rubric["final"])
+            rubric = rubric_evaluate(stage, brief, artifact, floor)
+            stage.rubric = rubric
+            _remember_stage(stage, worker_title, rubric["final"])
             return invocation, artifact, rubric["final"]
         except Exception:
             # Framework path failed - degrade silently to the direct call.
@@ -771,11 +771,19 @@ def execute_chapter(
     invocation.status = "completed"
 
     artifact = _extract_json(content)
+    # Reliability floor: a live model can return non-JSON or truncate mid-object
+    # (token limit), leaving an empty artifact that would ship a blank stage.
+    # Degrade to the deterministic mock so every stage produces a real artifact -
+    # same "simulation fallback for everything" law as the rest of the repo.
+    if not artifact:
+        invocation.maf_fallback_reason = "empty/unparseable live artifact -> deterministic fallback"
+        artifact = _mock_artifact(role, stage, brief)
+        _apply_decision_context_to_artifact(artifact, decisions)
     floor = _score_artifact(role, artifact)
     _trace_validators(invocation, role, artifact)
-    rubric = rubric_evaluate(chapter, brief, artifact, floor)
-    chapter.rubric = rubric
-    _remember_chapter(chapter, worker_title, rubric["final"])
+    rubric = rubric_evaluate(stage, brief, artifact, floor)
+    stage.rubric = rubric
+    _remember_stage(stage, worker_title, rubric["final"])
     return invocation, artifact, rubric["final"]
 
 
@@ -810,54 +818,54 @@ def _trace_validators(invocation: WorkerInvocation, role: str, artifact: Optiona
         })
 
 
-def _remember_chapter(chapter: Chapter, worker_title: str, score: int) -> None:
-    """Write a chat-summary memory after a chapter ships (agent memory loop).
+def _remember_stage(stage: Stage, worker_title: str, score: int) -> None:
+    """Write a chat-summary memory after a stage ships (agent memory loop).
 
     Best-effort: memory must never break the game loop.
     """
     try:
         remember("chat_summary",
-                 f"Chapter '{chapter.title}' shipped by {worker_title} (score {score}/100). "
-                 f"Goal: {chapter.goal[:120]}",
-                 {"chapter_id": chapter.id, "score": score})
+                 f"Stage '{stage.title}' shipped by {worker_title} (score {score}/100). "
+                 f"Goal: {stage.goal[:120]}",
+                 {"stage_id": stage.id, "score": score})
     except Exception:
         pass
 
 
 def run_world(world: WorldGraph, brief: str, auto_approve_threshold: int = 80,
               org: Optional[OrgBlueprint] = None):
-    """Execute all chapters in sequence. Yields (chapter, invocation, artifact, score).
+    """Execute all stages in sequence. Yields (stage, invocation, artifact, score).
 
-    When `org` is provided, each chapter is executed by its designed digital
-    worker (see `execute_chapter`).
+    When `org` is provided, each stage is executed by its designed digital
+    worker (see `execute_stage`).
     """
     previous_artifacts: List[Dict] = []
-    for i, chapter in enumerate(world.chapters):
-        # Skip already-completed chapters.
-        if chapter.status == "completed":
-            if chapter.artifact:
-                previous_artifacts.append(chapter.artifact)
+    for i, stage in enumerate(world.stages):
+        # Skip already-completed stages.
+        if stage.status == "completed":
+            if stage.artifact:
+                previous_artifacts.append(stage.artifact)
             continue
 
-        chapter.status = "in-progress"
-        world.current_chapter_index = i
+        stage.status = "in-progress"
+        world.current_stage_index = i
 
-        invocation, artifact, score = execute_chapter(
-            chapter, brief, previous_artifacts, org=org, decisions=world.decisions)
+        invocation, artifact, score = execute_stage(
+            stage, brief, previous_artifacts, org=org, decisions=world.decisions)
         world.invocations.append(invocation)
 
         if artifact:
-            chapter.artifact = artifact
-            chapter.validation_score = score
+            stage.artifact = artifact
+            stage.validation_score = score
             previous_artifacts.append(artifact)
 
         if score >= auto_approve_threshold:
-            chapter.status = "completed"
+            stage.status = "completed"
         else:
-            chapter.status = "needs-review"
+            stage.status = "needs-review"
 
-        yield chapter, invocation, artifact, score
+        yield stage, invocation, artifact, score
 
-    # Mark world complete if all chapters done.
-    if all(ch.status == "completed" for ch in world.chapters):
+    # Mark world complete if all stages done.
+    if all(s.status == "completed" for s in world.stages):
         world.status = "completed"

@@ -116,7 +116,7 @@ _REGISTRY: Dict[str, Dict[str, Any]] = {
     },
 }
 
-# Which tools each worker archetype draws for its chapter. This is what makes
+# Which tools each worker archetype draws for its stage. This is what makes
 # the toolbox diegetic: the rail can show the worker reaching for exactly
 # these, by name, before the artifact appears.
 ROLE_TOOLS: Dict[str, List[str]] = {
@@ -174,5 +174,5 @@ def tools_call(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def tools_for_role(role: str) -> List[str]:
-    """Tool names a worker archetype draws from the toolbox for its chapter."""
+    """Tool names a worker archetype draws from the toolbox for its stage."""
     return ROLE_TOOLS.get(role, ["recall"])

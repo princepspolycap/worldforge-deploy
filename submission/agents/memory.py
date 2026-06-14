@@ -9,7 +9,7 @@ This mirrors the three memory kinds in Foundry Agent Service's memory preview:
   user_profile  - durable facts about the founder/company (pitch, name, stage)
   procedural    - operating patterns learned from CEO gate choices
                   ("prefers organic growth over paid", "accepts scope cuts")
-  chat_summary  - compact summaries of completed chapters/artifacts
+  chat_summary  - compact summaries of completed stages/artifacts
 
 Preferred path: the Foundry Agent Service memory store on the project
 endpoint (set FOUNDRY_PROJECT_ENDPOINT + FOUNDRY_MEMORY_STORE). Fallback: a

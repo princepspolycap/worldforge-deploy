@@ -106,7 +106,7 @@ def main() -> int:
             "A world-building management RPG where Foundry agents transform a mission into "
             "a greening campaign: diagrams, images, memory, tool calls, and CEO decisions all change state."
         ),
-        chapter_title="Repurpose the middle scene as a world canvas",
+        stage_title="Repurpose the middle scene as a world canvas",
         option="Make the agent cards own world state and flip into dossiers",
         consequence_summary=(
             "The scene becomes a game surface; worker cards carry state, tools, memory, and handoffs."

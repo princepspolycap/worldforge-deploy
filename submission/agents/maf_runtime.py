@@ -19,7 +19,7 @@ Degradation law (same as every subsystem in this repo):
 A fresh `git clone` without agent-framework installed still plays.
 
 Synchronous facade: worker_factory is sync; MAF is async. Each call runs on
-a dedicated event loop (cheap at our scale: one call per chapter, 35-60s of
+a dedicated event loop (cheap at our scale: one call per stage, 35-60s of
 model time dwarfs loop setup).
 """
 from __future__ import annotations
@@ -138,7 +138,7 @@ def run_maf_agent(
                         f"velocity {after.get('velocity', 0)}."
                     )
                 lines.append(
-                    f"CEO decision after '{d.get('chapter_title', d.get('chapter_id', ''))}': "
+                    f"CEO decision after '{d.get('stage_title', d.get('stage_id', ''))}': "
                     f"chose \"{d.get('option', '')}\""
                     + (f" (tradeoff accepted: {d.get('tradeoff', '')})" if d.get("tradeoff") else "")
                     + (f". Company consequence: {d.get('consequence_summary', '')}" if d.get("consequence_summary") else "")
@@ -284,7 +284,7 @@ def run_maf_group_chat(
     base_url: str,
     company_name: str,
     pitch: str,
-    chapter_title: str,
+    stage_title: str,
     option: str,
     consequence_summary: str,
     participants: List[Dict[str, Any]],
@@ -459,7 +459,7 @@ def run_maf_group_chat(
             )
             system_instructions = (
                 f"You are {name}, the {role} for the company '{company_name}' (pitch: '{pitch[:500]}').\n"
-                f"The CEO just made a decision at the gate of the chapter '{chapter_title}':\n"
+                f"The CEO just made a decision at the gate of the stage '{stage_title}':\n"
                 f"  Choice: \"{option}\"\n"
                 f"  Consequence: {consequence_summary}\n\n"
                 f"Round table: {participant_names}.\n"

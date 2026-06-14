@@ -5,10 +5,10 @@ on-stage flows actually work - not just that the models respond. It covers the
 three entry points a presenter can hit:
 
   1. Quest manual:  /api/init -> (execute -> approve) x3
-  2. World autoplay: /api/world/autoplay (design + run all chapters)
+  2. World autoplay: /api/world/autoplay (design + run all stages)
 
 For each path it asserts the demo-critical invariants:
-  - every step/chapter ends 'completed'
+  - every step/stage ends 'completed'
   - every artifact is non-empty
   - every validation score is a real number (never None)
   - the run reaches its terminal stage (validated / launched)
@@ -59,12 +59,12 @@ def _require(condition: bool, message: str) -> None:
 
 
 def check_campaign_step_by_step_path(base: str, pitch: str) -> None:
-    """Run the step-by-step Campaign path: analyze, design, run chapters, dilemma, decision, standup."""
+    """Run the step-by-step Campaign path: analyze, design, run stages, dilemma, decision, standup."""
     print("\n[1/2] CAMPAIGN STEP-BY-STEP PATH")
     _post(base, "/api/reset")
     
     # 1. Analyze profile / pitch
-    analyze_res = _post(base, "/api/company/analyze", {"pitch": pitch, "company_name": "SmokeCo"})
+    analyze_res = _post(base, "/api/founder/analyze", {"pitch": pitch, "company_name": "SmokeCo"})
     org = analyze_res.get("org") or {}
     _require(org.get("headcount", 0) > 0, "failed to design workforce org blueprint")
     antagonist = analyze_res.get("antagonist") or {}
@@ -75,35 +75,35 @@ def check_campaign_step_by_step_path(base: str, pitch: str) -> None:
     # 2. Design Campaign Graph
     design_res = _post(base, "/api/world/design", {"pitch": pitch, "company_name": "SmokeCo"})
     world = design_res.get("state", {}).get("world") or {}
-    chapters = world.get("chapters") or []
-    _require(len(chapters) == 5, f"expected 5 campaign chapters, got {len(chapters)}")
+    stages = world.get("stages") or []
+    _require(len(stages) == 8, f"expected 8 campaign stages, got {len(stages)}")
     carried = (design_res.get("state") or {}).get("antagonist") or {}
     _require(bool(carried.get("name")), "antagonist was lost when carrying analyze -> world/design")
-    print(f"  campaign graph constructed -> {len(chapters)} chapters")
+    print(f"  campaign graph constructed -> {len(stages)} Story Circle stages")
 
-    # 3. Step through chapters sequentially
-    for idx, ch in enumerate(chapters, start=1):
+    # 3. Step through stages sequentially
+    for idx, ch in enumerate(stages, start=1):
         ch_id = ch["id"]
         role = ch["owner_role"]
         
-        # A. Execute Chapter
-        run_res = _post(base, "/api/world/run-next")
-        run_ch = run_res.get("chapter") or {}
+        # A. Execute Stage
+        run_res = _post(base, "/api/world/run-next", timeout=900)
+        run_ch = run_res.get("stage") or {}
         artifact = run_ch.get("artifact") or {}
         score = run_ch.get("validation_score")
-        _require(bool(artifact), f"chapter {idx} ({ch_id}) produced an empty artifact")
-        _require(isinstance(score, (int, float)), f"chapter {idx} ({ch_id}) score is {score!r}, not a number")
-        print(f"  chapter {idx}/5 {role:<11} score={score} keys={list(artifact)[:2]}")
+        _require(bool(artifact), f"stage {idx} ({ch_id}) produced an empty artifact")
+        _require(isinstance(score, (int, float)), f"stage {idx} ({ch_id}) score is {score!r}, not a number")
+        print(f"  stage {idx}/8 {role:<11} score={score} keys={list(artifact)[:2]}")
 
         # B. Get dilemma
-        dil_res = _post(base, "/api/dilemma", {"chapter_id": ch_id})
+        dil_res = _post(base, "/api/dilemma", {"stage_id": ch_id})
         options = dil_res.get("options") or []
         _require(len(options) == 2, f"expected 2 options for dilemma, got {len(options)}")
 
         # C. Commit decision (auto-select option 1)
         selected_opt = options[0]
         dec_res = _post(base, "/api/decision", {
-            "chapter_id": ch_id,
+            "stage_id": ch_id,
             "option": selected_opt["option"],
             "tradeoff": selected_opt.get("tradeoff", ""),
             "prompt": dil_res.get("prompt", ""),
@@ -113,12 +113,12 @@ def check_campaign_step_by_step_path(base: str, pitch: str) -> None:
             "scene_id": dil_res.get("scene_id", "")
         })
         conseq = dec_res.get("consequence") or {}
-        _require(bool(conseq.get("summary")), f"chapter {idx} ({ch_id}) choice consequence summary is empty")
+        _require(bool(conseq.get("summary")), f"stage {idx} ({ch_id}) choice consequence summary is empty")
 
         # D. Get standup reaction
-        standup_res = _post(base, "/api/world/standup", {"chapter_id": ch_id})
+        standup_res = _post(base, "/api/world/standup", {"stage_id": ch_id}, timeout=600)
         turns = standup_res.get("turns") or []
-        _require(len(turns) > 0, f"expected active standup turns for chapter {idx}")
+        _require(len(turns) > 0, f"expected active standup turns for stage {idx}")
 
     # 4. Verify terminal state
     state = _get(base, "/api/state")["state"]
@@ -128,11 +128,11 @@ def check_campaign_step_by_step_path(base: str, pitch: str) -> None:
 
 
 def check_world_path(base: str, pitch: str) -> None:
-    """Run the full World autoplay (design + execute all chapters)."""
+    """Run the full World autoplay (design + execute all stages)."""
     print("\n[2/2] WORLD AUTOPLAY PATH")
     _post(base, "/api/reset")
     t = time.time()
-    # Live autoplay runs every chapter in one request (5 x 35-120s of model
+    # Live autoplay runs every stage in one request (5 x 35-120s of model
     # time). If the HTTP client gives up first, the server keeps executing -
     # fall back to polling /api/state until the world lands (or 25 min).
     try:
@@ -146,27 +146,27 @@ def check_world_path(base: str, pitch: str) -> None:
             time.sleep(15)
             state = _get(base, "/api/state")["state"]
             world = state.get("world") or {}
-            chapters = world.get("chapters", [])
-            done = sum(1 for c in chapters if c.get("status") == "completed")
-            print(f"  ... {done}/{len(chapters) or '?'} chapters completed")
-            if chapters and world.get("status") == "completed":
+            stages = world.get("stages", [])
+            done = sum(1 for c in stages if c.get("status") == "completed")
+            print(f"  ... {done}/{len(stages) or '?'} stages completed")
+            if stages and world.get("status") == "completed":
                 break
         _require((state.get("world") or {}).get("status") == "completed",
                  "world did not complete before the polling deadline")
     dt = time.time() - t
     world = state.get("world") or {}
-    chapters = world.get("chapters", [])
-    _require(len(chapters) >= 3, f"expected >=3 chapters, got {len(chapters)}")
+    stages = world.get("stages", [])
+    _require(len(stages) >= 3, f"expected >=3 stages, got {len(stages)}")
     _require(bool((state.get("antagonist") or {}).get("name")), "autoplay did not forge an antagonist (villain)")
 
-    for ch in chapters:
+    for ch in stages:
         artifact = ch.get("artifact") or {}
         score = ch.get("validation_score")
         worker = ch.get("assigned_worker_title")
-        _require(ch["status"] == "completed", f"chapter {ch['id']} status={ch['status']} (not completed)")
-        _require(bool(artifact), f"chapter {ch['id']} produced an empty artifact")
-        _require(isinstance(score, (int, float)), f"chapter {ch['id']} score is {score!r}, not a number")
-        _require(bool(worker), f"chapter {ch['id']} has no assigned digital worker (org binding missing)")
+        _require(ch["status"] == "completed", f"stage {ch['id']} status={ch['status']} (not completed)")
+        _require(bool(artifact), f"stage {ch['id']} produced an empty artifact")
+        _require(isinstance(score, (int, float)), f"stage {ch['id']} score is {score!r}, not a number")
+        _require(bool(worker), f"stage {ch['id']} has no assigned digital worker (org binding missing)")
         print(f"  {ch['id']:<18} {ch['owner_role']:<11} -> {worker:<22} score={score} keys={list(artifact)[:2]}")
 
     _require(world.get("status") == "completed", f"world status={world.get('status')} (not completed)")
@@ -177,18 +177,18 @@ def check_world_path(base: str, pitch: str) -> None:
 def check_evidence_path(base: str) -> None:
     """Assert the four proof points + the agent-memory learning loop.
 
-    Runs after the world path so the replay log holds CHAPTER_EXECUTED events.
+    Runs after the world path so the replay log holds STAGE_EXECUTED events.
     Every invocation must show iq_hits, memory_injected, tools evidence and
     inference_usage - the rubric's 'agents actually working' story - and the
     memory layer must have learned from the session (/api/memory).
     """
     print("\n[3/3] EVIDENCE PATH (proof points + agent memory)")
     state = _get(base, "/api/state")["state"]
-    executed = [e for e in state.get("replay_log", []) if e.get("event_type") == "CHAPTER_EXECUTED"]
-    _require(len(executed) >= 3, f"expected >=3 CHAPTER_EXECUTED events, got {len(executed)}")
+    executed = [e for e in state.get("replay_log", []) if e.get("event_type") == "STAGE_EXECUTED"]
+    _require(len(executed) >= 3, f"expected >=3 STAGE_EXECUTED events, got {len(executed)}")
     for e in executed:
         p = e.get("payload") or {}
-        cid = p.get("chapter_id", "?")
+        cid = p.get("stage_id", "?")
         _require(bool(p.get("iq_hits")), f"{cid}: iq_hits empty - IQ recall not evidenced")
         _require(bool(p.get("memory_injected")), f"{cid}: memory_injected empty")
         _require("tools_called" in p, f"{cid}: tools_called missing")
@@ -198,7 +198,7 @@ def check_evidence_path(base: str) -> None:
         print(f"  {cid:<18} iq={len(p['iq_hits'])} mem_kinds={kinds} client={usage.get('client')}")
     mem = _get(base, "/api/memory")
     counts = mem.get("counts") or {}
-    _require(counts.get("chat_summary", 0) >= 1, "no chat_summary memories written after chapters shipped")
+    _require(counts.get("chat_summary", 0) >= 1, "no chat_summary memories written after stages shipped")
     _require(counts.get("user_profile", 0) >= 1, "no user_profile memory written at venture start")
     written = [e for e in state.get("replay_log", []) if e.get("event_type") == "MEMORY_WRITTEN"]
     print(f"  OK -> memory store={mem.get('store')} counts={counts} MEMORY_WRITTEN events={len(written)}")
@@ -207,9 +207,9 @@ def check_evidence_path(base: str) -> None:
 def check_live_evidence(base: str) -> None:
     """Certify the live server: real inference receipts, not simulation.
 
-    Reads CHAPTER_EXECUTED payloads from the replay log (the receipts survive
+    Reads STAGE_EXECUTED payloads from the replay log (the receipts survive
     there even if a later session replaces the world). Asserts the live-only
-    fields on every executed chapter: a non-simulation deployment, a named
+    fields on every executed stage: a non-simulation deployment, a named
     inference client (FoundryChatClient / OpenAIChatClient via MAF, or
     openai-direct), real token counts, and a tool_trace whose receipts all
     carry latency. Failed invocations must still carry their error + partial
@@ -220,12 +220,12 @@ def check_live_evidence(base: str) -> None:
     mode = _get(base, "/api/mode")
     _require(bool(mode.get("live")), f"server reports mode={mode.get('mode')!r} - start it with DEMO_MODE=live")
     state = _get(base, "/api/state")["state"]
-    executed = [e for e in state.get("replay_log", []) if e.get("event_type") == "CHAPTER_EXECUTED"]
-    _require(len(executed) >= 3, f"expected >=3 CHAPTER_EXECUTED events, got {len(executed)}")
+    executed = [e for e in state.get("replay_log", []) if e.get("event_type") == "STAGE_EXECUTED"]
+    _require(len(executed) >= 3, f"expected >=3 STAGE_EXECUTED events, got {len(executed)}")
 
     for e in executed:
         p = e.get("payload") or {}
-        cid = p.get("chapter_id", "?")
+        cid = p.get("stage_id", "?")
         trace = p.get("tool_trace") or []
         usage = p.get("inference_usage") or {}
         _require(any(t.get("tool") == "recall" for t in trace), f"{cid}: no recall receipt in tool_trace")

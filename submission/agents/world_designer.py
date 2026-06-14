@@ -12,18 +12,25 @@ from agents.model_config import get_foundry_client, model_for, create_chat_compl
 
 
 SYSTEM = (
-    "You are the World Designer for a cosmic start-up sandbox that blends Joseph Campbell's "
-    "and Dan Harmon's Story Circle with sci-fi themes (Rick and Morty multiversal portal travel, "
-    "Pantheon carbon-mind uploads, Westworld AI host awakenings, and Black Panther Vibranium-grade technology). "
-    "Given a company brief, produce a structured JSON quest graph with exactly 5 chapters, each representing "
-    "a phase of Dan Harmon's Story Circle:\n"
-    "1. YOU / NEED (ch_1_discovery): Ordinary zone of comfort & a burning want.\n"
-    "2. GO (ch_2_positioning): Crossing the threshold into unfamiliarity.\n"
-    "3. SEARCH (ch_3_mvp): Road of trials, adapting to the unfamiliar world.\n"
-    "4. FIND / TAKE (ch_4_gtm): Obtaining the goal but paying a heavy price.\n"
-    "5. RETURN / CHANGE (ch_5_retention): Returning changed, realizing the loop.\n\n"
-    "Each chapter must have a title, goal, and success metric using this cosmic sci-fi theme, "
-    "while keeping standard chapter IDs (ch_1_discovery, ch_2_positioning, ch_3_mvp, ch_4_gtm, ch_5_retention) "
+    "You are the World Designer for an interactive startup-RPG built on Dan Harmon's "
+    "Story Circle (the Hero's Journey). The game's theme is a post-capitalist grassroots "
+    "movement: automating a one-person business, distributing dividends, building worker "
+    "cooperatives, creating dual power with unions/mutual aid, and weathering the collapse "
+    "of infinite growth against systemic villains (The Automation Cartel, The Shareholder "
+    "Syndicate, The Dopamine Cartel, and The Process Oligarchy). "
+    "Given a company brief, produce a structured JSON quest graph with exactly 8 stages, "
+    "one for each beat of Dan Harmon's Story Circle:\n"
+    "1. YOU (stage_1_you): Ordinary zone of comfort; the founder's current skill loop.\n"
+    "2. NEED (stage_2_need): Something is wrong; the founder needs independence and leverage.\n"
+    "3. GO (stage_3_go): Crossing the threshold into the market with a clear promise.\n"
+    "4. SEARCH (stage_4_search): Road of trials; building the AI workforce and MVP loop.\n"
+    "5. FIND (stage_5_find): Traction appears; the founder discovers the thing that works.\n"
+    "6. TAKE (stage_6_take): The win has a cost; overhead, rivalry, and moral pressure arrive.\n"
+    "7. RETURN (stage_7_return): Bring the hard-won system back to the community and operating model.\n"
+    "8. CHANGE (stage_8_change): The founder chooses cooperative equilibrium over infinite-growth capture.\n\n"
+    "Each stage must have a title, goal, and success metric using this grassroots cooperative automation theme, "
+    "while keeping the standard stage IDs in order "
+    "(stage_1_you, stage_2_need, stage_3_go, stage_4_search, stage_5_find, stage_6_take, stage_7_return, stage_8_change) "
     "and owner roles. Return ONLY a valid JSON object."
 )
 
@@ -32,102 +39,156 @@ Brief: {brief}
 
 Return JSON:
 {{
-  "chapters": [
+  "stages": [
     {{
-      "id": "ch_1_discovery",
-      "title": "YOU & NEED: [Title matching Step 1 & 2 of Story Circle, e.g., Escape the Comfort Mainframe]",
-      "goal": "[Goal styled in sci-fi portal/upload language, e.g., Scan carbon-mind ICP vectors]",
+      "id": "stage_1_you",
+      "title": "YOU: [Title matching beat 1, e.g., The Skill Loop You Already Live In]",
+      "goal": "[Goal, e.g., Surface the founder's lived skill, constraints, and current comfort zone]",
       "owner_role": "strategist",
-      "success_metric": "[Metric styled in sci-fi, e.g., Verify 25 mind transcripts]",
+      "success_metric": "[Metric, e.g., Document 3 founder assets and 3 constraints with evidence]",
       "depends_on": [],
       "suggested_tools": ["foundry_iq", "web_search"]
     }},
     {{
-      "id": "ch_2_positioning",
-      "title": "GO: [Title matching Step 3, e.g., Crossing the Portal Threshold]",
-      "goal": "[Goal styled in sci-fi, e.g., Synthesize value proposition for Teenyverse hosts]",
+      "id": "stage_2_need",
+      "title": "NEED: [Title matching beat 2, e.g., The Need the Machine Cannot Meet]",
+      "goal": "[Goal, e.g., Identify the unmet need and the villain pressure that forces action]",
       "owner_role": "strategist",
-      "success_metric": "[Metric styled in sci-fi, e.g., Awaken 10 hosts with 40%+ loop intent]",
-      "depends_on": ["ch_1_discovery"],
+      "success_metric": "[Metric, e.g., Validate 10 urgent needs and name the core tradeoff]",
+      "depends_on": ["stage_1_you"],
+      "suggested_tools": ["foundry_iq", "code_interpreter"]
+    }},
+    {{
+      "id": "stage_3_go",
+      "title": "GO: [Title matching beat 3, e.g., Crossing into the Service Commons]",
+      "goal": "[Goal, e.g., Position the venture promise against the villain's default market logic]",
+      "owner_role": "strategist",
+      "success_metric": "[Metric, e.g., Produce one sharp positioning artifact and ICP wedge]",
+      "depends_on": ["stage_2_need"],
       "suggested_tools": ["code_interpreter"]
     }},
     {{
-      "id": "ch_3_mvp",
-      "title": "SEARCH: [Title matching Step 4, e.g., Adapt or Dissolve]",
-      "goal": "[Goal styled in sci-fi, e.g., Build MVP dashboard with Vibranium containment fields]",
+      "id": "stage_4_search",
+      "title": "SEARCH: [Title matching beat 4, e.g., Forging the Automata Workforce]",
+      "goal": "[Goal, e.g., Design a low-overhead MVP dashboard and digital worker templates]",
       "owner_role": "designer",
-      "success_metric": "[Metric styled in sci-fi, e.g., Keep 3 portal channels stable without timeline decay]",
-      "depends_on": ["ch_2_positioning"],
+      "success_metric": "[Metric, e.g., Ship a prototype loop with first passive income signals]",
+      "depends_on": ["stage_3_go"],
       "suggested_tools": ["code_interpreter", "deploy_page"]
     }},
     {{
-      "id": "ch_4_gtm",
-      "title": "FIND & TAKE: [Title matching Step 5 & 6, e.g., Claim the Moat, Pay the Price]",
-      "goal": "[Goal styled in sci-fi, e.g., Bootstrap acquisition before mainframe consolidation, calculating high burn price]",
+      "id": "stage_5_find",
+      "title": "FIND: [Title matching beat 5, e.g., The Traction Signal]",
+      "goal": "[Goal, e.g., Find the adoption channel and customer proof the villain cannot fake]",
       "owner_role": "marketer",
-      "success_metric": "[Metric styled in sci-fi, e.g., Upload 100 minds, securing $5k MRR before sweep]",
-      "depends_on": ["ch_3_mvp"],
+      "success_metric": "[Metric, e.g., Identify 3 reachable channels and one proof-backed launch motion]",
+      "depends_on": ["stage_4_search"],
       "suggested_tools": ["email_sender", "web_search"]
     }},
     {{
-      "id": "ch_5_retention",
-      "title": "RETURN & CHANGE: [Title matching Step 7 & 8, e.g., Transcend the Loop]",
-      "goal": "[Goal styled in sci-fi, e.g., Establish retention loops to prevent carbon-mind decay and loop resets]",
+      "id": "stage_6_take",
+      "title": "TAKE: [Title matching beat 6, e.g., The Operational Toll]",
+      "goal": "[Goal, e.g., Account for burn, support, rivalry, and the cost of sustaining traction]",
       "owner_role": "ops",
-      "success_metric": "[Metric styled in sci-fi, e.g., Stabilize churn under 5%, allowing mainframe autoplay]",
-      "depends_on": ["ch_4_gtm"],
+      "success_metric": "[Metric, e.g., Produce a runway and support plan that keeps trust above 80%]",
+      "depends_on": ["stage_5_find"],
+      "suggested_tools": ["code_interpreter", "foundry_iq"]
+    }},
+    {{
+      "id": "stage_7_return",
+      "title": "RETURN: [Title matching beat 7, e.g., Bring the Loop Home]",
+      "goal": "[Goal, e.g., Return the working system to the community, workforce, and governance model]",
+      "owner_role": "ops",
+      "success_metric": "[Metric, e.g., Define a worker-owned operating cadence and stakeholder ledger]",
+      "depends_on": ["stage_6_take"],
+      "suggested_tools": ["code_interpreter", "foundry_iq"]
+    }},
+    {{
+      "id": "stage_8_change",
+      "title": "CHANGE: [Title matching beat 8, e.g., Cooperative Equilibrium]",
+      "goal": "[Goal, e.g., Lock the final choice between shareholder growth and cooperative equilibrium]",
+      "owner_role": "ops",
+      "success_metric": "[Metric, e.g., Transition governance to democratic consensus, maintaining 90%+ community trust]",
+      "depends_on": ["stage_7_return"],
       "suggested_tools": ["code_interpreter", "foundry_iq"]
     }}
   ]
 }}
 
-Exactly 5 chapters with these exact IDs and owner_roles.
+Exactly 8 stages with these exact IDs and owner_roles.
 """
 
-FALLBACK_CHAPTERS = [
+FALLBACK_STAGES = [
     {
-        "id": "ch_1_discovery",
-        "title": "YOU & NEED: Escape the Comfort Mainframe",
-        "goal": "Scan carbon-mind ICP vectors and verify portal fluid WTP thresholds",
+        "id": "stage_1_you",
+        "title": "YOU: The Skill Loop You Already Live In",
+        "goal": "Surface the founder's lived skill, constraints, and current comfort zone before the system notices",
         "owner_role": "strategist",
-        "success_metric": "Verify 25 mind transcripts, confirming 10+ stable escape vectors",
+        "success_metric": "Document 3 founder assets and 3 constraints with evidence",
         "depends_on": [],
         "suggested_tools": ["foundry_iq", "web_search"],
     },
     {
-        "id": "ch_2_positioning",
-        "title": "GO: Crossing the Portal Threshold",
-        "goal": "Synthesize a trans-dimensional value proposition and ICP for the Teenyverse market",
+        "id": "stage_2_need",
+        "title": "NEED: The Need the Machine Cannot Meet",
+        "goal": "Identify the unmet need and the villain pressure that forces the founder out of comfort",
         "owner_role": "strategist",
-        "success_metric": "Awaken 10 simulation hosts; secure 40%+ loop realization intent",
-        "depends_on": ["ch_1_discovery"],
+        "success_metric": "Validate 10 urgent needs and name the core tradeoff",
+        "depends_on": ["stage_1_you"],
+        "suggested_tools": ["foundry_iq", "code_interpreter"],
+    },
+    {
+        "id": "stage_3_go",
+        "title": "GO: Crossing into the Service Commons",
+        "goal": "Position the venture promise against the villain's default market logic",
+        "owner_role": "strategist",
+        "success_metric": "Produce one sharp positioning artifact and ICP wedge",
+        "depends_on": ["stage_2_need"],
         "suggested_tools": ["code_interpreter"],
     },
     {
-        "id": "ch_3_mvp",
-        "title": "SEARCH: Adapt or Dissolve",
-        "goal": "Ship a functional sandbox prototype with Vibranium-grade containment fields",
+        "id": "stage_4_search",
+        "title": "SEARCH: Forging the Automata Workforce",
+        "goal": "Design a low-overhead MVP service landing spec and digital worker templates",
         "owner_role": "designer",
-        "success_metric": "Establish 3 trans-dimensional portals, serving 5 pilot users without timeline collapse",
-        "depends_on": ["ch_2_positioning"],
+        "success_metric": "Ship a prototype loop with first passive income signals to fund basic needs",
+        "depends_on": ["stage_3_go"],
         "suggested_tools": ["code_interpreter", "deploy_page"],
     },
     {
-        "id": "ch_4_gtm",
-        "title": "FIND & TAKE: Claim the Moat, Pay the Price",
-        "goal": "Scale mind-upload acquisitions fast, paying the price of increased portal fluid burn",
+        "id": "stage_5_find",
+        "title": "FIND: The Traction Signal",
+        "goal": "Find the adoption channel and customer proof the villain cannot fake",
         "owner_role": "marketer",
-        "success_metric": "Stabilize 100 uploaded minds; secure $5k MRR before mainframe cleanup sweeps",
-        "depends_on": ["ch_3_mvp"],
+        "success_metric": "Identify 3 reachable channels and one proof-backed launch motion",
+        "depends_on": ["stage_4_search"],
         "suggested_tools": ["email_sender", "web_search"],
     },
     {
-        "id": "ch_5_retention",
-        "title": "RETURN & CHANGE: Transcend the Loop",
-        "goal": "Secure host retention loops to prevent memory degradation and loop resets",
+        "id": "stage_6_take",
+        "title": "TAKE: The Operational Toll",
+        "goal": "Account for burn, support, rivalry, and the cost of sustaining traction",
         "owner_role": "ops",
-        "success_metric": "Stabilize churn under 5% and NPS above 40; prepare mainframe for autoplay",
-        "depends_on": ["ch_4_gtm"],
+        "success_metric": "Produce a runway and support plan that keeps trust above 80%",
+        "depends_on": ["stage_5_find"],
+        "suggested_tools": ["code_interpreter", "foundry_iq"],
+    },
+    {
+        "id": "stage_7_return",
+        "title": "RETURN: Bring the Loop Home",
+        "goal": "Return the working system to the community, workforce, and governance model",
+        "owner_role": "ops",
+        "success_metric": "Define a worker-owned operating cadence and stakeholder ledger",
+        "depends_on": ["stage_6_take"],
+        "suggested_tools": ["code_interpreter", "foundry_iq"],
+    },
+    {
+        "id": "stage_8_change",
+        "title": "CHANGE: Cooperative Equilibrium",
+        "goal": "Lock the final choice between shareholder growth and cooperative equilibrium",
+        "owner_role": "ops",
+        "success_metric": "Transition governance to democratic consensus, maintaining 90%+ community trust",
+        "depends_on": ["stage_7_return"],
         "suggested_tools": ["code_interpreter", "foundry_iq"],
     },
 ]
@@ -168,23 +229,25 @@ def _extract_json(content: str) -> Optional[Dict]:
 
 def _slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
-    return slug or "chapter"
+    return slug or "stage"
 
 
-def _normalize_chapters(chapters: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Make model-produced chapters safe for Pydantic + scheduling."""
+def _normalize_stages(stages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Make model-produced stages safe for Pydantic + scheduling."""
     allowed_roles = {"strategist", "designer", "marketer", "ops"}
     normalized: List[Dict[str, Any]] = []
     seen_ids = set()
 
-    for idx, raw in enumerate(chapters[:5], 1):
+    source_stages = stages if isinstance(stages, list) and len(stages) >= 8 else FALLBACK_STAGES
+
+    for idx, raw in enumerate(source_stages[:8], 1):
         if not isinstance(raw, dict):
             continue
-        title = str(raw.get("title") or f"Chapter {idx}")
-        chapter_id = str(raw.get("id") or f"ch_{idx}_{_slugify(title)[:32]}")
-        if chapter_id in seen_ids:
-            chapter_id = f"{chapter_id}_{idx}"
-        seen_ids.add(chapter_id)
+        title = str(raw.get("title") or f"Stage {idx}")
+        stage_id = str(raw.get("id") or f"stage_{idx}_{_slugify(title)[:32]}")
+        if stage_id in seen_ids:
+            stage_id = f"{stage_id}_{idx}"
+        seen_ids.add(stage_id)
 
         owner_role = str(raw.get("owner_role") or "strategist").lower()
         if owner_role not in allowed_roles:
@@ -199,7 +262,7 @@ def _normalize_chapters(chapters: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             suggested_tools = [str(suggested_tools)]
 
         normalized.append({
-            "id": chapter_id,
+            "id": stage_id,
             "title": title,
             "goal": str(raw.get("goal") or "Produce a useful startup artifact."),
             "owner_role": owner_role,
@@ -208,15 +271,15 @@ def _normalize_chapters(chapters: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "suggested_tools": [str(item) for item in suggested_tools],
         })
 
-    return normalized or FALLBACK_CHAPTERS
+    return normalized if len(normalized) == 8 else FALLBACK_STAGES
 
 
 def design_world(brief: str) -> List[Dict[str, Any]]:
-    """Call the configured narrator deployment. Falls back to mock chapters."""
+    """Call the configured narrator deployment. Falls back to fallback stages."""
     client = get_foundry_client()
     deployment = model_for("narrator")
     if not client or not deployment:
-        return FALLBACK_CHAPTERS
+        return FALLBACK_STAGES
 
     user = USER_TEMPLATE.format(brief=brief)
 
@@ -231,8 +294,8 @@ def design_world(brief: str) -> List[Dict[str, Any]]:
         )
         content = resp.choices[0].message.content or ""
         parsed = _extract_json(content)
-        if parsed and isinstance(parsed.get("chapters"), list) and len(parsed["chapters"]) >= 3:
-            return _normalize_chapters(parsed["chapters"])
+        if parsed and isinstance(parsed.get("stages"), list) and len(parsed["stages"]) >= 8:
+            return _normalize_stages(parsed["stages"])
     except Exception:
         pass
-    return _normalize_chapters(FALLBACK_CHAPTERS)
+    return _normalize_stages(FALLBACK_STAGES)

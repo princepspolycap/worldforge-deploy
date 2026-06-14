@@ -82,6 +82,9 @@ submission/state/*.json
 submission/replay/*.json
 submission/replay/*.jsonl
 submission/replay/*.log
+# Foundry IQ sync artifact: regenerable from submission/knowledge/ via
+# tools/iq_sync.py, so it is a build output, not source.
+submission/knowledge/_index/
 submission/ui/assets/local/
 submission/ui/assets/generated/lore/video/
 # Cast idle clips (Veo image-to-video) are heavy + local-only, like the lore

@@ -10,7 +10,7 @@ import re
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
-from state.schema import Chapter, CompanyEconomics, CompanyState, OrgBlueprint, OrgRole
+from state.schema import Stage, CompanyEconomics, CompanyState, OrgBlueprint, OrgRole
 
 
 ECON_KEYS = ("proof", "trust", "velocity", "burn_pressure", "autonomy", "runway_months")
@@ -206,7 +206,7 @@ def initialize_economics_from_org(org: Optional[OrgBlueprint]) -> CompanyEconomi
 
 def apply_decision_consequence(
     state: CompanyState,
-    chapter: Chapter,
+    stage: Stage,
     choice: Dict[str, Any],
     old_entry: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
@@ -219,11 +219,11 @@ def apply_decision_consequence(
     before = _snapshot(state)
     _remove_old_consequence(state, old_entry)
 
-    rule_id = select_rule_id(chapter.owner_role, choice, bool(choice.get("custom")))
+    rule_id = select_rule_id(stage.owner_role, choice, bool(choice.get("custom")))
     rule = RULES[rule_id]
     role_id = ""
     if state.org:
-        role_id = _upsert_consequence_role(state.org, chapter, rule_id, rule)
+        role_id = _upsert_consequence_role(state.org, stage, rule_id, rule)
         _recompute_org_stats(state.org)
 
     _apply_economics_delta(state, rule.get("economics_delta") or {})
@@ -258,7 +258,7 @@ def apply_decision_consequence(
         state.economics.monthly_burn_usd = state.org.monthly_burn_usd
         state.economics.digital_worker_count = state.org.digital_worker_count
         state.economics.leverage_ratio = state.org.leverage_ratio
-        _append_org_note(state.org, f"{chapter.title}: {rule['summary']}")
+        _append_org_note(state.org, f"{stage.title}: {rule['summary']}")
 
     after = _snapshot(state)
     return {
@@ -302,27 +302,27 @@ def select_rule_id(owner_role: str, choice: Dict[str, Any], custom: bool = False
 
 def preview_decision_consequence(
     state: CompanyState,
-    chapter: Chapter,
+    stage: Stage,
     rule_id: str,
 ) -> Dict[str, Any]:
     """Return the consequence receipt for a rule without mutating live state."""
     shadow = deepcopy(state)
-    preview_chapter = next(
-        (ch for ch in (shadow.world.chapters if shadow.world else []) if ch.id == chapter.id),
-        chapter,
+    preview_stage = next(
+        (s for s in (shadow.world.stages if shadow.world else []) if s.id == stage.id),
+        stage,
     )
     return apply_decision_consequence(
         shadow,
-        preview_chapter,
+        preview_stage,
         {"rule_id": rule_id, "option": "", "tradeoff": ""},
     )
 
 
-def _upsert_consequence_role(org: OrgBlueprint, chapter: Chapter, rule_id: str, rule: Dict[str, Any]) -> str:
-    role_id = _role_id(chapter.id, rule_id)
+def _upsert_consequence_role(org: OrgBlueprint, stage: Stage, rule_id: str, rule: Dict[str, Any]) -> str:
+    role_id = _role_id(stage.id, rule_id)
     org.roles = [r for r in org.roles if r.id != role_id]
     spec = rule["role"]
-    parent_id = chapter.assigned_worker_id or _parent_role_id(org, chapter.owner_role)
+    parent_id = stage.assigned_worker_id or _parent_role_id(org, stage.owner_role)
     org.roles.append(OrgRole(
         id=role_id,
         title=spec["title"],
@@ -331,8 +331,8 @@ def _upsert_consequence_role(org: OrgBlueprint, chapter: Chapter, rule_id: str, 
         reports_to=parent_id,
         kpis=list(spec.get("kpis") or []),
         tools=list(spec.get("tools") or []),
-        deployment_hint=spec.get("deployment_hint", chapter.owner_role),
-        lifecycle_stage=spec.get("lifecycle_stage", chapter.owner_role),
+        deployment_hint=spec.get("deployment_hint", stage.owner_role),
+        lifecycle_stage=spec.get("lifecycle_stage", stage.owner_role),
         seniority="ic",
         monthly_cost_usd=int(spec.get("monthly_cost_usd") or 0),
         why=spec["why"],
@@ -410,8 +410,8 @@ def _parent_role_id(org: OrgBlueprint, owner_role: str) -> Optional[str]:
     return org.roles[0].id if org.roles else None
 
 
-def _role_id(chapter_id: str, rule_id: str) -> str:
-    raw = f"{DECISION_ROLE_PREFIX}_{chapter_id}_{rule_id}"
+def _role_id(stage_id: str, rule_id: str) -> str:
+    raw = f"{DECISION_ROLE_PREFIX}_{stage_id}_{rule_id}"
     return re.sub(r"[^a-zA-Z0-9_]+", "_", raw).strip("_")[:96]
 
 

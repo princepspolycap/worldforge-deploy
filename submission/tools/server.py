@@ -23,11 +23,12 @@ from state.schema import (
     QuestStep,
     CompanyState,
     WorldGraph,
-    Chapter,
+    Stage,
     OrgBlueprint,
     FounderState,
     AntagonistState,
     CharacterRuntimeState,
+    ChoiceRecord,
 )
 from state.consequences import (
     apply_decision_consequence,
@@ -36,20 +37,31 @@ from state.consequences import (
     rule_ids_for_role,
     select_rule_id,
 )
-from state.api_contract import state_response, step_response, chapter_response, reset_response
+from state.api_contract import state_response, step_response, stage_response, reset_response
+from state.game_state import (
+    choose_next_room,
+    claim_reward_card,
+    end_player_turn,
+    initialize_game_run,
+    play_card,
+    record_choice_game_state,
+    record_stage_encounter,
+    start_player_turn,
+)
+from state.knowledge_records import profile_from_payload, record_world_day, refresh_session_knowledge
 from agents.foundry_agents import MasterNarrator, StrategistAgent, DesignerAgent, MarketerAgent, generate_lore
 from agents.model_config import model_for, is_live, runtime_mode, get_foundry_client, create_chat_completion
 from agents.world_designer import design_world
-from agents.worker_factory import run_world, execute_chapter, bind_world_to_org
+from agents.worker_factory import run_world, execute_stage, bind_world_to_org
 from agents.org_designer import design_org
 from agents.retrieval import retrieve, brief_from_url
 from agents.memory import remember, recall_memories, memory_snapshot
-from agents.company_analyst import analyze_company as analyze_company_url
+from agents.founder_analyst import analyze_founder_profile
 from agents.antagonist_generator import generate_antagonist, analyze_archetype_gap
 from tools.code_interpreter_wrappers import validate_positioning, validate_landing_page, validate_marketing_email
 from tools.toolbox import tools_list, tools_call, tools_for_role
 from tools.export_org_blueprint import org_to_workforce_bundle
-from tools.dilemma_generator import generate_dilemma as generate_story_dilemma, suggest_dilemma_for_chapter
+from tools.dilemma_generator import generate_dilemma as generate_story_dilemma, suggest_dilemma_for_stage
 
 app = FastAPI(
     title="World Improvement Agent Game - Server",
@@ -101,7 +113,7 @@ def parse_founder(payload: Any) -> Optional[FounderState]:
 def forge_antagonist(state: CompanyState, *, mission_brief: str = "", target_customer: str = "") -> None:
     """Forge the competitive foil (villain) from the founder's archetype.
 
-    Single source of truth used by every path that runs chapter dilemmas
+    Single source of truth used by every path that runs stage dilemmas
     (analyze, world/design, autoplay) so the story always has a worthy
     opponent with concrete market tension. Logged for replay visibility.
     """
@@ -140,7 +152,7 @@ def get_toolbox(role: Optional[str] = None):
     Passes through to a real Foundry Toolbox when TOOLBOX_URL is configured;
     otherwise lists the local registry. The story UI renders this as the
     workers' shared toolbox. Pass ?role= to also get the tools that archetype
-    draws for a chapter (powers the reasoning theater).
+    draws for a stage (powers the reasoning theater).
     """
     catalog = tools_list()
     if role:
@@ -159,13 +171,130 @@ def post_toolbox_call(payload: ToolCallRequest):
     return tools_call(payload.name, payload.arguments)
 
 
+@app.get("/api/game")
+def get_game_state():
+    """Return the authoritative card-building roguelike state."""
+    state = store.load()
+    if not state:
+        raise HTTPException(status_code=404, detail="No active game session.")
+    return {
+        "game": state.game.model_dump(),
+        "economics": state.economics.model_dump(),
+        "org": state.org.model_dump() if state.org else None,
+        "antagonist": state.antagonist.model_dump() if state.antagonist else None,
+    }
+
+
+class StartTurnRequest(BaseModel):
+    stage_id: Optional[str] = ""
+
+
+@app.post("/api/game/turn/start")
+def start_game_turn(payload: StartTurnRequest):
+    """Start a card turn: refill energy and draw from deck/discard."""
+    state = store.load()
+    if not state:
+        raise HTTPException(status_code=400, detail="No active game session.")
+    try:
+        move = start_player_turn(state, stage_id=payload.stage_id or "")
+        refresh_session_knowledge(state)
+        store.log_event("PLAYER_MOVE", "founder", move.summary, move.model_dump())
+        store.save()
+        return {"move": move.model_dump(), "state": state.model_dump()}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+class PlayCardRequest(BaseModel):
+    card_id: str
+    target_id: Optional[str] = ""
+    stage_id: Optional[str] = ""
+
+
+@app.post("/api/game/card/play")
+def play_game_card(payload: PlayCardRequest):
+    """Play one card from hand and apply its deterministic game effects."""
+    state = store.load()
+    if not state:
+        raise HTTPException(status_code=400, detail="No active game session.")
+    try:
+        move = play_card(
+            state,
+            payload.card_id,
+            target_id=payload.target_id or "",
+            stage_id=payload.stage_id or "",
+        )
+        refresh_session_knowledge(state)
+        store.log_event("PLAYER_MOVE", "founder", move.summary, move.model_dump())
+        store.save()
+        return {"move": move.model_dump(), "state": state.model_dump()}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+class ClaimRewardRequest(BaseModel):
+    card_id: str
+
+
+@app.post("/api/game/reward/claim")
+def claim_game_reward(payload: ClaimRewardRequest):
+    """Draft one pending reward card into the run deck."""
+    state = store.load()
+    if not state:
+        raise HTTPException(status_code=400, detail="No active game session.")
+    try:
+        move = claim_reward_card(state, payload.card_id)
+        refresh_session_knowledge(state)
+        store.log_event("PLAYER_MOVE", "founder", move.summary, move.model_dump())
+        store.save()
+        return {"move": move.model_dump(), "state": state.model_dump()}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/game/turn/end")
+def end_game_turn(payload: StartTurnRequest):
+    """End a card turn, discard hand, and draw the next turn."""
+    state = store.load()
+    if not state:
+        raise HTTPException(status_code=400, detail="No active game session.")
+    try:
+        move = end_player_turn(state, stage_id=payload.stage_id or "")
+        refresh_session_knowledge(state)
+        store.log_event("PLAYER_MOVE", "founder", move.summary, move.model_dump())
+        store.save()
+        return {"move": move.model_dump(), "state": state.model_dump()}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+class ChooseRoomRequest(BaseModel):
+    room_id: str
+
+
+@app.post("/api/game/room/choose")
+def choose_game_room(payload: ChooseRoomRequest):
+    """Choose one of the currently available route rooms."""
+    state = store.load()
+    if not state:
+        raise HTTPException(status_code=400, detail="No active game session.")
+    try:
+        move = choose_next_room(state, payload.room_id)
+        refresh_session_knowledge(state)
+        store.log_event("PLAYER_MOVE", "founder", move.summary, move.model_dump())
+        store.save()
+        return {"move": move.model_dump(), "state": state.model_dump()}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get("/api/memory")
 def get_memory():
     """Agent memory snapshot: what the workers have learned from this CEO.
 
     Separate from Foundry IQ (stable source knowledge): this is the learning
     layer - founder profile, procedural patterns from gate decisions, and
-    chapter summaries. Backed by the Foundry Agent Service memory store when
+    stage summaries. Backed by the Foundry Agent Service memory store when
     FOUNDRY_MEMORY_STORE is configured, local ledger otherwise.
     """
     return memory_snapshot()
@@ -837,16 +966,16 @@ class AnalyzeRequest(BaseModel):
     founder_avatar: Optional[str] = None
 
 
-@app.post("/api/company/analyze")
-def analyze_company(payload: AnalyzeRequest):
-    """Design the dynamic org an LLM thinks this mission needs.
+@app.post("/api/founder/analyze")
+def analyze_founder(payload: AnalyzeRequest):
+    """Analyze the founder's profile and forge their starting character.
 
-    Accepts a pitch OR a public profile/mission URL. When a URL is given, the
-    page is fetched (SSRF-guarded, stdlib only) and turned into a brief when
-    public content is available. This keeps LinkedIn/public-profile input as the
-    primary identity path without making the demo depend on private LinkedIn API
-    access. The result is a team of digital workers - the execution layer behind
-    a single human operator - with an educational `why` per role.
+    Accepts a public profile/mission URL (primary) OR a mission pitch. When a
+    URL is given, the page is fetched (SSRF-guarded, stdlib only) and reasoned
+    into a founder profile - and when the page is restricted, the open web is
+    cross-referenced instead. From that profile we design the org (one human
+    operator + a digital workforce, each with an educational `why`) and forge
+    the antagonist the run plays against.
     """
     url = (payload.url or "").strip()
     pitch = (payload.pitch or "").strip()
@@ -860,7 +989,7 @@ def analyze_company(payload: AnalyzeRequest):
         founder = prev.founder
 
     # Analyze starts a fresh venture session - designing the org is the first
-    # reasoning step, before any chapters exist.
+    # reasoning step, before any stages exist.
     state = store.initialize_new_company(
         name=company_name, pitch=pitch or url, description="A venture forged in QuestForge.", founder=founder
     )
@@ -873,16 +1002,28 @@ def analyze_company(payload: AnalyzeRequest):
     profile = None
     summary_hint = ""
     if url:
-        profile = analyze_company_url(url)
+        profile = analyze_founder_profile(url)
         brief = profile["brief"]
         summary_hint = profile.get("company_summary", "")
         source, source_ref = "url", url
+        state.founder_profile = profile_from_payload(
+            profile, source=source, source_ref=source_ref, mode=runtime_mode())
+        if profile.get("cached"):
+            store.log_event(
+                "PROFILE_CACHE_HIT", "scraper",
+                f"Reused a previously analyzed profile for {profile.get('host', url)} "
+                f"(skipped scrape + OSINT + reasoning).",
+                {"host": profile.get("host", ""), "source": "url_cache"},
+            )
         if state.founder and not payload.founder_archetype and profile.get("founder_archetype"):
             state.founder.archetype = str(profile.get("founder_archetype") or state.founder.archetype)
             state.founder.skill = str(profile.get("founder_skill") or state.founder.skill)
         if profile.get("scraped"):
             scrape_msg = (f"Scraped {profile['host']} via {profile.get('parser', 'regex')} "
                           f"(read {profile.get('scraped_chars', 0)} chars).")
+        elif profile.get("osint_hits"):
+            scrape_msg = (f"{profile['host']} was restricted - reasoned the profile from "
+                          f"{profile['osint_hits']} open-web finding(s) instead.")
         else:
             scrape_msg = f"Scraped {profile['host']} (homepage unreachable, using domain default)."
         store.log_event(
@@ -924,13 +1065,15 @@ def analyze_company(payload: AnalyzeRequest):
                 {"kind": "user_profile", "origin": mem_entry.get("origin", "")})
     else:
         brief, source, source_ref = pitch, "pitch", pitch
+        state.founder_profile = profile_from_payload(
+            None, source=source, source_ref=source_ref, pitch=brief, mode=runtime_mode())
 
     blueprint = design_org(brief, source=source, source_ref=source_ref, summary_hint=summary_hint)
     state.org = OrgBlueprint(**blueprint)
     state.economics = initialize_economics_from_org(state.org)
 
     # Forge the competitive foil (villain) from the founder's archetype so
-    # later chapter dilemmas can present concrete market tension.
+    # later stage dilemmas can present concrete market tension.
     forge_antagonist(
         state,
         mission_brief=str(profile.get("company_summary") or brief) if profile else brief,
@@ -958,6 +1101,13 @@ def analyze_company(payload: AnalyzeRequest):
         },
     )
 
+    initialize_game_run(state, mode=runtime_mode())
+    refresh_session_knowledge(state)
+    store.log_event(
+        "KNOWLEDGE_STRUCTURED", "iq_sync",
+        f"Structured {len(state.knowledge_records)} generated Search document(s) from the analyzed run.",
+        {"kinds": sorted({doc.kind for doc in state.knowledge_records})},
+    )
     store.save()
     return {
         "state": state.model_dump(),
@@ -1001,7 +1151,7 @@ def export_org():
 def design_world_endpoint(payload: AutoplayRequest):
     """Uses the WorldDesigner to produce a full venture graph.
 
-    Preserves an org chartered by /api/company/analyze in the same session, so
+    Preserves an org chartered by /api/founder/analyze in the same session, so
     the dynamic workforce, earned XP, and flags carry through into the build.
     """
     brief = payload.pitch
@@ -1026,44 +1176,73 @@ def design_world_endpoint(payload: AutoplayRequest):
     if prev and prev.org:
         state.org = prev.org
         state.economics = prev.economics or initialize_economics_from_org(state.org)
+        state.founder_profile = prev.founder_profile
+        state.choices = prev.choices
+        state.days = prev.days
         state.xp = prev.xp
         state.level = prev.level
         state.business_flags = prev.business_flags
         store.log_event("WORLD_SESSION", "system", f"Attached venture graph to chartered org for: {company_name}")
     else:
+        state.founder_profile = profile_from_payload(
+            None, source="pitch", source_ref=brief, pitch=brief, mode=runtime_mode())
         store.log_event("SESSION_START", "system", f"New world session for: {company_name}")
 
-    # The antagonist drives every chapter dilemma, so it must survive the
+    # Ground the World Designer in the FOUNDER PROFILE, not the thin pitch/URL.
+    # /api/founder/analyze already scraped + ran OSINT + reasoned a structured
+    # brief (capability, beneficiary, archetype, evidence signals). That rich
+    # brief - not the raw URL or one-line summary - is what the world must be
+    # built from. It also becomes world.brief, so every per-stage worker
+    # (execute_stage reads world.brief) and the antagonist inherit the same
+    # grounded context. Falls back to the pitch for a cold-start design call.
+    design_brief = (state.founder_profile.brief if state.founder_profile else "").strip() or brief
+    if state.founder_profile and design_brief != brief:
+        store.log_event(
+            "WORLD_GROUNDED", "world_designer",
+            f"World design grounded in the analyzed founder profile "
+            f"({len(design_brief)} chars) instead of the raw pitch.",
+            {"source_kind": state.founder_profile.source_kind,
+             "summary": state.founder_profile.company_summary[:160]},
+        )
+
+    # The antagonist drives every stage dilemma, so it must survive the
     # re-init: reuse the one forged during analyze, or forge it now for a
     # cold-start world/design call (pitch-only, no prior analyze).
     if prev and prev.antagonist:
         state.antagonist = prev.antagonist
     else:
-        forge_antagonist(state, mission_brief=brief)
+        forge_antagonist(state, mission_brief=design_brief)
 
-    chapters_data = design_world(brief)
+    stages_data = design_world(design_brief)
     world = WorldGraph(
-        brief=brief,
-        chapters=[Chapter(**ch) if isinstance(ch, dict) else ch for ch in chapters_data],
+        brief=design_brief,
+        stages=[Stage(**s) if isinstance(s, dict) else s for s in stages_data],
         status="active",
     )
-    # Close the seam: each chapter is owned by one of the digital workers the
+    # Close the seam: each stage is owned by one of the digital workers the
     # Org Designer created for this company (not a fixed cast).
     bindings = bind_world_to_org(world, state.org) if state.org else {}
     state.world = world
-    store.log_event("WORLD_DESIGNED", "world_designer", f"Produced {len(world.chapters)} chapters.", {
-        "chapters": [
-            {"id": ch.id, "title": ch.title, "owner_role": ch.owner_role,
-             "assigned_worker_title": ch.assigned_worker_title}
-            for ch in world.chapters
+    store.log_event("WORLD_DESIGNED", "world_designer", f"Produced {len(world.stages)} stages.", {
+        "stages": [
+            {"id": s.id, "title": s.title, "owner_role": s.owner_role,
+             "assigned_worker_title": s.assigned_worker_title}
+            for s in world.stages
         ]
     })
     if bindings:
         store.log_event(
             "ORG_BOUND", "org_designer",
-            f"Bound {len(bindings)} chapters to dynamically designed digital workers.",
+            f"Bound {len(bindings)} stages to dynamically designed digital workers.",
             {"bindings": bindings},
         )
+    initialize_game_run(state, mode=runtime_mode())
+    refresh_session_knowledge(state)
+    store.log_event(
+        "KNOWLEDGE_STRUCTURED", "iq_sync",
+        f"Structured {len(state.knowledge_records)} generated Search document(s) after world design.",
+        {"kinds": sorted({doc.kind for doc in state.knowledge_records})},
+    )
     store.save()
     return state_response(state, surface="world_graph")
 
@@ -1099,20 +1278,33 @@ _CANNED_DILEMMAS = {
             {"id": "human_loop", "rule_id": "ops.human_loop", "option": "Steward: keep human review on sensitive sanity cases", "tradeoff": "burn pressure, ethical alignment"},
         ],
     },
+    "final": {
+        "prompt": "The infinite-growth machine is offering the clean exit. What becomes the new normal?",
+        "options": [
+            {"id": "shareholder", "rule_id": "ops.shareholder", "option": "Take shareholder capital and scale the grid fast", "tradeoff": "speed gained, autonomy sold"},
+            {"id": "cooperative", "rule_id": "ops.cooperative", "option": "Form the worker-cooperative energy alliance", "tradeoff": "slower growth, durable trust"},
+        ],
+    },
 }
 
 
-def _scene_speaker_for_chapter(chapter: Chapter) -> Dict[str, str]:
+def _canned_dilemma_for_stage(stage: Stage) -> Dict[str, Any]:
+    if stage.id == "stage_8_change" or "change" in stage.id.lower():
+        return _CANNED_DILEMMAS["final"]
+    return _CANNED_DILEMMAS.get(stage.owner_role) or _CANNED_DILEMMAS["strategist"]
+
+
+def _scene_speaker_for_stage(stage: Stage) -> Dict[str, str]:
     cast = {
         "strategist": {"display_name": "Soren", "role": "Strategist", "voice_id": "verse"},
         "designer": {"display_name": "Dahlia", "role": "Designer", "voice_id": "alloy"},
         "marketer": {"display_name": "Maddox", "role": "Marketer", "voice_id": "echo"},
         "ops": {"display_name": "Orla", "role": "Operator", "voice_id": "sage"},
     }
-    base = cast.get(chapter.owner_role, cast["strategist"])
+    base = cast.get(stage.owner_role, cast["strategist"])
     return {
-        "worker_id": chapter.assigned_worker_id or chapter.owner_role,
-        "display_name": chapter.assigned_worker_title or base["display_name"],
+        "worker_id": stage.assigned_worker_id or stage.owner_role,
+        "display_name": stage.assigned_worker_title or base["display_name"],
         "role": base["role"],
         "voice_id": base["voice_id"],
         "locale": "en-US",
@@ -1146,10 +1338,10 @@ def _effect_line(preview: Dict[str, Any]) -> str:
 
 def _enrich_dilemma_options(
     state: CompanyState,
-    chapter: Chapter,
+    stage: Stage,
     options: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    allowed = rule_ids_for_role(chapter.owner_role)
+    allowed = rule_ids_for_role(stage.owner_role)
     enriched: List[Dict[str, Any]] = []
     used = set()
     for i, option in enumerate(options[:2]):
@@ -1158,11 +1350,11 @@ def _enrich_dilemma_options(
             "tradeoff": str(option.get("tradeoff", ""))[:120],
             "rule_id": option.get("rule_id") or "",
         }
-        rule_id = select_rule_id(chapter.owner_role, candidate)
+        rule_id = select_rule_id(stage.owner_role, candidate)
         if rule_id in used and i < len(allowed):
             rule_id = allowed[i]
         used.add(rule_id)
-        preview = preview_decision_consequence(state, chapter, rule_id)
+        preview = preview_decision_consequence(state, stage, rule_id)
         enriched.append({
             "id": option.get("id") or _option_id(rule_id, i),
             "option": candidate["option"],
@@ -1180,28 +1372,28 @@ def _enrich_dilemma_options(
 
 
 class DilemmaRequest(BaseModel):
-    chapter_id: str
+    stage_id: str
 
 
 @app.post("/api/dilemma")
 def generate_dilemma(payload: DilemmaRequest):
-    """Generate the CEO dilemma for the chapter just sealed.
+    """Generate the CEO dilemma for the stage just sealed.
 
     Live: the narrator deployment writes a venture-specific tradeoff (2
-    options) grounded in the chapter's artifact. Offline/error: a canned
+    options) grounded in the stage's artifact. Offline/error: a canned
     dilemma per archetype. The pick is recorded via /api/decision and
-    becomes binding direction for the next chapter's worker.
+    becomes binding direction for the next stage's worker.
     """
     state = store.load()
     if not state or not state.world:
         raise HTTPException(status_code=400, detail="No world graph.")
     world = state.world
-    chapter = next((ch for ch in world.chapters if ch.id == payload.chapter_id), None)
-    if not chapter:
-        raise HTTPException(status_code=404, detail=f"Unknown chapter: {payload.chapter_id}")
+    stage = next((s for s in world.stages if s.id == payload.stage_id), None)
+    if not stage:
+        raise HTTPException(status_code=404, detail=f"Unknown stage: {payload.stage_id}")
 
-    idx = world.chapters.index(chapter)
-    next_ch = world.chapters[idx + 1] if idx + 1 < len(world.chapters) else None
+    idx = world.stages.index(stage)
+    next_stage = world.stages[idx + 1] if idx + 1 < len(world.stages) else None
 
     dilemma = None
     client = get_foundry_client()
@@ -1228,11 +1420,11 @@ def generate_dilemma(payload: DilemmaRequest):
                     )},
                     {"role": "user", "content": (
                         f"Venture: {world.brief[:400]}\n"
-                        f"Chapter just completed: {chapter.title} - {chapter.goal}\n"
-                        f"Artifact summary: {json.dumps(chapter.artifact or {})[:1200]}\n"
+                        f"Stage just completed: {stage.title} - {stage.goal}\n"
+                        f"Artifact summary: {json.dumps(stage.artifact or {})[:1200]}\n"
                         + antagonist_line
-                        + (f"Next chapter: {next_ch.title} - {next_ch.goal}\n" if next_ch else "")
-                        + "The dilemma should steer how the next chapter is executed."
+                        + (f"Next stage: {next_stage.title} - {next_stage.goal}\n" if next_stage else "")
+                        + "The dilemma should steer how the next stage is executed."
                     )},
                 ],
                 max_completion_tokens=1500,
@@ -1251,13 +1443,13 @@ def generate_dilemma(payload: DilemmaRequest):
         generated = None
         try:
             founder = state.founder
-            suggested = suggest_dilemma_for_chapter(
-                chapter.id,
+            suggested = suggest_dilemma_for_stage(
+                stage.id,
                 (founder.archetype if founder else "Builder"),
             )
             gd = generate_story_dilemma(
-                chapter_id=chapter.id,
-                chapter_title=chapter.title,
+                stage_id=stage.id,
+                stage_title=stage.title,
                 founder=founder,
                 antagonist=state.antagonist,
                 economics=state.economics,
@@ -1277,11 +1469,11 @@ def generate_dilemma(payload: DilemmaRequest):
         if generated:
             dilemma = generated
         else:
-            canned = _CANNED_DILEMMAS.get(chapter.owner_role) or _CANNED_DILEMMAS["strategist"]
+            canned = _canned_dilemma_for_stage(stage)
             dilemma = {**canned, "source": "canned"}
-    dilemma["options"] = _enrich_dilemma_options(state, chapter, dilemma.get("options") or [])
-    dilemma["scene_id"] = f"{chapter.id}:dilemma"
-    dilemma["speaker"] = _scene_speaker_for_chapter(chapter)
+    dilemma["options"] = _enrich_dilemma_options(state, stage, dilemma.get("options") or [])
+    dilemma["scene_id"] = f"{stage.id}:dilemma"
+    dilemma["speaker"] = _scene_speaker_for_stage(stage)
     # Surface the antagonist (villain) so the gate UI can show whose pressure
     # forced this choice - the story foil that makes the tradeoff feel real.
     if state.antagonist:
@@ -1294,7 +1486,7 @@ def generate_dilemma(payload: DilemmaRequest):
     dilemma["caption_seed"] = dilemma["prompt"]
     dilemma["image_prompt"] = (
         f"A cinematic cosmic-mainframe dilemma scene for {state.name}: "
-        f"{chapter.title}. The founder must choose how the company changes its loop next."
+        f"{stage.title}. The founder must choose how the company changes its loop next."
     )
     dilemma["tool_plan"] = [
         {"tool": "calculate_consequence", "reason": "Preview org and economics before the CEO commits."},
@@ -1303,9 +1495,9 @@ def generate_dilemma(payload: DilemmaRequest):
     ]
 
     store.log_event("DILEMMA_POSED", "narrator",
-        f"Dilemma after '{chapter.title}': {dilemma['prompt']}",
+        f"Dilemma after '{stage.title}': {dilemma['prompt']}",
         {
-            "chapter_id": chapter.id,
+            "stage_id": stage.id,
             "scene_id": dilemma["scene_id"],
             "source": dilemma["source"],
             "speaker": dilemma["speaker"],
@@ -1315,11 +1507,11 @@ def generate_dilemma(payload: DilemmaRequest):
             ],
         })
     store.save()
-    return {"chapter_id": chapter.id, **dilemma}
+    return {"stage_id": stage.id, **dilemma}
 
 
 class DecisionRequest(BaseModel):
-    chapter_id: str
+    stage_id: str
     option: str
     tradeoff: Optional[str] = ""
     prompt: Optional[str] = ""
@@ -1333,20 +1525,20 @@ class DecisionRequest(BaseModel):
 def record_decision(payload: DecisionRequest):
     """Record the CEO's dilemma-gate decision into session memory.
 
-    Writes Chapter.dilemma_choice and appends to WorldGraph.decisions, the
+    Writes Stage.dilemma_choice and appends to WorldGraph.decisions, the
     ledger every later worker brief recalls from (game_design.md section 5:
-    memory is what makes a choice feel real). Idempotent per chapter: a new
-    decision for the same chapter replaces the old one.
+    memory is what makes a choice feel real). Idempotent per stage: a new
+    decision for the same stage replaces the old one.
     """
     state = store.load()
     if not state or not state.world:
         raise HTTPException(status_code=400, detail="No world graph.")
     world = state.world
-    chapter = next((ch for ch in world.chapters if ch.id == payload.chapter_id), None)
-    if not chapter:
-        raise HTTPException(status_code=404, detail=f"Unknown chapter: {payload.chapter_id}")
+    stage = next((s for s in world.stages if s.id == payload.stage_id), None)
+    if not stage:
+        raise HTTPException(status_code=404, detail=f"Unknown stage: {payload.stage_id}")
 
-    old_entry = next((d for d in world.decisions if d.get("chapter_id") == chapter.id), None)
+    old_entry = next((d for d in world.decisions if d.get("stage_id") == stage.id), None)
     choice = {
         "prompt": (payload.prompt or "")[:300],
         "option": payload.option[:200],
@@ -1356,45 +1548,76 @@ def record_decision(payload: DecisionRequest):
         "option_id": (payload.option_id or "")[:80],
         "scene_id": (payload.scene_id or "")[:120],
     }
-    consequence = apply_decision_consequence(state, chapter, choice, old_entry=old_entry)
+    consequence = apply_decision_consequence(state, stage, choice, old_entry=old_entry)
     choice["rule_id"] = consequence["rule_id"]
     choice["consequence"] = consequence
     choice["consequence_summary"] = consequence["summary"]
-    chapter.dilemma_choice = choice
-    entry = {"chapter_id": chapter.id, "chapter_title": chapter.title, **choice}
-    world.decisions = [d for d in world.decisions if d.get("chapter_id") != chapter.id]
+    stage.dilemma_choice = choice
+    entry = {"stage_id": stage.id, "stage_title": stage.title, **choice}
+    world.decisions = [d for d in world.decisions if d.get("stage_id") != stage.id]
     world.decisions.append(entry)
+
+    day_index = world.stages.index(stage) + 1 if stage in world.stages else len(state.choices) + 1
+    choice_record = ChoiceRecord(
+        id=f"choice_{stage.id}",
+        day_index=day_index,
+        stage_id=stage.id,
+        stage_title=stage.title,
+        prompt=choice["prompt"],
+        option_id=choice["option_id"],
+        option=choice["option"],
+        tradeoff=choice["tradeoff"],
+        rule_id=choice["rule_id"],
+        scene_id=choice["scene_id"],
+        custom=choice["custom"],
+        consequence_summary=choice["consequence_summary"],
+        consequence=choice["consequence"],
+    )
+    state.choices = [c for c in state.choices if c.stage_id != stage.id]
+    state.choices.append(choice_record)
+    record_world_day(state, stage, choice_record)
+    antagonist_move = record_choice_game_state(state, stage, choice_record)
 
     # Agent memory (procedural): the workers learn the CEO's operating pattern
     # from every gate decision - recalled in all later worker briefs.
     mem_entry = remember("procedural",
-             f"CEO chose '{choice['option']}' at the '{chapter.title}' gate"
+             f"CEO chose '{choice['option']}' at the '{stage.title}' gate"
              + (f" accepting tradeoff: {choice['tradeoff']}" if choice["tradeoff"] else "")
              + f". Consequence: {choice['consequence_summary']}",
-             {"chapter_id": chapter.id})
+             {"stage_id": stage.id})
     if mem_entry:
         store.log_event("MEMORY_WRITTEN", "memory",
             f"Procedural memory stored ({mem_entry.get('origin', 'local-memory')}): {mem_entry.get('text', '')[:120]}",
             {"kind": "procedural", "origin": mem_entry.get("origin", "")})
 
     store.log_event("CEO_DECISION", "founder",
-        f"Gate decision after '{chapter.title}': {choice['option']}",
-        {"chapter_id": chapter.id, "option": choice["option"],
+        f"Gate decision after '{stage.title}': {choice['option']}",
+        {"stage_id": stage.id, "option": choice["option"],
          "tradeoff": choice["tradeoff"], "custom": choice["custom"]})
     store.log_event("CONSEQUENCE_APPLIED", "system",
         f"{consequence['rule_id']} changed the company: {consequence['summary']}",
-        {"chapter_id": chapter.id, **consequence})
+        {"stage_id": stage.id, **consequence})
+    if antagonist_move:
+        store.log_event("ANTAGONIST_MOVE", "antagonist",
+            f"{antagonist_move.title}: {antagonist_move.counterplay}",
+            antagonist_move.model_dump())
+    refresh_session_knowledge(state)
+    store.log_event("KNOWLEDGE_STRUCTURED", "iq_sync",
+        f"Structured {len(state.knowledge_records)} generated Search document(s) after CEO choice.",
+        {"choice_id": choice_record.id, "day_index": choice_record.day_index})
     store.save()
     return {
         "recorded": entry,
         "decisions": world.decisions,
+        "choice": choice_record.model_dump(),
+        "days": [d.model_dump() for d in state.days],
         "consequence": consequence,
         "state": state.model_dump(),
     }
 
 
 class StandupRequest(BaseModel):
-    chapter_id: Optional[str] = None
+    stage_id: Optional[str] = None
     history: Optional[List[Dict[str, Any]]] = None
     selection_mode: Optional[str] = "round_robin"
 
@@ -1439,10 +1662,10 @@ _ROLE_VOICE = {
 }
 
 
-def _worker_title_for_chapter(chapter: Optional[Chapter]) -> str:
-    if not chapter:
+def _worker_title_for_stage(stage: Optional[Stage]) -> str:
+    if not stage:
         return "the next worker"
-    return chapter.assigned_worker_title or _ROLE_DISPLAY.get(chapter.owner_role, chapter.owner_role)
+    return stage.assigned_worker_title or _ROLE_DISPLAY.get(stage.owner_role, stage.owner_role)
 
 
 def _speaker_profile(speaker: str, role: str, worker_id: str = "") -> Dict[str, Any]:
@@ -1544,7 +1767,7 @@ def _standup_selection_mode(value: Optional[str]) -> str:
 def _order_standup_turns(
     turns: List[Dict[str, Any]],
     mode: str,
-    chapter_id: str,
+    stage_id: str,
     history: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """Choose which character speaks next without changing the turn contract."""
@@ -1567,34 +1790,34 @@ def _order_standup_turns(
 
 def _build_standup_turns(
     state: CompanyState,
-    chapter: Chapter,
+    stage: Stage,
     decision: Dict[str, Any],
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     world = state.world
-    chapters = world.chapters if world else []
-    idx = chapters.index(chapter) if chapter in chapters else -1
-    next_chapter = chapters[idx + 1] if idx >= 0 and idx + 1 < len(chapters) else None
+    all_stages = world.stages if world else []
+    idx = all_stages.index(stage) if stage in all_stages else -1
+    next_stage = all_stages[idx + 1] if idx >= 0 and idx + 1 < len(all_stages) else None
     consequence = decision.get("consequence") or {}
     economics = consequence.get("after") or {}
     org_delta = consequence.get("org_delta") or {}
     rule_id = consequence.get("rule_id") or decision.get("rule_id") or "decision.custom"
     summary = consequence.get("summary") or "The CEO choice is now binding direction."
     option = decision.get("option") or "the chosen option"
-    owner_title = _worker_title_for_chapter(chapter)
-    next_title = _worker_title_for_chapter(next_chapter)
-    next_role = next_chapter.owner_role if next_chapter else "narrator"
+    owner_title = _worker_title_for_stage(stage)
+    next_title = _worker_title_for_stage(next_stage)
+    next_role = next_stage.owner_role if next_stage else "narrator"
 
     turns: List[Dict[str, Any]] = [
         _standup_turn(
             speaker=owner_title,
-            role=chapter.owner_role,
-            worker_id=chapter.assigned_worker_id or chapter.owner_role,
+            role=stage.owner_role,
+            worker_id=stage.assigned_worker_id or stage.owner_role,
             tool="calculate_consequence",
             message=(
                 f"I read the CEO call as '{option}': {summary} "
-                f"{next_title if next_chapter else 'CEO'}, which constraint are you carrying instead of resetting?"
+                f"{next_title if next_stage else 'CEO'}, which constraint are you carrying instead of resetting?"
             ),
-            handoff_to=next_title if next_chapter else "",
+            handoff_to=next_title if next_stage else "",
         )
     ]
 
@@ -1602,20 +1825,20 @@ def _build_standup_turns(
     if added_title:
         turns.append(_standup_turn(
             speaker=added_title,
-            role=chapter.owner_role,
+            role=stage.owner_role,
             worker_id=str(org_delta.get("added_role_id") or added_title).lower().replace(" ", "_"),
             tool="render_org_graph",
             message=(
                 f"I am now on the org graph, and I disagree with treating '{option}' as flavor. "
                 f"{owner_title}, give me the evidence gap the old party could not close."
             ),
-            handoff_to=next_title if next_chapter else "",
+            handoff_to=next_title if next_stage else "",
         ))
 
     turns.append(_standup_turn(
         speaker=next_title,
         role=next_role,
-        worker_id=(next_chapter.assigned_worker_id if next_chapter else "narrator") or next_role,
+        worker_id=(next_stage.assigned_worker_id if next_stage else "narrator") or next_role,
             tool="read_memory",
             message=(
                 f"My next brief starts from {rule_id}, current proof {economics.get('proof', state.economics.proof)}, "
@@ -1636,13 +1859,13 @@ def _build_standup_turns(
                 f"${state.economics.monthly_burn_usd:,}/mo burn, {state.economics.runway_months} months runway. "
                 f"{owner_title}, I will back the plan only if your next artifact lowers ambiguity faster than it raises burn."
             ),
-            handoff_to=next_title if next_chapter else "",
+            handoff_to=next_title if next_stage else "",
         ))
 
     context = {
-        "chapter_id": chapter.id,
-        "next_chapter_id": next_chapter.id if next_chapter else "",
-        "next_worker_title": next_title if next_chapter else "",
+        "stage_id": stage.id,
+        "next_stage_id": next_stage.id if next_stage else "",
+        "next_worker_title": next_title if next_stage else "",
         "rule_id": rule_id,
         "summary": summary,
     }
@@ -1651,10 +1874,10 @@ def _build_standup_turns(
 
 def _build_standup_turns_for_history(
     state: CompanyState,
-    chapter: Chapter,
+    stage: Stage,
     decision: Dict[str, Any],
     history: List[Dict[str, Any]],
-    next_chapter: Optional[Chapter]
+    next_stage: Optional[Stage]
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     # Find last user comment
     last_user_turn = None
@@ -1666,27 +1889,27 @@ def _build_standup_turns_for_history(
     user_msg = last_user_turn.get("message", "") if last_user_turn else "Let's optimize our next steps."
     user_name = last_user_turn.get("speaker", "CEO") if last_user_turn else "CEO"
 
-    owner_title = _worker_title_for_chapter(chapter)
-    next_title = _worker_title_for_chapter(next_chapter)
-    next_role = next_chapter.owner_role if next_chapter else "narrator"
+    owner_title = _worker_title_for_stage(stage)
+    next_title = _worker_title_for_stage(next_stage)
+    next_role = next_stage.owner_role if next_stage else "narrator"
 
     # Offline simulated turns reacting to history:
     turns = [
         _standup_turn(
             speaker=owner_title,
-            role=chapter.owner_role,
-            worker_id=chapter.assigned_worker_id or chapter.owner_role,
+            role=stage.owner_role,
+            worker_id=stage.assigned_worker_id or stage.owner_role,
             tool="read_memory",
             message=(
                 f"{next_title}, the CEO said '{user_msg}'. I challenge you to preserve that direction "
                 "without widening scope."
             ),
-            handoff_to=next_title if next_chapter else "",
+            handoff_to=next_title if next_stage else "",
         ),
         _standup_turn(
             speaker=next_title,
             role=next_role,
-            worker_id=(next_chapter.assigned_worker_id if next_chapter else "narrator") or next_role,
+            worker_id=(next_stage.assigned_worker_id if next_stage else "narrator") or next_role,
             tool="read_memory",
             message=(
                 f"{owner_title}, I accept the constraint, but I need one proof artifact from you before "
@@ -1699,9 +1922,9 @@ def _build_standup_turns_for_history(
     consequence = decision.get("consequence") or {}
     summary = consequence.get("summary") or "The CEO choice is now binding direction."
     context = {
-        "chapter_id": chapter.id,
-        "next_chapter_id": next_chapter.id if next_chapter else "",
-        "next_worker_title": next_title if next_chapter else "",
+        "stage_id": stage.id,
+        "next_stage_id": next_stage.id if next_stage else "",
+        "next_worker_title": next_title if next_stage else "",
         "rule_id": consequence.get("rule_id") or decision.get("rule_id") or "decision.custom",
         "summary": f"Looping feedback: '{user_msg[:60]}'. " + summary,
     }
@@ -1723,27 +1946,27 @@ def world_standup(payload: StandupRequest):
     if not world.decisions:
         raise HTTPException(status_code=400, detail="No CEO decision to react to.")
     decision = None
-    if payload.chapter_id:
-        decision = next((d for d in reversed(world.decisions) if d.get("chapter_id") == payload.chapter_id), None)
+    if payload.stage_id:
+        decision = next((d for d in reversed(world.decisions) if d.get("stage_id") == payload.stage_id), None)
     decision = decision or world.decisions[-1]
-    chapter_id = decision.get("chapter_id")
-    chapter = next((ch for ch in world.chapters if ch.id == chapter_id), None)
-    if not chapter:
-        raise HTTPException(status_code=404, detail=f"Unknown chapter: {chapter_id}")
+    stage_id_val = decision.get("stage_id")
+    stage = next((s for s in world.stages if s.id == stage_id_val), None)
+    if not stage:
+        raise HTTPException(status_code=404, detail=f"Unknown stage: {stage_id_val}")
 
-    # Determine next chapter for handoff mapping
-    chapters = world.chapters
-    idx = chapters.index(chapter) if chapter in chapters else -1
-    next_chapter = chapters[idx + 1] if idx >= 0 and idx + 1 < len(chapters) else None
+    # Determine next stage for handoff mapping
+    all_stages = world.stages
+    idx = all_stages.index(stage) if stage in all_stages else -1
+    next_stage = all_stages[idx + 1] if idx >= 0 and idx + 1 < len(all_stages) else None
 
     selection_mode = _standup_selection_mode(payload.selection_mode)
 
     # Load initial or history-based turns
     if payload.history:
-        turns, context = _build_standup_turns_for_history(state, chapter, decision, payload.history, next_chapter)
+        turns, context = _build_standup_turns_for_history(state, stage, decision, payload.history, next_stage)
     else:
-        turns, context = _build_standup_turns(state, chapter, decision)
-    turns = _order_standup_turns(turns, selection_mode, chapter.id, payload.history)
+        turns, context = _build_standup_turns(state, stage, decision)
+    turns = _order_standup_turns(turns, selection_mode, stage.id, payload.history)
 
     source_label = "simulation"
 
@@ -1757,7 +1980,7 @@ def world_standup(payload: StandupRequest):
                     base_url=FOUNDRY_BASE_URL,
                     company_name=state.name or "QuestForge Ltd.",
                     pitch=state.pitch or "",
-                    chapter_title=chapter.title,
+                    stage_title=stage.title,
                     option=decision.get("option", ""),
                     consequence_summary=context["summary"],
                     participants=turns,
@@ -1770,7 +1993,7 @@ def world_standup(payload: StandupRequest):
     turns = _attach_speaker_profiles(turns)
 
     packet = {
-        "chapter_id": chapter.id,
+        "stage_id": stage.id,
         "source": source_label,
         "orchestration": {
             "pattern": "sequential_group_chat",
@@ -1790,7 +2013,7 @@ def world_standup(payload: StandupRequest):
             "summary": context["summary"],
         },
         "tool_plan": [
-            {"tool": "calculate_consequence", "owner": _worker_title_for_chapter(chapter)},
+            {"tool": "calculate_consequence", "owner": _worker_title_for_stage(stage)},
             {"tool": "read_memory", "owner": context.get("next_worker_title") or "next worker"},
             {"tool": "watch_burn", "owner": "Runway Steward"},
         ],
@@ -1804,9 +2027,9 @@ def world_standup(payload: StandupRequest):
     store.log_event(
         "AGENT_STANDUP",
         "standup_orchestrator",
-        f"Agents reacted to {context['rule_id']} after '{chapter.title}' ({source_label}).",
+        f"Agents reacted to {context['rule_id']} after '{stage.title}' ({source_label}).",
         {
-            "chapter_id": chapter.id,
+            "stage_id": stage.id,
             "orchestration": packet["orchestration"],
             "trigger": packet["trigger"],
             "turns": turns,
@@ -1842,33 +2065,35 @@ def respond_to_standup(payload: StandupResponseRequest):
 
 
 @app.post("/api/world/run-next")
-def run_next_chapter():
-    """Execute the next pending chapter via the Worker Factory."""
+def run_next_stage():
+    """Execute the next pending stage via the Worker Factory."""
     state = store.load()
     if not state or not state.world:
         raise HTTPException(status_code=400, detail="No world graph. Call /api/world/design first.")
 
     world = state.world
-    pending = [ch for ch in world.chapters if ch.status not in ("completed", "needs-review")]
+    pending = [s for s in world.stages if s.status not in ("completed", "needs-review")]
     if not pending:
-        raise HTTPException(status_code=400, detail="All chapters completed or awaiting review.")
+        raise HTTPException(status_code=400, detail="All stages completed or awaiting review.")
 
-    chapter = pending[0]
-    idx = world.chapters.index(chapter)
-    world.current_chapter_index = idx
+    stage = pending[0]
+    idx = world.stages.index(stage)
+    world.current_stage_index = idx
+    start_player_turn(state, stage_id=stage.id)
 
-    # Foundry IQ memory recalled for this chapter (surfaced to the story view).
-    memory = retrieve(f"{world.brief} {chapter.goal} {chapter.success_metric}", top_k=2)
+    # Foundry IQ memory recalled for this stage (surfaced to the story view).
+    memory = retrieve(f"{world.brief} {stage.goal} {stage.success_metric}", top_k=2)
 
-    previous_artifacts = [ch.artifact for ch in world.chapters[:idx] if ch.artifact]
-    invocation, artifact, score = execute_chapter(
-        chapter, world.brief, previous_artifacts, org=state.org, decisions=world.decisions)
+    previous_artifacts = [s.artifact for s in world.stages[:idx] if s.artifact]
+    invocation, artifact, score = execute_stage(
+        stage, world.brief, previous_artifacts, org=state.org, decisions=world.decisions)
     world.invocations.append(invocation)
 
     if artifact:
-        chapter.artifact = artifact
-        chapter.validation_score = score
-    chapter.status = "completed" if score >= 80 else "needs-review"
+        stage.artifact = artifact
+        stage.validation_score = score
+    stage.status = "completed" if score >= 80 else "needs-review"
+    record_stage_encounter(state, stage)
 
     xp_earned = 10 + (score // 10)
     state.xp += xp_earned
@@ -1877,9 +2102,9 @@ def run_next_chapter():
     elif state.xp >= 100 and state.level < 3:
         state.level = 3
 
-    store.log_event("CHAPTER_EXECUTED", invocation.role,
-        f"Chapter '{chapter.title}' -> score {score}, +{xp_earned} XP ({invocation.deployment}, {invocation.latency_s}s)",
-        {"chapter_id": chapter.id, "score": score, "xp_earned": xp_earned, "latency_s": invocation.latency_s,
+    store.log_event("STAGE_EXECUTED", invocation.role,
+        f"Stage '{stage.title}' -> score {score}, +{xp_earned} XP ({invocation.deployment}, {invocation.latency_s}s)",
+        {"stage_id": stage.id, "score": score, "xp_earned": xp_earned, "latency_s": invocation.latency_s,
          # Invocation outcome receipt: failed runs keep their partial
          # tool_trace and carry the error string into the replay log.
          "status": invocation.status,
@@ -1898,18 +2123,19 @@ def run_next_chapter():
                              "tokens_in": invocation.tokens_in,
                              "tokens_out": invocation.tokens_out,
                              "reasoning_tokens": invocation.reasoning_tokens},
-         "rubric": chapter.rubric}
+         "rubric": stage.rubric}
     )
 
-    if all(ch.status == "completed" for ch in world.chapters):
+    if all(s.status == "completed" for s in world.stages):
         world.status = "completed"
         state.stage = "launched"
-        store.log_event("WORLD_COMPLETED", "system", "All chapters completed! Venture stage: launched.")
+        store.log_event("WORLD_COMPLETED", "system", "All stages completed! Venture stage: launched.")
 
+    refresh_session_knowledge(state)
     store.save()
-    return chapter_response(
+    return stage_response(
         state,
-        chapter,
+        stage,
         invocation,
         memory=memory,
         # The most recent CEO decision the worker was briefed with - the UI
@@ -1920,7 +2146,7 @@ def run_next_chapter():
 
 @app.post("/api/world/autoplay")
 def autoplay_world(payload: AutoplayRequest):
-    """Full autoplay: design world + execute all chapters sequentially."""
+    """Full autoplay: design world + execute all stages sequentially."""
     brief = payload.pitch
     company_name = payload.company_name or "QuestForge Ltd."
     threshold = payload.auto_approve_threshold
@@ -1929,6 +2155,8 @@ def autoplay_world(payload: AutoplayRequest):
     state = store.initialize_new_company(
         name=company_name, pitch=brief, description="A venture forged in QuestForge.", founder=founder
     )
+    state.founder_profile = profile_from_payload(
+        None, source="pitch", source_ref=brief, pitch=brief, mode=runtime_mode())
     mem_entry = remember("user_profile", f"Founder is building: {company_name} - {brief[:280]}",
              {"company": company_name})
     if mem_entry:
@@ -1937,7 +2165,7 @@ def autoplay_world(payload: AutoplayRequest):
             {"kind": "user_profile", "origin": mem_entry.get("origin", "")})
     store.log_event("SESSION_START", "system", f"Autoplay session for: {company_name}")
 
-    # Design the dynamic org first so chapters are owned by designed digital
+    # Design the dynamic org first so stages are owned by designed digital
     # workers - the same org->execution chain the Story flow shows. Cheap, and
     # runs in simulation too.
     org_blueprint = design_org(brief, source="pitch", source_ref=brief)
@@ -1951,27 +2179,30 @@ def autoplay_world(payload: AutoplayRequest):
          "leverage_ratio": state.org.leverage_ratio},
     )
 
-    # Autoplay runs chapter dilemmas too, so it needs the same villain.
+    # Autoplay runs stage dilemmas too, so it needs the same villain.
     forge_antagonist(state, mission_brief=brief)
 
-    chapters_data = design_world(brief)
+    stages_data = design_world(brief)
     world = WorldGraph(
         brief=brief,
-        chapters=[Chapter(**ch) if isinstance(ch, dict) else ch for ch in chapters_data],
+        stages=[Stage(**s) if isinstance(s, dict) else s for s in stages_data],
         status="active",
     )
     bindings = bind_world_to_org(world, state.org)
     state.world = world
-    store.log_event("WORLD_DESIGNED", "world_designer", f"Produced {len(world.chapters)} chapters.")
+    store.log_event("WORLD_DESIGNED", "world_designer", f"Produced {len(world.stages)} stages.")
     if bindings:
         store.log_event(
             "ORG_BOUND", "org_designer",
-            f"Bound {len(bindings)} chapters to dynamically designed digital workers.",
+            f"Bound {len(bindings)} stages to dynamically designed digital workers.",
             {"bindings": bindings},
         )
+    initialize_game_run(state, mode=runtime_mode())
+    refresh_session_knowledge(state)
 
     results = []
-    for chapter, invocation, artifact, score in run_world(world, brief, auto_approve_threshold=threshold, org=state.org):
+    for stage, invocation, artifact, score in run_world(world, brief, auto_approve_threshold=threshold, org=state.org):
+        record_stage_encounter(state, stage)
         xp_earned = 10 + (score // 10)
         state.xp += xp_earned
         if state.xp >= 50 and state.level < 2:
@@ -1979,9 +2210,9 @@ def autoplay_world(payload: AutoplayRequest):
         elif state.xp >= 100 and state.level < 3:
             state.level = 3
 
-        store.log_event("CHAPTER_EXECUTED", invocation.role,
-            f"Chapter '{chapter.title}' -> score {score}, +{xp_earned} XP",
-            {"chapter_id": chapter.id, "score": score, "latency_s": invocation.latency_s,
+        store.log_event("STAGE_EXECUTED", invocation.role,
+            f"Stage '{stage.title}' -> score {score}, +{xp_earned} XP",
+            {"stage_id": stage.id, "score": score, "latency_s": invocation.latency_s,
              # Invocation outcome receipt (same contract as /api/world/run-next).
              "status": invocation.status,
              "error": invocation.error,
@@ -1999,12 +2230,18 @@ def autoplay_world(payload: AutoplayRequest):
                                  "tokens_out": invocation.tokens_out,
                                  "reasoning_tokens": invocation.reasoning_tokens}}
         )
-        results.append({"chapter_id": chapter.id, "title": chapter.title, "score": score, "status": chapter.status})
+        results.append({"stage_id": stage.id, "title": stage.title, "score": score, "status": stage.status})
 
     if world.status == "completed":
         state.stage = "launched"
-        store.log_event("WORLD_COMPLETED", "system", "Autoplay complete! All chapters done.")
+        store.log_event("WORLD_COMPLETED", "system", "Autoplay complete! All stages done.")
 
+    refresh_session_knowledge(state)
+    store.log_event(
+        "KNOWLEDGE_STRUCTURED", "iq_sync",
+        f"Structured {len(state.knowledge_records)} generated Search document(s) after autoplay.",
+        {"kinds": sorted({doc.kind for doc in state.knowledge_records})},
+    )
     store.save()
     return state_response(state, surface="world_graph", results=results)
 

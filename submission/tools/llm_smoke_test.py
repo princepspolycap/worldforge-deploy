@@ -35,9 +35,10 @@ TASKS = {
         ),
         "user": (
             f"Brief: {COMPANY_BRIEF}\n\n"
-            "Return JSON: {\"chapters\": [ {title, goal, owner_role, success_metric, "
-            "depends_on:[...]}, ... ]} with 5 chapters covering: discovery, positioning, "
-            "MVP, GTM, retention. owner_role in {strategist, designer, marketer, ops}."
+            "Return JSON: {\"stages\": [ {title, goal, owner_role, success_metric, "
+            "depends_on:[...]}, ... ]} with 8 stages covering Dan Harmon's beats: "
+            "YOU, NEED, GO, SEARCH, FIND, TAKE, RETURN, CHANGE. "
+            "owner_role in {strategist, designer, marketer, ops}."
         ),
     },
     "strategist": {

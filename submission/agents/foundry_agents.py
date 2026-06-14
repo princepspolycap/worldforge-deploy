@@ -179,7 +179,7 @@ def _normalize_steps(steps: Any, pitch: str) -> List[Dict[str, Any]]:
     invalid enum values. We force every field to the schema's expected type and
     pin role + artifact_type by position so QuestStep(**step) can never raise
     mid-demo and the downstream handoff order stays correct. Mirrors
-    world_designer._normalize_chapters.
+    world_designer._normalize_stages.
     """
     model_steps = steps if isinstance(steps, list) else []
     out: List[Dict[str, Any]] = []

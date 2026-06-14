@@ -7,7 +7,7 @@ adding explicit contract metadata for future frontend splits.
 
 from typing import Any, Dict, Optional
 
-from state.schema import Chapter, CompanyState, QuestStep, WorkerInvocation
+from state.schema import Stage, CompanyState, QuestStep, WorkerInvocation
 
 
 CONTRACT_VERSION = "2026-06-11.game-backend.v1"
@@ -16,7 +16,7 @@ FLOW_STAGES = [
     "founder_intake",
     "org_design",
     "world_design",
-    "chapter_execution",
+    "stage_execution",
     "artifact_validation",
     "human_gate",
     "xp_memory_replay",
@@ -66,16 +66,16 @@ def step_response(state: CompanyState, step: QuestStep, **extra: Any) -> Dict[st
     )
 
 
-def chapter_response(
+def stage_response(
     state: CompanyState,
-    chapter: Chapter,
+    stage: Stage,
     invocation: WorkerInvocation,
     **extra: Any,
 ) -> Dict[str, Any]:
     return state_response(
         state,
         surface="world_graph",
-        chapter=chapter.model_dump(),
+        stage=stage.model_dump(),
         invocation=invocation.model_dump(),
         **extra,
     )

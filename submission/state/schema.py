@@ -24,6 +24,46 @@ class FounderState(BaseModel):
     avatar: str = "/game/assets/generated/narrator.png"
 
 
+class SearchDocument(BaseModel):
+    """One document shaped for the Azure AI Search index behind Foundry IQ.
+
+    The same contract is used for static playbooks and generated run knowledge
+    (founder profile, digital workers, stages, choices). That keeps ingestion
+    keyless and inspectable before anything is pushed to Azure.
+    """
+    id: str
+    title: str
+    content: str
+    source: str
+    kind: str = "playbook"
+    tags: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class FounderProfile(BaseModel):
+    """Structured character sheet inferred from a URL or pitch.
+
+    This is the durable seed for the roguelike run: world generation, worker
+    briefs, antagonist design, and optional IQ ingestion all read this shape
+    instead of reaching back into raw scrape dictionaries.
+    """
+    source: str = "pitch"              # pitch | url
+    source_ref: str = ""
+    source_kind: str = ""
+    host: str = ""
+    company_summary: str = ""
+    what_they_sell: str = ""
+    target_customer: str = ""
+    business_model: str = ""
+    founder_archetype: str = "Builder"
+    founder_skill: str = "building product"
+    signals: List[str] = Field(default_factory=list)
+    brief: str = ""
+    scraped: bool = False
+    osint_hits: int = 0
+    mode: str = "simulation"
+
+
 class AntagonistState(BaseModel):
     """The competitive antagonist or villain — the antithesis of the founder's archetype.
 
@@ -39,6 +79,141 @@ class AntagonistState(BaseModel):
     signature_tactic: str = ""  # The key move the antagonist uses (narrative tension point)
     target_customer_overlap: str = ""  # Where their ICP overlaps with founder's target
     motivation: str = ""  # Why this antagonist exists/competes (story depth)
+
+
+class AntagonistMove(BaseModel):
+    """One pressure move the antagonist makes in response to player progress."""
+    id: str
+    day_index: int = 0
+    stage_id: str = ""
+    title: str = ""
+    tactic: str = ""
+    pressure_type: str = "market"  # market | technical | cultural | financial | operational
+    target_metric: str = "trust"
+    pressure_delta: int = 0
+    narrative: str = ""
+    counterplay: str = ""
+    source_rule_id: str = ""
+    resolved: bool = False
+
+
+class AntagonistArc(BaseModel):
+    """Run-long antagonist pressure track.
+
+    AntagonistState names the villain. This arc stores what the villain is
+    actively doing to the run: pressure level, moves, and open counterplay.
+    """
+    antagonist_name: str = ""
+    threat_level: int = 10
+    escalation_stage: str = "watching"  # watching | probing | contesting | crisis | endgame
+    current_pressure: str = ""
+    moves: List[AntagonistMove] = Field(default_factory=list)
+    open_counterplays: List[str] = Field(default_factory=list)
+
+
+class WorkerPartyMember(BaseModel):
+    """Game-facing state for a digital worker in the party."""
+    worker_id: str
+    title: str
+    role: str = ""
+    lifecycle_stage: str = ""
+    status: str = "ready"  # ready | assigned | tired | blocked | retired
+    morale: int = 70
+    fatigue: int = 0
+    trust: int = 60
+    current_stage_id: str = ""
+    tools: List[str] = Field(default_factory=list)
+    traits: List[str] = Field(default_factory=list)
+
+
+class InventoryItem(BaseModel):
+    """A proof artifact, tool, alliance, or resource earned during the run."""
+    id: str
+    name: str
+    kind: str = "artifact"  # artifact | tool | alliance | proof | constraint
+    description: str = ""
+    source_stage_id: str = ""
+    owner_worker_id: str = ""
+    effects: Dict[str, Any] = Field(default_factory=dict)
+    tags: List[str] = Field(default_factory=list)
+
+
+class EncounterState(BaseModel):
+    """One playable room/encounter in a run day."""
+    id: str
+    day_index: int
+    stage_id: str
+    kind: str = "stage"  # stage | dilemma | antagonist | verification | standup
+    title: str = ""
+    status: str = "open"  # open | resolved | failed
+    worker_ids: List[str] = Field(default_factory=list)
+    choice_ids: List[str] = Field(default_factory=list)
+    antagonist_move_id: str = ""
+    artifact_keys: List[str] = Field(default_factory=list)
+    reward_item_ids: List[str] = Field(default_factory=list)
+
+
+class GameCard(BaseModel):
+    """One playable card in the founder's deck."""
+    id: str
+    name: str
+    kind: str = "tactic"  # tactic | worker | proof | counterplay | resource
+    cost: int = 1
+    description: str = ""
+    owner_worker_id: str = ""
+    source: str = "starter"  # starter | stage_reward | choice_reward
+    effects: Dict[str, Any] = Field(default_factory=dict)
+    tags: List[str] = Field(default_factory=list)
+    upgraded: bool = False
+    exhausts: bool = False
+
+
+class PlayerMove(BaseModel):
+    """One explicit player action in the card-building layer."""
+    id: str
+    turn_index: int
+    day_index: int = 0
+    stage_id: str = ""
+    move_type: str = "play_card"  # play_card | choose_option | draw | end_turn | reward_card
+    card_id: str = ""
+    target_id: str = ""
+    energy_spent: int = 0
+    summary: str = ""
+    effects_applied: Dict[str, Any] = Field(default_factory=dict)
+
+
+class GameRunState(BaseModel):
+    """Durable roguelike layer over the business simulation."""
+    run_id: str = "run_default"
+    mode: str = "simulation"
+    day_index: int = 0
+    turn_index: int = 0
+    loop_phase: str = "founding"  # founding | explore | dilemma | execute | verify | aftermath | complete
+    max_energy: int = 3
+    energy: int = 3
+    draw_per_turn: int = 4
+    deck: List[GameCard] = Field(default_factory=list)
+    hand: List[GameCard] = Field(default_factory=list)
+    discard: List[GameCard] = Field(default_factory=list)
+    exhaust: List[GameCard] = Field(default_factory=list)
+    pending_rewards: List[GameCard] = Field(default_factory=list)
+    move_log: List[PlayerMove] = Field(default_factory=list)
+    party: List[WorkerPartyMember] = Field(default_factory=list)
+    inventory: List[InventoryItem] = Field(default_factory=list)
+    encounters: List[EncounterState] = Field(default_factory=list)
+    antagonist_arc: AntagonistArc = Field(default_factory=AntagonistArc)
+    # Deterministic run variance (seeded shuffle / event outcomes).
+    rng_seed: int = 0
+    rng_state: int = 0
+    # Run lifecycle.
+    run_status: str = "active"  # active | victory | defeat
+    victory_reason: str = ""
+    defeat_reason: str = ""
+    unlocks: List[str] = Field(default_factory=list)
+    # Route layer: graph of rooms and the currently available choices.
+    route_rooms: List[Dict[str, Any]] = Field(default_factory=list)
+    current_room_id: str = ""
+    available_room_ids: List[str] = Field(default_factory=list)
 
 
 class CharacterRuntimeState(BaseModel):
@@ -128,14 +303,14 @@ class CompanyEconomics(BaseModel):
 # World graph: the richer structure produced by WorldDesigner.
 # ---------------------------------------------------------------------------
 
-class Chapter(BaseModel):
-    """A chapter in the venture world graph."""
+class Stage(BaseModel):
+    """A stage in the venture world graph — one beat of the Hero's Journey."""
     id: str
     title: str
     goal: str
     owner_role: str  # strategist | designer | marketer | ops (artifact archetype)
     success_metric: str = ""
-    depends_on: List[str] = Field(default_factory=list)  # chapter IDs
+    depends_on: List[str] = Field(default_factory=list)  # stage IDs
     suggested_tools: List[str] = Field(default_factory=list)
     status: str = "not-started"  # not-started, in-progress, completed, failed
     artifact: Optional[Dict[str, Any]] = None
@@ -145,13 +320,13 @@ class Chapter(BaseModel):
     # validators (simulation). The UI fills the gate bar from these dimensions.
     rubric: Optional[Dict[str, Any]] = None
     # Binding to the dynamically designed digital worker (OrgBlueprint role) that
-    # owns this chapter. Set by the Worker Factory's scheduler; closes the seam
+    # owns this stage. Set by the Worker Factory's scheduler; closes the seam
     # between the org the LLM designs and the agents that do the work.
     assigned_worker_id: Optional[str] = None
     assigned_worker_title: Optional[str] = None
-    # The CEO decision made at this chapter's dilemma gate (game_design.md
+    # The CEO decision made at this stage's dilemma gate (game_design.md
     # section 5): {prompt, option (label picked), tradeoff, custom (bool)}.
-    # Written by the dilemma endpoint; recalled in later chapter briefs so
+    # Written by the dilemma endpoint; recalled in later stage briefs so
     # choices visibly chain (memory is what makes a choice feel real).
     dilemma_choice: Optional[Dict[str, Any]] = None
 
@@ -159,7 +334,7 @@ class Chapter(BaseModel):
 class WorkerInvocation(BaseModel):
     """Record of a worker being spawned by the factory."""
     id: str
-    chapter_id: str
+    stage_id: str
     role: str                 # archetype that drives prompt + validators
     worker_id: str = ""       # designed OrgRole id this invocation embodies
     worker_title: str = ""    # designed OrgRole title (shown in the story)
@@ -171,7 +346,7 @@ class WorkerInvocation(BaseModel):
     tokens_out: int = 0
     reasoning_tokens: int = 0          # hidden "thinking" tokens the model spent
     reasoning_preview: str = ""        # short excerpt of chain-of-thought, if exposed
-    # Tools the worker drew from the Toolbox for this chapter (diegetic: the
+    # Tools the worker drew from the Toolbox for this stage (diegetic: the
     # rail names them before the artifact appears).
     tools_drawn: List[str] = Field(default_factory=list)
     # The actual tools/call ledger for this run - one entry per real call
@@ -200,13 +375,49 @@ class WorkerInvocation(BaseModel):
 class WorldGraph(BaseModel):
     """Full venture world produced by the WorldDesigner."""
     brief: str = ""
-    chapters: List[Chapter] = Field(default_factory=list)
+    stages: List[Stage] = Field(default_factory=list)
     invocations: List[WorkerInvocation] = Field(default_factory=list)
-    current_chapter_index: int = 0
+    current_stage_index: int = 0
     status: str = "not-started"  # not-started, active, completed
-    # Session memory: every gate decision in order - {chapter_id, chapter_title,
+    # Session memory: every gate decision in order - {stage_id, stage_title,
     # option, tradeoff}. Worker briefs and narration recall from this ledger.
     decisions: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class ChoiceRecord(BaseModel):
+    """Typed CEO choice ledger entry.
+
+    WorldGraph.decisions stays dict-shaped for existing prompt code; this model
+    is the stable storage/search contract for roguelike choice state.
+    """
+    id: str
+    day_index: int = 0
+    stage_id: str
+    stage_title: str = ""
+    prompt: str = ""
+    option_id: str = ""
+    option: str = ""
+    tradeoff: str = ""
+    rule_id: str = ""
+    scene_id: str = ""
+    custom: bool = False
+    consequence_summary: str = ""
+    consequence: Dict[str, Any] = Field(default_factory=dict)
+
+
+class WorldDay(BaseModel):
+    """One playable day/room in the roguelike run.
+
+    A day ties together the stage, the workers active in that room, the CEO
+    choice made there, and the resulting resource snapshot.
+    """
+    day_index: int
+    stage_id: str
+    title: str = ""
+    status: str = "active"  # active | completed
+    worker_ids: List[str] = Field(default_factory=list)
+    choice_id: str = ""
+    resource_snapshot: Dict[str, Any] = Field(default_factory=dict)
 
 class QuestStep(BaseModel):
     id: str
@@ -229,14 +440,14 @@ class QuestState(BaseModel):
 
 
 class Dilemma(BaseModel):
-    """A situational choice at a chapter gate that moves the story forward.
+    """A situational choice at a stage gate that moves the story forward.
     
     Based on the founder archetype, antagonist, and market dynamics, the dilemma
     presents a tradeoff: hiring a specialist (spend money, gain capability) vs
     upskilling the founder (save money, slow progress), etc.
     """
     id: str
-    chapter_id: str
+    stage_id: str
     title: str  # e.g., "Hire or Train?"
     context: str  # Narrative framing that explains why this choice matters now
     antagonist_move: str  # What the antagonist did that created this dilemma
@@ -254,11 +465,16 @@ class CompanyState(BaseModel):
     xp: int = 0
     level: int = 1
     founder: Optional[FounderState] = None
+    founder_profile: Optional[FounderProfile] = None
     antagonist: Optional[AntagonistState] = None
     active_quest: Optional[QuestState] = None
     world: Optional[WorldGraph] = None
     org: Optional[OrgBlueprint] = None
     economics: CompanyEconomics = Field(default_factory=CompanyEconomics)
+    knowledge_records: List[SearchDocument] = Field(default_factory=list)
+    choices: List[ChoiceRecord] = Field(default_factory=list)
+    days: List[WorldDay] = Field(default_factory=list)
+    game: GameRunState = Field(default_factory=GameRunState)
     agents: Dict[str, CharacterState] = Field(default_factory=dict)
     business_flags: Dict[str, bool] = Field(default_factory=dict)
     streak: int = 0

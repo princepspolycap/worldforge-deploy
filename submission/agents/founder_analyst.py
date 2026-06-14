@@ -1,14 +1,15 @@
-"""CompanyAnalyst/ProfileAnalyst agent: scrape a public URL, then reason.
+"""FounderAnalyst (ProfileAnalyst) agent: scrape a public URL, then reason.
 
 This is the first reasoning hop on the URL path. It scrapes a public page into
 structured signal (title, description, headings, CTAs), then a Foundry reasoning
-agent distills that into a clean profile. For company/mission pages, that means
-what the mission or business does. For LinkedIn/public profile pages, that means
-what the founder appears strong at and which starting archetype fits.
+agent distills that into a clean founder profile. For LinkedIn/public profile
+pages, that means what the founder appears strong at and which starting
+archetype fits; for mission pages, what the mission does. When the page is
+restricted, the open web is cross-referenced instead so real signal still lands.
 
-    URL -> scrape -> reason about the profile/mission -> design the org -> build it.
+    URL -> scrape -> reason about the founder/mission -> design the org -> build it.
 
-Deployment preference: STRATEGIST_MODEL (company analysis is strategy work);
+Deployment preference: STRATEGIST_MODEL (profile analysis is strategy work);
 falls back to NARRATOR_MODEL, then to a deterministic distillation of the
 scraped signal so the whole path runs after a fresh `git clone` with zero Azure.
 """
@@ -21,6 +22,7 @@ from urllib.parse import urlparse
 
 from agents.model_config import get_foundry_client, is_live, model_for, runtime_mode, create_chat_completion
 from agents.retrieval import scrape_company, web_search
+from state import profile_cache
 
 
 SYSTEM = (
@@ -55,6 +57,39 @@ _STOPWORDS = {
     "the", "and", "for", "with", "your", "our", "you", "we", "are", "that", "this",
     "from", "into", "home", "homepage", "welcome", "inc", "llc", "ltd", "co", "com",
 }
+
+# Auth-wall / nav / boilerplate phrases that restricted pages (LinkedIn most of
+# all) leak into the scraped title/headings/CTAs. They carry zero operating
+# signal about the founder, so they must be dropped before reaching `signals`
+# and the org brief. Matched case-insensitively as substrings.
+_JUNK_SIGNAL_PATTERNS = re.compile(
+    r"(?i)("
+    r"sign\s?in|sign\s?up|log\s?in|join\s?(now|to view|linkedin)|"
+    r"agree\s?(&|and)\s?join|new to linkedin|create (an )?account|forgot password|"
+    r"welcome back|email or phone|continue with|by clicking continue|user agreement|"
+    r"privacy policy|cookie (policy|preferences)|terms of (service|use)|"
+    r"see who you know|people (also viewed|you may know)|"
+    r"full profile|this button displays|skip to|click here"
+    r")"
+)
+
+
+def _clean_signals(signals: Any, limit: int = 5) -> List[str]:
+    """Drop auth-wall/nav/boilerplate phrases and dedup, preserving order.
+
+    Single source of truth for signal hygiene: every profile path routes its
+    final `signals` through here so junk from a restricted page never reaches
+    the org brief or the story UI. Always returns a list (never raises)."""
+    if not isinstance(signals, list):
+        signals = [signals] if signals else []
+    out: List[str] = []
+    for raw in signals:
+        text = str(raw).strip()
+        if not text or _JUNK_SIGNAL_PATTERNS.search(text):
+            continue
+        if text not in out:
+            out.append(text)
+    return out[:limit]
 
 
 def _extract_json(content: str) -> Optional[Dict]:
@@ -295,6 +330,94 @@ def _domain_only_profile(url: str) -> Dict[str, Any]:
     }
 
 
+def _humanize_handle(handle: str) -> str:
+    """Turn a profile slug into a display name: 'princeps-polycap' -> 'Princeps
+    Polycap'. Drops trailing hex id segments LinkedIn sometimes appends."""
+    if not handle:
+        return ""
+    cleaned = re.sub(r"[-_]+", " ", handle).strip()
+    parts = [p for p in cleaned.split() if not re.fullmatch(r"[0-9a-f]{6,}", p)]
+    return " ".join(w.capitalize() for w in (parts or cleaned.split()))[:60]
+
+
+def _osint_role_phrase(titles: List[str]) -> str:
+    """Pull the role/affiliation half out of an OSINT title, e.g.
+    'Princeps Polycap - Founder @ Poly186' -> 'Founder @ Poly186'. Skips bare
+    platform tails (YouTube, LinkedIn) that carry no operating signal."""
+    skip = {"youtube", "linkedin", "x", "twitter", "instagram", "facebook", "medium", "github"}
+    for title in titles:
+        for sep in (" - ", " \u2013 ", " \u2014 ", " | ", ": "):
+            if sep in title:
+                tail = title.split(sep, 1)[1].strip()
+                if tail and tail.lower() not in skip:
+                    return tail[:120]
+    return ""
+
+
+def _osint_fallback_profile(url: str, osint: Dict[str, Any]) -> Dict[str, Any]:
+    """Deterministic profile pieced together from public-web OSINT when the page
+    itself is restricted. Turns real findings ('... - Founder @ Poly186') into a
+    usable summary instead of a bare 'not readable' note - so the detected signal
+    actually reaches the game even on a keyless clone (no Foundry)."""
+    host = urlparse(url).netloc or url
+    handle = _linkedin_handle(url)
+    name = _humanize_handle(handle) or host
+    titles = [str(h.get("title") or "").strip() for h in osint.get("hits", []) if h.get("title")]
+    role = _osint_role_phrase(titles)
+    inferred = _infer_founder_archetype(f'{osint.get("blob", "")} {handle}', url)
+    if role:
+        summary = f"{name}: {role}. Public profile pieced together from open-web findings."
+        what = role
+    else:
+        summary = f"{name} - a public profile signal cross-referenced from the open web."
+        what = "founder profile signal assembled from public-web findings"
+    return {
+        "company_summary": summary[:240],
+        "what_they_sell": what[:200],
+        "target_customer": "the people this founder's work serves",
+        "business_model": "Profile-first mission design",
+        "source_kind": _source_kind(url),
+        **inferred,
+        "signals": (osint.get("signals") or [])[:5] or [f"Domain: {host}"],
+    }
+
+
+def _osint_profile(url: str, osint: Dict[str, Any]) -> Dict[str, Any]:
+    """Reason a real profile from public-web OSINT when the page is restricted.
+    Live mode runs the Profile Analyst over the findings; otherwise a
+    deterministic distillation. Either way the open-web signal reaches the game
+    instead of degrading to a 'page not readable' default."""
+    host = urlparse(url).netloc or url
+    handle = _linkedin_handle(url)
+    blob = osint.get("blob") or ""
+    client = get_foundry_client()
+    deployment = model_for("strategist") or model_for("narrator")
+    if client and deployment and is_live() and blob:
+        user = USER_TEMPLATE.format(
+            host=host,
+            source_kind=_source_kind(url),
+            title=_humanize_handle(handle) or host,
+            description="(the page itself was restricted - reason from the open-web findings)",
+            headings="(none)",
+            ctas="(none)",
+            excerpt="(page not readable without authentication)",
+            web_findings=blob[:1200],
+        )
+        try:
+            resp = create_chat_completion(
+                deployment,
+                [{"role": "system", "content": SYSTEM},
+                 {"role": "user", "content": user}],
+                max_completion_tokens=1200,
+            )
+            parsed = _extract_json(resp.choices[0].message.content or "")
+            if parsed and parsed.get("company_summary"):
+                return parsed
+        except Exception:
+            pass
+    return _osint_fallback_profile(url, osint)
+
+
 def _compose_brief(profile: Dict[str, Any], scraped: Optional[Dict[str, Any]], url: str) -> str:
     host = (scraped or {}).get("host") or urlparse(url).netloc or url
     lines = [
@@ -312,14 +435,28 @@ def _compose_brief(profile: Dict[str, Any], scraped: Optional[Dict[str, Any]], u
     return "\n".join(line for line in lines if line.strip())[:1400]
 
 
-def analyze_company(url: str) -> Dict[str, Any]:
-    """Scrape `url`, reason about the business, and return a company profile.
+def analyze_founder_profile(url: str) -> Dict[str, Any]:
+    """Scrape `url`, reason about the founder/mission, and return a profile.
 
     Returns a dict: {company_summary, what_they_sell, target_customer,
     business_model, signals, brief, host, source, scraped, mode}. `brief` is the
     clean, structured seed handed to the Org Designer. Never raises - degrades to
     a domain-only profile so the demo cannot hard-fail on a bad URL.
+
+    URL-keyed cache: players don't log in, but the profile URL is a stable key,
+    so a previously analyzed URL is reused instead of re-scraping/re-reasoning.
     """
+    cached = profile_cache.get(url)
+    if cached is not None:
+        return cached
+    profile = _analyze_founder_profile_uncached(url)
+    profile_cache.put(url, profile)
+    return profile
+
+
+def _analyze_founder_profile_uncached(url: str) -> Dict[str, Any]:
+    """The expensive path: live scrape + OSINT + Foundry reasoning. See
+    analyze_founder_profile for the cached public entry point."""
     host = urlparse(url).netloc or url
     scraped = scrape_company(url)
     # Public-web OSINT once per analyze, only for person/profile URLs - this is
@@ -327,14 +464,25 @@ def analyze_company(url: str) -> Dict[str, Any]:
     osint = osint_enrich(url) if _source_kind(url) in _PROFILE_SOURCE_KINDS else {"signals": [], "blob": "", "hits": []}
 
     if not scraped:
-        profile = _domain_only_profile(url)
+        if osint.get("blob"):
+            # The page was restricted, but the open web knows this person - reason
+            # a real profile from the OSINT instead of a bare domain default, so
+            # the detected signal actually reaches the game.
+            profile = _osint_profile(url, osint)
+        else:
+            profile = _domain_only_profile(url)
+        # Merge OSINT signals (dedup) and seat the archetype from them if the
+        # chosen profile path left it open.
         if osint["signals"]:
-            # OSINT is the strongest signal we have when the page won't load:
-            # merge web findings and re-seat the archetype from them.
-            profile["signals"] = (profile["signals"] + osint["signals"])[:6]
+            merged = list(profile.get("signals") or [])
+            for sig in osint["signals"]:
+                if sig not in merged:
+                    merged.append(sig)
+            profile["signals"] = merged[:6]
             inferred = _infer_founder_archetype(f'{osint["blob"]} {_linkedin_handle(url)}', url)
-            profile["founder_archetype"] = inferred["founder_archetype"]
-            profile["founder_skill"] = inferred["founder_skill"]
+            profile.setdefault("founder_archetype", inferred["founder_archetype"])
+            profile.setdefault("founder_skill", inferred["founder_skill"])
+        profile["signals"] = _clean_signals(profile.get("signals"), limit=6)
         profile.update({
             "brief": _compose_brief(profile, None, url),
             "host": host,
@@ -388,7 +536,7 @@ def analyze_company(url: str) -> Dict[str, Any]:
     signals = profile.get("signals")
     if not isinstance(signals, list):
         signals = [str(signals)] if signals else []
-    profile["signals"] = [str(s) for s in signals][:5]
+    profile["signals"] = _clean_signals(signals, limit=5)
     profile.setdefault("what_they_sell", "")
     profile.setdefault("target_customer", "")
     profile.setdefault("business_model", "")
@@ -405,7 +553,12 @@ def analyze_company(url: str) -> Dict[str, Any]:
     )
     profile["founder_archetype"] = str(profile.get("founder_archetype") or inferred["founder_archetype"])
     profile["founder_skill"] = str(profile.get("founder_skill") or inferred["founder_skill"])
-    profile["company_summary"] = str(profile.get("company_summary") or "").strip() or _domain_only_profile(url)["company_summary"]
+    summary = str(profile.get("company_summary") or "").strip()
+    # A restricted page can leak an auth-wall line into the summary too; fall
+    # back to the domain default rather than seed the brief with boilerplate.
+    if not summary or _JUNK_SIGNAL_PATTERNS.search(summary):
+        summary = _domain_only_profile(url)["company_summary"]
+    profile["company_summary"] = summary
     profile["brief"] = _compose_brief(profile, scraped, url)
     profile["host"] = host
     profile["source"] = url

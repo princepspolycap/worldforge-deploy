@@ -81,7 +81,7 @@ recall -> visibly different artifact. That loop is the game.
 
 **Everything leaves evidence.** Every invocation logs four proof points -
 iq_hits, memory_injected, tools_called, inference_usage - into the replay
-log's CHAPTER_EXECUTED events, on every path including simulation. Memory
+log's STAGE_EXECUTED events, on every path including simulation. Memory
 writes log MEMORY_WRITTEN events. The smoke test's evidence path fails the
 build if any chapter ships without proof. When a judge asks "did the agents
 actually do anything?", the answer is a grep, not a claim.

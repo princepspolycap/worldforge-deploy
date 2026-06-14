@@ -1,7 +1,7 @@
 """Simulator for the pivoted World-Improvement Campaign loop (Path B).
 
-Exercises profile/pitch intake, dynamic org analysis, Harmon's story circle chapters,
-chapter execution, dilemma gates, consequence rules, and multi-agent standups.
+Exercises profile/pitch intake, dynamic org analysis, Harmon's story circle stages,
+stage execution, dilemma gates, consequence rules, and multi-agent standups.
 """
 from __future__ import annotations
 
@@ -15,11 +15,11 @@ from pathlib import Path
 SUBMISSION_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(SUBMISSION_DIR))
 
-from state.schema import StateStore, Chapter, OrgBlueprint, WorldGraph
+from state.schema import StateStore, Stage, OrgBlueprint, WorldGraph
 from state.consequences import apply_decision_consequence
 from agents.org_designer import design_org
 from agents.world_designer import design_world
-from agents.worker_factory import execute_chapter, bind_world_to_org
+from agents.worker_factory import execute_stage, bind_world_to_org
 from state.consequences import RULES
 
 
@@ -67,12 +67,12 @@ def run_campaign_simulation(pitch: str, url: str | None = None) -> None:
             print(f"  * Worker: {role.title:<28} | Cost: ${role.monthly_cost_usd}/mo | Stage: {role.lifecycle_stage}")
             print(f"    Mandate: {role.mandate}")
 
-    # 3. World Design: construct the 5-chapter world graph (Harmon Story Circle)
+    # 3. World Design: construct the 8-stage world graph (Harmon Story Circle)
     print("\n🌐 Constructing the venture Campaign Graph...")
-    chapters_data = design_world(pitch)
+    stages_data = design_world(pitch)
     world = WorldGraph(
         brief=pitch,
-        chapters=[Chapter(**ch) if isinstance(ch, dict) else ch for ch in chapters_data],
+        stages=[Stage(**ch) if isinstance(ch, dict) else ch for ch in stages_data],
         status="active"
     )
     bindings = bind_world_to_org(world, state.org)
@@ -80,54 +80,58 @@ def run_campaign_simulation(pitch: str, url: str | None = None) -> None:
     store.save()
 
     print(f"\n📜 Venture Campaign Graph (Story Circle):")
-    for idx, ch in enumerate(world.chapters, start=1):
+    for idx, ch in enumerate(world.stages, start=1):
         worker_title = ch.assigned_worker_title or "Unassigned"
-        print(f"  [{idx}] Chapter: {ch.title}")
+        print(f"  [{idx}] Stage: {ch.title}")
         print(f"      Goal: {ch.goal}")
         print(f"      Metric: {ch.success_metric}")
         print(f"      Owner Worker: {worker_title}")
 
-    # 4. Campaign Chapter Loop
+    # 4. Campaign Stage Loop
     previous_artifacts = []
     
     # Canned dilemmas for local offline simulation
-    from tools.server import _CANNED_DILEMMAS, _enrich_dilemma_options, _scene_speaker_for_chapter, _build_standup_turns
+    from tools.server import _canned_dilemma_for_stage, _enrich_dilemma_options, _build_standup_turns
 
-    for idx, chapter in enumerate(world.chapters, start=1):
+    for idx, stage in enumerate(world.stages, start=1):
         print("\n" + "=" * 70)
-        print(f"🚩 CHAPTER {idx}/5: {chapter.title}")
-        print(f"Owner Active: {chapter.assigned_worker_title}")
+        print(f"🚩 STAGE {idx}/8: {stage.title}")
+        print(f"Owner Active: {stage.assigned_worker_title}")
         print("-" * 70)
 
-        # Execute Chapter
-        world.current_chapter_index = idx - 1
-        invocation, artifact, score = execute_chapter(
-            chapter, world.brief, previous_artifacts, org=state.org, decisions=world.decisions
+        # Execute Stage
+        world.current_stage_index = idx - 1
+        invocation, artifact, score = execute_stage(
+            stage, world.brief, previous_artifacts, org=state.org, decisions=world.decisions
         )
         world.invocations.append(invocation)
+        artifact = artifact or {}
         if artifact:
-            chapter.artifact = artifact
-            chapter.validation_score = score
             previous_artifacts.append(artifact)
-        chapter.status = "completed" if score >= 80 else "needs-review"
+        stage.artifact = artifact
+        stage.validation_score = score
+        stage.status = "completed" if score >= 80 else "needs-review"
         
         # Award XP
         xp_earned = 10 + (score // 10)
         state.xp += xp_earned
         
-        print(f"\n📦 Artifact Produced by {chapter.assigned_worker_title}:")
-        for k, v in list(artifact.items())[:3]:
-            print(f"   * {k}: {v}")
-        if len(artifact) > 3:
-            print(f"   * ... ({len(artifact) - 3} more fields)")
+        print(f"\n📦 Artifact Produced by {stage.assigned_worker_title}:")
+        if artifact:
+            for k, v in list(artifact.items())[:3]:
+                print(f"   * {k}: {v}")
+            if len(artifact) > 3:
+                print(f"   * ... ({len(artifact) - 3} more fields)")
+        else:
+            print("   * No artifact produced; invocation failed or returned an empty payload.")
 
         print(f"\n⚖️  Validation Score: {score}/100")
         print(f"   XP Earned: +{xp_earned} (Total XP: {state.xp})")
 
         # 5. Pose Dilemma Card
         print("\n⚖️  Strategic Dilemma Card Posed:")
-        canned = _CANNED_DILEMMAS.get(chapter.owner_role, _CANNED_DILEMMAS["strategist"])
-        enriched_options = _enrich_dilemma_options(state, chapter, canned["options"])
+        canned = _canned_dilemma_for_stage(stage)
+        enriched_options = _enrich_dilemma_options(state, stage, canned["options"])
         
         print(f"   Prompt: \"{canned['prompt']}\"")
         for i, opt in enumerate(enriched_options, start=1):
@@ -140,7 +144,7 @@ def run_campaign_simulation(pitch: str, url: str | None = None) -> None:
         print(f"\n🛡️  CEO decision made: Selected Option [1] -> \"{selected_opt['option']}\"")
         
         # Apply Consequence
-        old_entry = next((d for d in world.decisions if d.get("chapter_id") == chapter.id), None)
+        old_entry = next((d for d in world.decisions if d.get("stage_id") == stage.id), None)
         choice = {
             "prompt": canned["prompt"],
             "option": selected_opt["option"],
@@ -148,16 +152,16 @@ def run_campaign_simulation(pitch: str, url: str | None = None) -> None:
             "custom": False,
             "rule_id": selected_opt["rule_id"],
             "option_id": selected_opt["id"],
-            "scene_id": f"{chapter.id}:dilemma"
+            "scene_id": f"{stage.id}:dilemma"
         }
-        consequence = apply_decision_consequence(state, chapter, choice, old_entry=old_entry)
+        consequence = apply_decision_consequence(state, stage, choice, old_entry=old_entry)
         choice["rule_id"] = consequence["rule_id"]
         choice["consequence"] = consequence
         choice["consequence_summary"] = consequence["summary"]
-        chapter.dilemma_choice = choice
+        stage.dilemma_choice = choice
         
-        entry = {"chapter_id": chapter.id, "chapter_title": chapter.title, **choice}
-        world.decisions = [d for d in world.decisions if d.get("chapter_id") != chapter.id]
+        entry = {"stage_id": stage.id, "stage_title": stage.title, **choice}
+        world.decisions = [d for d in world.decisions if d.get("stage_id") != stage.id]
         world.decisions.append(entry)
         store.save()
 
@@ -165,7 +169,7 @@ def run_campaign_simulation(pitch: str, url: str | None = None) -> None:
 
         # 6. Multi-Agent Standup
         print("\n💬 Multi-Agent Standup Reaction:")
-        turns, context = _build_standup_turns(state, chapter, entry)
+        turns, context = _build_standup_turns(state, stage, entry)
         for turn in turns:
             print(f"   [{turn['speaker']} ({turn['role'].capitalize()})]:")
             print(f"     \"{turn['message']}\"")

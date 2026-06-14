@@ -65,6 +65,11 @@
             --hand-card-h: 236px;
             --dialogue-bottom: calc(var(--hand-bottom) + var(--hand-card-h) + 22px);
             --lower-stage-reserve: calc(var(--dialogue-bottom) + 102px);
+            /* breathing - one shared resting rhythm (~13 breaths/min) so every
+               living component pulses together. Components opt in via .breathing
+               and a local --breathe-glow color. */
+            --breathe-dur: 4.6s;
+            --breathe-ease: cubic-bezier(.4, 0, .2, 1);
         }
 
         * { box-sizing: border-box; }
@@ -394,9 +399,9 @@
 
         /* ---- Stupid-simple character creation card ---- */
         .creator-card {
-            width: min(440px, 100%);
+            width: min(520px, 100%);
             display: flex; flex-direction: column; gap: 16px;
-            padding: 28px 26px 26px;
+            padding: 32px 30px 30px;
             border: 1px solid rgba(91,140,255,0.22);
             border-radius: var(--radius-xl);
             background: linear-gradient(180deg, rgba(12,18,32,0.82), rgba(7,10,20,0.7));
@@ -412,7 +417,7 @@
         }
         .first-step .creator-card h1 {
             margin: -4px 0 4px; font-family: var(--font-display); font-weight: 600;
-            font-size: 34px; line-height: 1.0; letter-spacing: -0.01em;
+            font-size: 40px; line-height: 1.0; letter-spacing: -0.01em;
             background: var(--title-grad);
             -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
             filter: none;
@@ -484,6 +489,129 @@
         .cc-mic-status { font-family: var(--font-mono); font-size: 9px; color: var(--ink-faint); margin-top: 0; }
         .is-hidden { display: none !important; }
 
+        /* ---- Breathing: one shared resting rhythm for living components ----
+           Opt in with .breathing; set --breathe-glow to the component's color. */
+        @keyframes breathe {
+            0%, 100% { transform: scale(1);
+                       box-shadow: 0 0 0 0 var(--breathe-glow, rgba(91,140,255,0)); }
+            50%      { transform: scale(1.012);
+                       box-shadow: 0 0 18px 1px var(--breathe-glow, rgba(91,140,255,0.28)); }
+        }
+        .breathing { animation: breathe var(--breathe-dur) var(--breathe-ease) infinite; }
+
+        /* Burn glow: the burn metric bar should read as "burning". The bar fill
+           is colored #fb7185 inline (story.js), so target it and give it a
+           breathing hot glow + inner ember gradient. Answers "the burn glows, I
+           didn't notice him." */
+        .party-metric-track span[style*="fb7185"],
+        .cc-metric-track span[style*="fb7185"] {
+            background-image: linear-gradient(90deg, rgba(251,113,133,0.75), #fb7185) !important;
+            --breathe-glow: rgba(251,113,133,0.7);
+            animation: breathe 3s var(--breathe-ease) infinite;
+            transform-origin: left center;
+        }
+        /* The Begin seal and the active agent breathe at the shared rate. */
+        .first-step.enter .cta { --breathe-glow: rgba(245,200,122,0.4); }
+        .party-agent.active .pa-front {
+            --breathe-glow: rgba(245,200,122,0.32);
+            animation: breathe var(--breathe-dur) var(--breathe-ease) infinite;
+        }
+
+        /* ---- Glitch: scramble settles, then a faint RGB-split flicker keeps
+           text alive. JS (game/anim.js) drives the decode; this is the floor so
+           an offline fork still shimmers. data-text mirrors the resolved string. */
+        @keyframes glitchShift {
+            0%, 92%, 100% { text-shadow: none; transform: none; }
+            94% { text-shadow: -1px 0 rgba(91,140,255,0.6), 1px 0 rgba(251,113,133,0.55); transform: translateX(0.5px); }
+            96% { text-shadow: 1px 0 rgba(91,140,255,0.6), -1px 0 rgba(251,113,133,0.55); transform: translateX(-0.5px); }
+            98% { text-shadow: -1px 0 rgba(45,212,191,0.5), 1px 0 rgba(245,200,122,0.5); transform: none; }
+        }
+        .glitch-alive { animation: glitchShift 5.2s steps(60) infinite; }
+
+        /* ---- Live preflight console: the "show, don't tell" character build ----
+           Replaces the silent loading moment. Each stage scramble-decodes in,
+           then locks with a status tick. Lives inside the creator card. */
+        .cc-console { display: flex; flex-direction: column; gap: 11px; }
+        .cc-console .kicker {
+            font-family: var(--font-mono); font-size: 10.5px;
+            letter-spacing: 0.34em; text-transform: uppercase; color: #bcd2ff; margin: 0;
+        }
+        .cc-con-stages { display: flex; flex-direction: column; gap: 9px; margin-top: 2px; }
+        .cc-con-stage {
+            display: grid; grid-template-columns: 16px 92px 1fr; align-items: center;
+            gap: 10px; opacity: 0; transform: translateY(12px);
+        }
+        .cc-con-pip {
+            width: 7px; height: 7px; border-radius: 50%; justify-self: center;
+            background: var(--ink-faint); transition: background 240ms ease, box-shadow 240ms ease;
+        }
+        .cc-con-stage.run .cc-con-pip {
+            background: var(--blue); box-shadow: 0 0 10px 1px rgba(91,140,255,0.6);
+            --breathe-glow: rgba(91,140,255,0.55);
+            animation: breathe var(--breathe-dur) var(--breathe-ease) infinite;
+        }
+        .cc-con-stage.done .cc-con-pip { background: var(--good); box-shadow: 0 0 8px 0 rgba(52,211,153,0.5); }
+        .cc-con-stage.fault .cc-con-pip { background: var(--bad); box-shadow: 0 0 8px 0 rgba(251,113,133,0.6); }
+        .cc-con-tag {
+            font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.16em;
+            text-transform: uppercase; color: var(--ink-dim);
+        }
+        .cc-con-stage.run .cc-con-tag { color: var(--blue-soft); }
+        .cc-con-stage.done .cc-con-tag { color: var(--good-soft); }
+        .cc-con-stage.fault .cc-con-tag { color: var(--bad); }
+        .cc-con-text {
+            font-family: var(--font-body); font-size: 13px; line-height: 1.35; color: var(--ink);
+            min-height: 1.35em;
+        }
+        .cc-con-text.mono { font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.02em; }
+        /* Resting loop: a light sweep crosses the active stage's text so it reads
+           as "working" even while it holds for the model. CSS-only, GPU-cheap. */
+        .cc-con-stage.run .cc-con-text {
+            background-image: linear-gradient(100deg,
+                var(--ink) 0%, var(--ink) 38%, #ffffff 50%, var(--ink) 62%, var(--ink) 100%);
+            background-size: 220% 100%;
+            -webkit-background-clip: text; background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: textSheen 2.4s linear infinite;
+        }
+        @keyframes textSheen { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+        .cc-con-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; grid-column: 3; }
+        .cc-con-chip {
+            font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em;
+            color: var(--blue-soft, #bcd2ff); padding: 3px 8px; border-radius: 999px;
+            border: 1px solid rgba(91,140,255,0.28); background: rgba(91,140,255,0.06);
+            opacity: 0; transform: translateY(8px);
+        }
+
+        /* Live source detection under the URL field as the founder types. */
+        .cc-source-echo {
+            font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em;
+            color: var(--ink-faint); min-height: 1.2em; transition: color 200ms ease;
+        }
+        .cc-source-echo.hit { color: var(--good-soft); }
+        .cc-source-echo .pip {
+            display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+            background: var(--good); margin-right: 6px; vertical-align: middle;
+            box-shadow: 0 0 8px 0 rgba(52,211,153,0.6);
+        }
+        /* Mic listening: a record dot + equalizer bars. */
+        .cc-mic-eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; margin-left: 4px; }
+        .cc-mic-eq span {
+            width: 2px; height: 30%; background: var(--bad); border-radius: 1px;
+            transform-origin: bottom; animation: eqBounce 900ms ease-in-out infinite;
+        }
+        .cc-mic-eq span:nth-child(2) { animation-delay: 150ms; }
+        .cc-mic-eq span:nth-child(3) { animation-delay: 300ms; }
+        .cc-mic-eq span:nth-child(4) { animation-delay: 450ms; }
+        @keyframes eqBounce { 0%, 100% { transform: scaleY(0.35); } 50% { transform: scaleY(1); } }
+        .cc-mic-btn.listening { border-color: var(--bad); color: var(--bad); }
+        .cc-mic-rec {
+            display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+            background: var(--bad); margin-right: 6px; vertical-align: middle;
+            --breathe-glow: rgba(251,113,133,0.7);
+            animation: breathe 1.6s var(--breathe-ease) infinite;
+        }
+
         /* Begin button while the preflight gathers the profile. */
         .first-step .creator-card .cta.is-loading {
             opacity: 0.7; cursor: progress; filter: grayscale(0.2);
@@ -491,6 +619,12 @@
         /* Ready confirmation: shown after the preflight has actually fetched the
            profile, so the run never starts before we have the information. */
         .cc-ready { display: flex; flex-direction: column; gap: 12px; }
+        /* Resume-run banner injected above the creator form when a prior run is found */
+        .resume-card { background: rgba(91,140,255,0.08); border: 1px solid rgba(91,140,255,0.3); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; }
+        .resume-kicker { font-size: 11px; font-family: var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--blue); }
+        .resume-company { font-size: 18px; font-weight: 700; color: var(--ink); }
+        .resume-progress { font-size: 12px; color: var(--ink-dim); }
+        .resume-actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
         .cc-ready .kicker {
             font-family: var(--font-mono); font-size: 10.5px;
             letter-spacing: 0.34em; text-transform: uppercase; color: #bcd2ff; margin: 0;
@@ -506,6 +640,12 @@
         }
         .cc-ready-arch, .cc-ready-stat { font-size: 12.5px; color: var(--ink-dim); }
         .cc-ready-arch b, .cc-ready-stat b { color: var(--gold-soft, #f5c87a); }
+        .cc-ready-rival { font-size: 12.5px; color: var(--ink-dim); }
+        .cc-ready-rival b { color: var(--bad, #f87171); }
+        .cc-reused {
+            font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em;
+            text-transform: uppercase; color: var(--good-soft, #7ee0b8);
+        }
         .cc-ready .cta { margin-top: 6px; }
         .cc-ready .cc-back { align-self: center; margin-top: 2px; }
         /* Two-step flow: only the active step shows; steps fade/slide in. */
@@ -583,6 +723,8 @@
            Without .enter the text is fully visible, so it can never get stuck
            hidden on a browser that drops the animation. */
         @keyframes fsRise { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: none; } }
+        @keyframes fsFall { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(14px); } }
+        .cc-ready.cc-leave { animation: fsFall 200ms cubic-bezier(.4,0,1,1) both; }
         .first-step.enter .kicker { animation: fsRise 760ms cubic-bezier(0.2,0.7,0.2,1) both; }
         .first-step.enter h1      { animation: fsRise 900ms cubic-bezier(0.2,0.7,0.2,1) 140ms both; }
         .first-step.enter p       { animation: fsRise 820ms cubic-bezier(0.2,0.7,0.2,1) 320ms both; }
@@ -594,6 +736,14 @@
             .first-step .cta,
             .first-step.enter .kicker, .first-step.enter h1,
             .first-step.enter p, .first-step.enter .cta { animation: none; }
+            .breathing, .glitch-alive,
+            .party-agent.active .pa-front,
+            .cc-con-stage.run .cc-con-pip,
+            .party-metric-track span[style*="fb7185"],
+            .cc-metric-track span[style*="fb7185"],
+            .cc-mic-rec { animation: none !important; }
+            .cc-mic-eq span { animation: none !important; }
+            .cc-con-stage.run .cc-con-text { animation: none !important; -webkit-text-fill-color: var(--ink); }
         }
 
         /* Founding scene: replaces the form the moment the descent begins. */
@@ -669,6 +819,35 @@
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             max-width: 46%;
         }
+        #scene-status {
+            position: absolute; top: 58px; left: 44px; right: 400px; z-index: 5;
+            display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+            opacity: 0; transform: translateY(-4px);
+            transition: opacity 220ms ease, transform 220ms ease;
+            pointer-events: none;
+        }
+        #scene-status.show { opacity: 1; transform: none; }
+        .scene-chip {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-family: var(--font-mono); font-size: 9px;
+            letter-spacing: 0.08em; text-transform: uppercase;
+            color: var(--ink-dim);
+            border: 1px solid rgba(29,39,64,0.9); border-radius: var(--radius-pill);
+            background: rgba(7,10,20,0.58);
+            padding: 3px 9px;
+            max-width: min(42vw, 420px);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .scene-chip b {
+            color: var(--ink);
+            font-weight: 600;
+            text-transform: none;
+            letter-spacing: 0.02em;
+        }
+        .scene-chip.source b { color: var(--blue-soft); }
+        .scene-chip.actor b { color: var(--ops); }
+        .scene-chip.speaker b { color: var(--gold-soft); }
+        .scene-chip.progress b { color: var(--designer-soft); }
 
         /* ---- Side rail: floating glass column, collapsible ---- */
         #rail {
@@ -886,7 +1065,7 @@
             position: fixed; left: 44px; right: 44px; bottom: var(--hand-bottom); z-index: 18;
             display: flex; align-items: flex-end; justify-content: center; flex-wrap: nowrap;
             gap: 12px; padding: 14px 6px 6px;
-            overflow-x: auto; overflow-y: hidden;
+            overflow-x: auto; overflow-y: visible;
             pointer-events: none;
         }
         body.prestart #party { display: none; }
@@ -896,6 +1075,7 @@
             width: 168px; height: var(--hand-card-h);
             perspective: 1100px;
             pointer-events: auto; cursor: pointer;
+            transform-origin: 50% 100%;
             transition: transform 200ms cubic-bezier(.2,.7,.2,1);
         }
         .pa-inner {
@@ -905,7 +1085,7 @@
         }
         .party-agent.flipped .pa-inner { transform: rotateY(180deg); }
         /* a flipped/active card lifts out of the hand to read */
-        .party-agent.flipped { transform: translateY(-14px); z-index: 40; }
+        .party-agent.flipped { transform: translateY(-34px) scale(1.14); z-index: 92; }
         .party-agent.active:not(.flipped) { transform: translateY(-10px); }
         .pa-face {
             position: absolute; inset: 0;
@@ -1505,6 +1685,28 @@
         .dilemma-opt small { display: inline-block; margin-top: 7px; font-family: var(--font-mono);
             font-size: 10px; color: var(--ink-faint); letter-spacing: 0.04em; }
         .dilemma-opt:disabled { opacity: 0.55; cursor: wait; }
+        #reward-overlay {
+            position: fixed; inset: 0; z-index: 61; display: flex; align-items: center;
+            justify-content: center; background: rgba(2,5,13,0.72); -webkit-backdrop-filter: blur(9px);
+            backdrop-filter: blur(9px);
+        }
+        #reward-overlay[hidden] { display: none; }
+        .reward-card-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .reward-pick {
+            text-align: left; min-height: 170px; border: 1px solid var(--line);
+            border-radius: 12px; padding: 13px; color: var(--ink);
+            background: rgba(255,255,255,0.03); cursor: pointer; transition: 140ms ease;
+        }
+        .reward-pick:hover:not(:disabled) { border-color: var(--gold-soft); background: rgba(244,201,93,0.08); transform: translateY(-1px); }
+        .reward-pick:disabled { opacity: 0.55; cursor: wait; }
+        .reward-pick b { display: block; font-family: var(--font-display); font-size: 17px; line-height: 1.12; margin-bottom: 8px; }
+        .reward-pick span { display: block; font-size: 12px; color: var(--ink-dim); line-height: 1.4; }
+        .reward-pick em { display: block; margin-top: 11px; font-style: normal; font-family: var(--font-mono); font-size: 10px; color: var(--gold-soft); }
+        @media (max-width: 760px) {
+            .reward-card-list { grid-template-columns: 1fr; }
+            .card-hand { order: 3; flex-basis: 100%; max-width: none; }
+            footer { flex-wrap: wrap; }
+        }
         .dilemma-own { margin-top: 10px; }
         .dilemma-own .own b { color: var(--ink-dim); }
         #dilemma-own-wrap { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
@@ -1591,7 +1793,14 @@
             border-top: 1px solid rgba(29,39,64,0.55);
             background: linear-gradient(0deg, rgba(7,10,20,0.78), rgba(7,10,20,0.3) 80%, transparent);
             -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+            transition: opacity 180ms ease, transform 180ms ease;
         }
+        body.party-flipped footer {
+            opacity: 0.24;
+            transform: translateY(22px);
+            pointer-events: none;
+        }
+        body.party-flipped #party { z-index: 88; }
         .progress { display: flex; align-items: center; gap: 7px; }
         .footer-left { display: flex; align-items: center; gap: 18px; min-width: 0; }
         /* Active worker mini in the footer (identity only; receipts on cards) */
@@ -1615,6 +1824,46 @@
         }
         .econ-pill i { font-style: normal; color: var(--ops); }
         .econ-pill b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+        .card-hand {
+            flex: 1 1 420px; min-width: 260px; max-width: 760px;
+            display: flex; align-items: center; gap: 8px; overflow-x: auto;
+            padding: 2px 4px 4px;
+        }
+        .card-hand[hidden] { display: none; }
+        .hand-stat {
+            flex: 0 0 auto; min-width: 86px;
+            font-family: var(--font-mono); font-size: 9px; line-height: 1.35;
+            color: var(--ink-dim); border: 1px solid var(--line);
+            border-radius: var(--radius-sm); padding: 6px 8px;
+            background: rgba(255,255,255,0.025);
+        }
+        .hand-stat b { display: block; color: var(--gold-soft); font-size: 12px; font-weight: 600; }
+        .game-card-btn {
+            flex: 0 0 132px; min-height: 50px; text-align: left;
+            color: var(--ink); border: 1px solid rgba(44,58,94,0.72);
+            border-radius: var(--radius-sm); padding: 7px 8px;
+            background: linear-gradient(180deg, rgba(12,18,32,0.92), rgba(7,10,20,0.8));
+            cursor: pointer; transition: 140ms ease;
+        }
+        .game-card-btn:hover:not(:disabled) { border-color: var(--gold-soft); transform: translateY(-1px); }
+        .game-card-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .game-card-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+        .game-card-name {
+            font-family: var(--font-display); font-size: 12px; line-height: 1.05;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .game-card-cost {
+            flex: 0 0 auto; min-width: 18px; height: 18px; border-radius: 50%;
+            display: inline-flex; align-items: center; justify-content: center;
+            font-family: var(--font-mono); font-size: 10px; color: var(--ink-on-accent);
+            background: var(--gold-grad);
+        }
+        .game-card-kind {
+            margin-top: 4px; font-family: var(--font-mono); font-size: 8px;
+            letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .game-card-btn.pending { border-color: rgba(244,201,93,0.38); }
         .seg { width: 30px; height: 4px; border-radius: 999px; background: rgba(255,255,255,0.08); transition: background 300ms ease; }
         .seg.done { background: var(--blue); }
         .seg.active { background: linear-gradient(90deg, var(--blue), var(--designer)); box-shadow: 0 0 12px rgba(91,140,255,0.6); }
@@ -1631,6 +1880,17 @@
         .btn.ghost { color: var(--ink-dim); }
 
         .hint { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); }
+
+          /* Runtime compact mode (set by story.js based on viewport): trims
+              footer verbosity so medium screens still read like a game HUD. */
+          body.compact-ui footer { padding: 8px 12px 10px; gap: 8px; }
+          body.compact-ui .footer-left { gap: 10px; }
+          body.compact-ui .hud-worker { max-width: 260px; }
+          body.compact-ui .hud-worker-deploy { display: none; }
+          body.compact-ui .econ-hud { gap: 8px; }
+          body.compact-ui .econ-pill { font-size: 9.5px; padding: 4px 9px; }
+          body.compact-ui .controls { gap: 8px; }
+          body.compact-ui .hint { display: none; }
 
         /* Mermaid node entrance: fade only. NEVER animate transform here -
            mermaid uses transform:translate(x,y) to POSITION each node, so
@@ -1890,6 +2150,452 @@
             font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-faint);
         }
         .mic-status.live { color: var(--bad); }
+
+        /* ---- Gameplay responsiveness ---- */
+        @media (max-width: 1200px) {
+            #scene {
+                padding-left: 24px;
+                padding-right: 24px;
+            }
+            #scene-head {
+                left: 24px;
+                right: 24px;
+            }
+            #party {
+                left: 24px;
+                right: 24px;
+            }
+            #narration {
+                padding: 0 24px;
+            }
+            footer {
+                padding-left: 16px;
+                padding-right: 16px;
+            }
+        }
+
+        @media (max-width: 980px) {
+            :root {
+                --footer-h: 58px;
+                --hand-bottom: 132px;
+                --hand-card-h: 208px;
+                --dialogue-bottom: calc(var(--hand-bottom) + var(--hand-card-h) + 16px);
+                --lower-stage-reserve: calc(var(--dialogue-bottom) + 84px);
+            }
+            #scene {
+                padding: 56px 16px var(--lower-stage-reserve) 16px;
+            }
+            #scene-head {
+                top: 16px;
+                left: 16px;
+                right: 16px;
+                gap: 10px;
+            }
+            #scene-status {
+                top: 50px;
+                left: 16px;
+                right: 16px;
+            }
+            #scene-title {
+                font-size: 18px;
+            }
+            .prov-chip {
+                max-width: 60%;
+            }
+            #diagram svg {
+                max-height: 52vh !important;
+            }
+            #party {
+                left: 16px;
+                right: 16px;
+                gap: 8px;
+                padding: 10px 2px 4px;
+            }
+            .party-agent {
+                width: 152px;
+            }
+            #cast-stage.inspect {
+                left: 12px;
+                width: min(52vw, 360px);
+                height: min(66vh, 540px);
+                bottom: calc(var(--hand-bottom) + 8px);
+            }
+            #narration {
+                padding: 0 16px;
+            }
+            #narration-line {
+                width: min(560px, calc(100vw - 32px));
+            }
+            footer {
+                padding: 10px 12px 12px;
+                gap: 10px;
+                align-items: flex-start;
+                flex-wrap: wrap;
+            }
+            .footer-left {
+                order: 1;
+                flex: 1 1 100%;
+                gap: 10px;
+                flex-wrap: wrap;
+            }
+            .hud-worker {
+                flex: 1 1 260px;
+                max-width: none;
+            }
+            .econ-hud {
+                flex: 1 1 240px;
+                justify-content: flex-end;
+            }
+            .card-hand {
+                order: 3;
+                flex: 1 1 100%;
+                min-width: 0;
+                max-width: none;
+            }
+            .controls {
+                order: 2;
+                margin-left: auto;
+            }
+        }
+
+        @media (max-width: 760px) {
+            :root {
+                --hand-bottom: 176px;
+                --hand-card-h: 162px;
+                --dialogue-bottom: calc(var(--hand-bottom) + var(--hand-card-h) + 14px);
+                --lower-stage-reserve: calc(var(--dialogue-bottom) + 72px);
+            }
+            #scene {
+                padding: 86px 12px var(--lower-stage-reserve) 12px;
+            }
+            #scene-head {
+                top: 10px;
+                left: 12px;
+                right: 12px;
+                flex-wrap: wrap;
+                row-gap: 8px;
+            }
+            #scene-status {
+                top: 70px;
+                left: 12px;
+                right: 12px;
+            }
+            .scene-chip { max-width: 100%; }
+            .party-agent.flipped { transform: translateY(-26px) scale(1.1); }
+            body.party-flipped footer { transform: translateY(10px); opacity: 0.2; }
+            .prov-chip {
+                max-width: 100%;
+                flex: 1 1 100%;
+            }
+            #diagram svg {
+                max-height: 42vh !important;
+            }
+            .world-canvas::before {
+                inset: -10px;
+            }
+            #party {
+                left: 12px;
+                right: 12px;
+                gap: 6px;
+                padding: 8px 1px 2px;
+            }
+            .party-agent {
+                width: 132px;
+            }
+            #narration {
+                padding: 0 12px;
+            }
+            #narration-line {
+                width: calc(100vw - 24px);
+                padding: 11px 12px 12px;
+            }
+            #narration-text {
+                font-size: clamp(13px, 3.6vw, 15px);
+            }
+            #cast-stage.inspect {
+                left: 10px;
+                right: 10px;
+                width: auto;
+                height: min(58vh, 500px);
+                bottom: calc(var(--footer-h) + 8px);
+            }
+            .cast-dossier {
+                max-height: 58%;
+            }
+            #theater {
+                padding: 36px 16px 116px;
+            }
+            footer {
+                padding: 8px 10px 10px;
+                gap: 8px;
+            }
+            .controls {
+                width: 100%;
+                justify-content: flex-end;
+                gap: 8px;
+            }
+            .hint {
+                display: none;
+            }
+            .game-card-btn {
+                flex-basis: 120px;
+            }
+        }
+
+        @media (max-width: 520px) {
+            :root {
+                --hand-bottom: 212px;
+                --hand-card-h: 146px;
+                --dialogue-bottom: calc(var(--hand-bottom) + var(--hand-card-h) + 12px);
+                --lower-stage-reserve: calc(var(--dialogue-bottom) + 64px);
+            }
+            #scene {
+                padding-top: 96px;
+            }
+            #scene-title {
+                font-size: 16px;
+            }
+            #scene-status { top: 82px; }
+            .scene-chip.speaker,
+            .scene-chip.source { display: none; }
+            .party-agent.flipped { transform: translateY(-20px) scale(1.08); }
+            #diagram svg {
+                max-height: 36vh !important;
+            }
+            #party {
+                justify-content: flex-start;
+            }
+            .party-agent {
+                width: 116px;
+            }
+            .party-face {
+                width: 34px;
+                height: 34px;
+            }
+            .party-name {
+                font-size: 11.5px;
+            }
+            .party-role {
+                font-size: 7px;
+            }
+            .party-line {
+                min-height: 0;
+                -webkit-line-clamp: 1;
+            }
+            .party-badge {
+                font-size: 7px;
+            }
+            .hud-worker-deploy {
+                display: none;
+            }
+            #worker-name {
+                font-size: 13px;
+            }
+            .hud-worker-state {
+                font-size: 9px;
+            }
+            .econ-pill {
+                font-size: 9.5px;
+                padding: 4px 9px;
+            }
+            .controls {
+                justify-content: space-between;
+            }
+            .btn {
+                padding: 8px 12px;
+                font-size: 12px;
+            }
+            .iconbtn {
+                width: 32px;
+                height: 32px;
+            }
+            #cast-stage.inspect {
+                left: 8px;
+                right: 8px;
+                height: min(56vh, 460px);
+            }
+        }
+
+        /* World State Visualization */
+        .world-state-rail {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            padding: 16px;
+            background: rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            max-width: 380px;
+            margin-top: 16px;
+        }
+
+        .journey-map {
+            flex: 1;
+        }
+
+        .journey-header {
+            font-size: 12px;
+            font-weight: 600;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        }
+
+        .journey-stages {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .journey-node {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .node-marker {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            font-weight: 700;
+            font-size: 11px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            color: rgba(255, 255, 255, 0.6);
+            transition: all 0.3s ease;
+        }
+
+        .node-marker.current {
+            background: var(--role-color);
+            border-color: var(--role-color);
+            color: white;
+            box-shadow: 0 0 12px rgba(var(--role-color-rgb), 0.6);
+        }
+
+        .node-marker.completed {
+            background: rgba(76, 175, 80, 0.3);
+            border-color: #4CAF50;
+            color: #4CAF50;
+        }
+
+        .node-num {
+            display: block;
+        }
+
+        .node-label {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .node-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.9);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .node-role {
+            font-size: 9px;
+            color: rgba(255, 255, 255, 0.5);
+            margin-top: 2px;
+        }
+
+        .node-status {
+            font-size: 8px;
+            color: rgba(255, 255, 255, 0.4);
+            margin-top: 2px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .journey-arrow {
+            height: 16px;
+            margin-left: 15px;
+            border-left: 2px dashed rgba(255, 255, 255, 0.2);
+        }
+
+        .state-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .state-section {
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.04);
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .state-label {
+            font-size: 10px;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.4);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .state-company {
+            font-size: 13px;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.95);
+        }
+
+        .state-pitch {
+            font-size: 10px;
+            color: rgba(255, 255, 255, 0.6);
+            font-style: italic;
+            margin-top: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .state-metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11px;
+            margin-bottom: 6px;
+        }
+
+        .state-metric:last-child {
+            margin-bottom: 0;
+        }
+
+        .metric-label {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .metric-value {
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .decision-item {
+            font-size: 10px;
+            color: rgba(255, 255, 255, 0.7);
+            margin-bottom: 4px;
+            word-break: break-word;
+        }
+
+        .decision-item:last-child {
+            margin-bottom: 0;
+        }
+
+        @media (max-width: 800px) {
+            .world-state-rail {
+                max-width: 100%;
+                margin-top: 12px;
+            }
+        }
     </style>
 </head>
 <body class="prestart">
@@ -1900,6 +2606,12 @@
                     <span id="scene-beat" class="beat-pill">Beat</span>
                     <span id="scene-title"></span>
                     <span id="scene-prov" class="prov-chip" hidden></span>
+                </div>
+                <div id="scene-status" aria-hidden="true">
+                    <span class="scene-chip progress">chapter <b id="scene-progress">1/1</b></span>
+                    <span class="scene-chip actor">active <b id="scene-actor">World Designer</b></span>
+                    <span class="scene-chip speaker">speaking <b id="scene-speaking">The Worldkeeper</b></span>
+                    <span class="scene-chip source">source <b id="scene-source">live session</b></span>
                 </div>
 
                 <!-- Reasoning theater: while a worker reasons, its plan takes the
@@ -1913,6 +2625,11 @@
                      demand, so the stage stays quiet until the player asks for
                      receipts. -->
                 <div id="cast-stage" aria-hidden="true"></div>
+
+                <div id="world-state-rail" class="world-state-rail" aria-hidden="true">
+                    <div id="world-journey-map" class="journey-map"></div>
+                    <div id="world-state-panel" class="state-panel"></div>
+                </div>
 
                 <div id="diagram">
                     <div class="title-card fade-scene first-step">
@@ -1982,6 +2699,7 @@
                      global thing worth tracking (everything else is per-agent). -->
                 <div id="econ-hud" class="econ-hud"></div>
             </div>
+            <div id="card-hand" class="card-hand" hidden></div>
             <div class="controls">
                 <span id="hint" class="hint">Enter a pitch to begin</span>
                 <button id="mute" class="iconbtn" title="Toggle audio">&#9834;</button>
@@ -2019,6 +2737,14 @@
         </div>
     </div>
 
+    <div id="reward-overlay" hidden>
+        <div class="dilemma-card">
+            <div class="dilemma-kicker">Card draft &middot; choose one reward</div>
+            <div id="reward-prompt" class="dilemma-prompt">Pick one card for the run deck.</div>
+            <div id="reward-options" class="reward-card-list"></div>
+        </div>
+    </div>
+
     <!-- Lore / tutorial intro: the game introduces itself before the first pitch.
          Fully skippable (Skip button / Esc). Append ?intro=0 to bypass on reload. -->
     <div id="intro-overlay" aria-hidden="false">
@@ -2031,7 +2757,7 @@
     </div>
 
     <script src="/game/game/audio.js?v=11"></script>
-    <script type="module" src="/game/game/story.js?v=156"></script>
+    <script type="module" src="/game/game/story.js?v=164"></script>
     <script src="/game/game/intro.js?v=30"></script>
 </body>
 </html>

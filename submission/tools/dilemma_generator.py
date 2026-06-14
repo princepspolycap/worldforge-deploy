@@ -1,13 +1,13 @@
 """Dilemma Generator — creates situational choice points in the story.
 
-Every chapter that completes leads to a dilemma: a narrative choice that moves
+Every stage that completes leads to a dilemma: a narrative choice that moves
 economics, narrative momentum, and player agency forward. Dilemmas are generated
 dynamically based on:
 
   1. Founder archetype (what they're naturally good/bad at)
   2. Antagonist strategy (what the competitor is doing)
   3. Current economics (cash, velocity, burn)
-  4. Chapter outcome (what just succeeded or almost failed)
+  4. Stage outcome (what just succeeded or almost failed)
 
 Each dilemma is a tradeoff that echoes real business pressures: speed vs.
 quality, hiring vs. training, market grab vs. sustainability, etc.
@@ -129,22 +129,22 @@ DILEMMA_TEMPLATES = {
 
 
 def generate_dilemma(
-    chapter_id: str,
-    chapter_title: str,
+    stage_id: str,
+    stage_title: str,
     founder: Optional[FounderState] = None,
     antagonist: Optional[AntagonistState] = None,
     economics: Optional[CompanyEconomics] = None,
     suggested_template: str = "speed_vs_quality",
 ) -> Dilemma:
-    """Generate a situational dilemma at a chapter completion gate.
+    """Generate a situational dilemma at a stage completion gate.
 
     The dilemma is rooted in the founder's archetype gap, the antagonist's move,
     and current economics. It offers two paths, each with narrative and economic
     consequences the player must weigh.
 
     Args:
-        chapter_id: The chapter that just completed
-        chapter_title: What the chapter accomplished
+        stage_id: The stage that just completed
+        stage_title: What the stage accomplished
         founder: The player's character (to refine framing)
         antagonist: The competitive force (to add threat urgency)
         economics: Current business metrics (to make tradeoffs meaningful)
@@ -165,7 +165,7 @@ def generate_dilemma(
     gap_domain = gap_info["weakness"]
 
     context = f"""
-    {founder_name}, your recent move ({chapter_title.lower()}) got your attention.
+    {founder_name}, your recent move ({stage_title.lower()}) got your attention.
     {antagonist_name} is responding. You're at a crossroads.
     """
 
@@ -194,8 +194,8 @@ def generate_dilemma(
         option_b["id"] = template["option_b"]["id"]
 
     dilemma = Dilemma(
-        id=f"dlm_{chapter_id}",
-        chapter_id=chapter_id,
+        id=f"dlm_{stage_id}",
+        stage_id=stage_id,
         title=template["title"],
         context=context.strip() + f"\n\n{threat_msg}",
         antagonist_move=antagonist.signature_tactic if antagonist else "The market has shifted.",
@@ -268,9 +268,9 @@ def apply_dilemma_choice(
     }
 
 
-def suggest_dilemma_for_chapter(chapter_id: str, founder_archetype: str) -> str:
-    """Suggest which dilemma template fits a given chapter and founder archetype."""
-    if "retention" in chapter_id or "ops" in chapter_id:
+def suggest_dilemma_for_stage(stage_id: str, founder_archetype: str) -> str:
+    """Suggest which dilemma template fits a given stage and founder archetype."""
+    if "stage_8" in stage_id or "change" in stage_id:
         return "cooperative_vs_shareholder"
     # Simple heuristic: match founder weakness to dilemma
     suggestions = {
