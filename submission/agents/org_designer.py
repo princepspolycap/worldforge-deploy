@@ -17,6 +17,12 @@ import re
 from typing import Any, Dict, List, Optional
 
 from agents.model_config import get_foundry_client, is_live, model_for, create_chat_completion
+from agents.worker_economics import (
+    WORKER_MODEL,
+    human_median_fallback_usd,
+    projected_monthly_cost_usd,
+    worker_unit_price,
+)
 
 
 SYSTEM = (
@@ -74,42 +80,9 @@ Rules:
 - Keep `why` concrete and educational.
 """
 
-# Stage -> default monthly cost for a digital worker (compute + tooling). Used
-# ONLY as a simulation/fallback when the model did not reason a per-role cost
-# (e.g. no Foundry credentials). Live runs use the model's own per-role numbers.
-_STAGE_COST = {
-    "discovery": 120,
-    "positioning": 140,
-    "mvp": 220,
-    "gtm": 180,
-    "retention": 160,
-    "ops": 150,
-}
-
-# Present-world human median: a FALLBACK estimate of what a person in this seat
-# would cost per month (fully-loaded market salary / 12), used only when the
-# model did not supply human_median_usd. Live runs let the agent reason the
-# real per-role salary for the specific company/domain on the fly. Keyed by
-# lifecycle stage, then nudged up for a "lead" seat.
-_HUMAN_MEDIAN_USD = {
-    "discovery": 7000,
-    "positioning": 11000,
-    "mvp": 10500,
-    "gtm": 7500,
-    "retention": 6500,
-    "ops": 8500,
-}
-_LEAD_MEDIAN_MULTIPLIER = 1.4
-
-
-def _human_median_for(stage: str, seniority: str, kind: str) -> int:
-    """Fallback median monthly salary for this seat when the model gives none."""
-    if kind == "human":
-        return 0  # the founder/operator takes no salary in this model
-    base = _HUMAN_MEDIAN_USD.get(stage, 8000)
-    if (seniority or "").lower() == "lead":
-        base = int(base * _LEAD_MEDIAN_MULTIPLIER)
-    return base
+# Present-world human median is reasoned per-role on the fly in live runs; the
+# coarse stage fallback now lives in worker_economics.human_median_fallback_usd
+# (single source shared with mid-game hires in state/consequences.py).
 
 
 def _short_label(brief: str, words: int = 6) -> str:
@@ -189,7 +162,7 @@ def _fallback_blueprint(brief: str) -> Dict[str, Any]:
             "deployment_hint": "reasoning",
             "lifecycle_stage": "discovery",
             "seniority": "ic",
-            "monthly_cost_usd": _STAGE_COST["discovery"],
+            "monthly_cost_usd": 0,
             "why": "Most vibe-coded apps die from building before validating. This worker keeps you honest about demand.",
         },
         {
@@ -203,7 +176,7 @@ def _fallback_blueprint(brief: str) -> Dict[str, Any]:
             "deployment_hint": "reasoning",
             "lifecycle_stage": "positioning",
             "seniority": "lead",
-            "monthly_cost_usd": _STAGE_COST["positioning"],
+            "monthly_cost_usd": 0,
             "why": "Without a sharp niche, marketing has nothing to amplify. This is the spine the rest of the org hangs off.",
         },
         {
@@ -217,7 +190,7 @@ def _fallback_blueprint(brief: str) -> Dict[str, Any]:
             "deployment_hint": "creative",
             "lifecycle_stage": "mvp",
             "seniority": "ic",
-            "monthly_cost_usd": _STAGE_COST["mvp"],
+            "monthly_cost_usd": 0,
             "why": "Your skill becomes leverage only when it is productized. This worker turns it into something repeatable.",
         },
         {
@@ -231,7 +204,7 @@ def _fallback_blueprint(brief: str) -> Dict[str, Any]:
             "deployment_hint": "creative",
             "lifecycle_stage": "gtm",
             "seniority": "ic",
-            "monthly_cost_usd": _STAGE_COST["gtm"],
+            "monthly_cost_usd": 0,
             "why": "A product nobody hears about is a hobby. This worker is the distribution your business runs on.",
         },
         {
@@ -245,7 +218,7 @@ def _fallback_blueprint(brief: str) -> Dict[str, Any]:
             "deployment_hint": "fast",
             "lifecycle_stage": "retention",
             "seniority": "ic",
-            "monthly_cost_usd": _STAGE_COST["retention"],
+            "monthly_cost_usd": 0,
             "why": "Selling once is marketing; selling again is a business. This worker protects the revenue you already won.",
         },
     ]
@@ -284,18 +257,23 @@ def _normalize_role(raw: Dict[str, Any], idx: int) -> Dict[str, Any]:
     if not isinstance(tools, list):
         tools = [str(tools)]
 
-    cost = raw.get("monthly_cost_usd")
+    # The worker's real RUN cost: the model is asked for monthly_cost_usd as the
+    # model-inference + tooling cost of running THIS worker. This IS the burn -
+    # the player pays the honest, cheap cost of running a digital workforce.
+    run_cost = raw.get("monthly_cost_usd")
     try:
-        cost = int(cost)
-    except Exception:
-        cost = 0 if kind == "human" else _STAGE_COST.get(stage, 150)
+        run_cost = int(run_cost)
+        if kind != "human" and run_cost <= 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        run_cost = 0 if kind == "human" else projected_monthly_cost_usd(hint, WORKER_MODEL)
 
     reports_to = raw.get("reports_to")
     reports_to = _slugify(str(reports_to)) if reports_to else None
 
-    # Prefer the agent's own per-role human-equivalent salary (reasoned on the
-    # fly for this specific company/domain/seat). Only fall back to the coarse
-    # stage estimate when the model gave nothing usable.
+    # What a HUMAN in this seat would cost today (fully-loaded salary / 12),
+    # reasoned per-role by the model or a coarse fallback. This is NOT charged -
+    # it is the savings headline: human-equivalent minus the real run cost.
     if kind == "human":
         human_median = 0
     else:
@@ -304,7 +282,7 @@ def _normalize_role(raw: Dict[str, Any], idx: int) -> Dict[str, Any]:
             if human_median <= 0:
                 raise ValueError
         except (TypeError, ValueError):
-            human_median = _human_median_for(stage, str(raw.get("seniority") or "ic"), kind)
+            human_median = human_median_fallback_usd(stage, str(raw.get("seniority") or "ic"))
 
     return {
         "id": role_id,
@@ -317,7 +295,9 @@ def _normalize_role(raw: Dict[str, Any], idx: int) -> Dict[str, Any]:
         "deployment_hint": hint,
         "lifecycle_stage": stage,
         "seniority": str(raw.get("seniority") or "ic").lower(),
-        "monthly_cost_usd": max(0, cost),
+        "monthly_cost_usd": max(0, run_cost),
+        "inference_usd": max(0, run_cost),
+        "runs_on_model": "" if kind == "human" else WORKER_MODEL,
         "human_median_usd": human_median,
         "why": str(raw.get("why") or ""),
     }
@@ -369,10 +349,13 @@ def _finalize(blueprint: Dict[str, Any], brief: str, source: str, source_ref: st
     burn = sum(r["monthly_cost_usd"] for r in roles)
     leverage = round(len(digital) / max(1, human_count), 1)
 
-    # Present-world benchmark: what this same team would cost as humans, and the
-    # savings the digital workforce buys. This is the "burn vs median" story.
-    human_equivalent = sum(r.get("human_median_usd", 0) for r in roles)
-    monthly_savings = max(0, human_equivalent - burn)
+    # Burn is the honest cost of RUNNING the digital workforce (cheap model
+    # inference + tooling). The savings headline is what the same seats would
+    # cost as humans, minus that real run cost - the leverage of going digital.
+    total_inference = sum(int(r.get("inference_usd", 0) or 0) for r in roles)
+    human_equiv = sum(int(r.get("human_median_usd", 0) or 0) for r in roles)
+    savings = max(0, human_equiv - burn)
+    price_in, price_out = worker_unit_price(WORKER_MODEL)
 
     return {
         "company_summary": summary_hint.strip() or str(blueprint.get("company_summary") or f"A venture built around {_short_label(brief)}."),
@@ -383,9 +366,15 @@ def _finalize(blueprint: Dict[str, Any], brief: str, source: str, source_ref: st
         "digital_worker_count": len(digital),
         "human_count": human_count,
         "monthly_burn_usd": burn,
-        "human_equivalent_usd": human_equivalent,
-        "monthly_savings_usd": monthly_savings,
+        "monthly_inference_usd": total_inference,
+        "monthly_human_equivalent_usd": human_equiv,
+        "monthly_savings_usd": savings,
         "leverage_ratio": leverage,
+        # The cheap model every worker runs on, and its published per-1M-token
+        # price - the compute behind the payroll, shown on the dossier.
+        "worker_model": WORKER_MODEL,
+        "worker_price_in_per_m": price_in,
+        "worker_price_out_per_m": price_out,
         "source": source,
         "source_ref": (source_ref or "")[:500],
         "notes": [str(n) for n in (blueprint.get("notes") or [])][:4],

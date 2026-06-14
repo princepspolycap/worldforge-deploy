@@ -5,18 +5,67 @@
 > [vision_and_evolution.md](vision_and_evolution.md).
 
 Weights below are the OFFICIAL evaluation criteria from
-`starter-kits/2-reasoning-agents/live_battle_challenge.md` (Requirements &
-Evaluation section), verified against the spec on June 10, 2026. An earlier
-draft of this table carried a 10% community vote - the official spec has
-none; removed.
+`starter-kits/2-reasoning-agents/live_battle_challenge.md` plus the contest
+rules in `microsoft/Agents-League-AISF-Regulations` (`OFFICIAL RULES.md`),
+verified on June 13, 2026.
 
 | Criterion | Weight | Implementation Evidence |
 |---|---:|---|
-| Accuracy and Relevance | 25% | Direct reskin of the official Game Master scenario: a Game Master (World Designer/Narrator) plus in-story character agents build a venture as an interactive RPG. Every required primitive present and named on screen: multi-agent orchestration, Foundry IQ recall with citations, code interpreter validators, world state, quests, dynamic consequences. |
-| Reasoning and Multi-step Thinking | 25% | The World Designer decomposes the pitch into a dependency-ordered chapter graph; the Org Designer reasons out the workforce before any work happens; each chapter is a multi-step run (recall -> memory injection -> reasoning -> tool calls -> validation) with the live reasoning theater showing the plan form. CEO decisions chain across chapters: choice -> memory -> recall -> visibly different artifact. |
+| Accuracy and Relevance | 20% | Direct reskin of the official Game Master scenario: a Game Master (World Designer/Narrator) plus in-story character agents build a venture as an interactive RPG. Every required primitive present and named on screen: multi-agent orchestration, Foundry IQ recall with citations, code interpreter validators, world state, quests, dynamic consequences. |
+| Reasoning and Multi-step Thinking | 20% | The World Designer decomposes the pitch into a dependency-ordered chapter graph; the Org Designer reasons out the workforce before any work happens; each chapter is a multi-step run (recall -> memory injection -> reasoning -> tool calls -> validation) with the live reasoning theater showing the plan form. CEO decisions chain across chapters: choice -> memory -> recall -> visibly different artifact. |
 | Reliability and Safety | 20% | Human verification gate on every artifact, deterministic validator floors under the rubric score, four-layer degradation (Foundry project endpoint -> /openai/v1 -> simulation; IQ -> local playbooks; memory store -> local ledger; Toolbox -> local registry), secret scrubbing, no raw chain-of-thought, SSRF-guarded URL ingestion. The evidence smoke test fails the build if any chapter ships without proof points. |
 | Creativity and Originality | 15% | "Gamifying World Improvement" - a gamified world-improvement simulator where the model designs its own workforce; agent memory as an audible game mechanic; dilemma gates written by the narrator from the artifact just sealed; cinematic voiced intro film that hands off into live play. |
 | UX and Presentation | 15% | Voiced intro film -> founding screen -> live reasoning theater, one evidence rail (Active Worker, Agent Framework, Digital Workforce, Foundry IQ Memory, Agent Memory - learned, Verification Gate), XP/levels, Mermaid artifact diagrams, multi-voice neural TTS narration. |
+| Community vote (Discord poll) | 10% | Public demo clip + concise project post + Discord engagement plan that points voters to the required proof points (Foundry reasoning, IQ citations, verification gates, replay evidence). |
+
+Prize note from official rules: one prize per person during the Entry Period
+unless otherwise noted.
+
+## Final 24-Hour Checklist (Highest-EV Target: Best Overall Agent)
+
+Primary target: Best Overall Agent.
+Secondary target: Best Reasoning Agent.
+Constraint: assume one prize per person, so optimize one polished submission.
+
+1. Submission package lock (must-have)
+- [ ] Public GitHub repo is current, runnable, and includes clear setup + demo steps.
+- [ ] Demo video link (<= 5 minutes) is live on YouTube or Vimeo.
+- [ ] Project description is concise and mapped to rubric language.
+- [ ] Architecture diagram is present and matches shipped code paths.
+- [ ] Team/member fields are complete on the contest project page.
+
+2. Rubric proof pass (judge confidence)
+- [ ] Accuracy: show one complete run from founder input to accepted artifact.
+- [ ] Reasoning: show decomposition (world graph) and one worker invocation with evidence.
+- [ ] Reliability: show verification gate + deterministic validator output + fallback mode.
+- [ ] Creativity: show what is uniquely game-like in this product (not just chat UX).
+- [ ] UX: show end-to-end flow without dead ends, visual glitches, or confusing prompts.
+
+3. Reliability hardening (high-weight + tie-breaker leverage)
+- [ ] Run simulation smoke path and capture clean output for demo day.
+- [ ] Verify replay log contains agent/tool/evidence events across a full run.
+- [ ] Verify state save/reload continuity after server restart.
+- [ ] Remove flaky paths, stale feature flags, or non-essential toggles from the demo flow.
+
+4. IQ and reasoning receipts (Best Overall + Best Reasoning + Best IQ signal)
+- [ ] Show at least one Foundry IQ citation in a real chapter execution.
+- [ ] Show at least one tool-use receipt and one memory injection receipt.
+- [ ] Ensure the evidence rail/back-of-card receipts are readable in the video.
+
+5. Accessibility and presentation polish (award upside)
+- [ ] Keyboard navigation works for primary actions (start, choice, gate action).
+- [ ] Color contrast and text legibility are acceptable in key screens.
+- [ ] Captions or clear narration exist in the demo video.
+
+6. Community vote execution (10%)
+- [ ] Publish one concise Discord post with: problem, 30-second value summary, repo link, demo link.
+- [ ] Include one screenshot/gif that proves "reasoning + evidence + gate" in a single frame.
+- [ ] Keep outreach compliant (no incentives, no spam, no automation).
+
+7. Final compliance sweep
+- [ ] No secrets or private data in repo, video, screenshots, or logs.
+- [ ] License and third-party asset usage are clean for public submission.
+- [ ] Submission is completed before deadline (June 14, 11:59 PM Pacific Time).
 
 ## Submission Requirements Checklist (spec: "To be considered valid")
 

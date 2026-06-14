@@ -107,6 +107,7 @@ class AntagonistArc(BaseModel):
     threat_level: int = 10
     escalation_stage: str = "watching"  # watching | probing | contesting | crisis | endgame
     current_pressure: str = ""
+    threat_progress: float = 0.0  # fractional carry for time-based escalation
     moves: List[AntagonistMove] = Field(default_factory=list)
     open_counterplays: List[str] = Field(default_factory=list)
 
@@ -261,8 +262,10 @@ class OrgRole(BaseModel):
     deployment_hint: str = ""     # which Foundry model class fits this worker
     lifecycle_stage: str = ""     # discovery|positioning|mvp|gtm|retention|ops
     seniority: str = "ic"         # lead | ic
-    monthly_cost_usd: int = 0     # what we pay this digital worker per month
-    human_median_usd: int = 0     # present-world median salary for this seat
+    monthly_cost_usd: int = 0     # the worker's normal monthly wage (the burn)
+    inference_usd: int = 0        # cheap compute to actually run it (efficiency)
+    runs_on_model: str = ""       # cheap model this worker runs on
+    human_median_usd: int = 0     # present-world wage for this seat (== cost)
     why: str = ""                 # educational: why this role must exist
 
 
@@ -275,9 +278,13 @@ class OrgBlueprint(BaseModel):
     headcount: int = 0
     digital_worker_count: int = 0
     human_count: int = 0
-    monthly_burn_usd: int = 0
-    human_equivalent_usd: int = 0  # what this team would cost as humans
-    monthly_savings_usd: int = 0   # human median - digital burn
+    monthly_burn_usd: int = 0      # the burn: real cost to RUN the digital workforce
+    monthly_inference_usd: int = 0 # model inference + tooling behind that run cost
+    monthly_human_equivalent_usd: int = 0  # what these seats would cost as humans
+    monthly_savings_usd: int = 0   # human-equivalent minus the real run cost (headline)
+    worker_model: str = ""         # cheap model the workforce runs on
+    worker_price_in_per_m: float = 0.0   # USD / 1M input tokens
+    worker_price_out_per_m: float = 0.0  # USD / 1M output tokens
     leverage_ratio: float = 0.0   # digital workers per human operator
     source: str = "pitch"         # pitch | url
     source_ref: str = ""          # the originating url or pitch text
@@ -303,6 +310,24 @@ class CompanyEconomics(BaseModel):
     monthly_revenue_usd: int = 0
     net_profit_usd: int = 0
     points: int = 10000
+    # Market share is the honest source of revenue: the company's percentage of
+    # its addressable market. It is EARNED by shipping verified work and good
+    # strategy, and CONTESTED by the antagonist (high rival threat suppresses
+    # how much share each win captures, and a failed gate cedes share). Revenue
+    # is derived from it (share% * addressable_market_usd), so "profitable" means
+    # the workforce actually won and kept customers - never a seeded number.
+    market_share: float = 0.0          # 0-100, percent of the addressable market
+    addressable_market_usd: int = 0    # monthly addressable market the share is a slice of
+    # Real-time payroll clock: the player pays the workforce its normal wages
+    # over time. 1 real minute == 1 in-game day (GAME_MINUTES_PER_DAY), so the
+    # treasury (points, in USD) drains by the daily wage each day. Running out
+    # means payroll can't be met -> game over. This is what makes time a stake.
+    treasury_started_usd: int = 10000  # starting cash, for runway %
+    started_at_epoch: float = 0.0      # wall-clock when the run began
+    last_tick_epoch: float = 0.0       # wall-clock of the last charge
+    days_elapsed: float = 0.0          # in-game days that have passed
+    daily_burn_usd: int = 0            # wages charged per in-game day
+    runway_days: int = 0               # days of treasury left at current net
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +346,12 @@ class Stage(BaseModel):
     status: str = "not-started"  # not-started, in-progress, completed, failed
     artifact: Optional[Dict[str, Any]] = None
     validation_score: Optional[int] = None
+    # Living world graph: the original goal/metric the World Designer authored,
+    # captured the first time a CEO decision adapts this (still-pending) stage.
+    # Adaptation always recomposes from these, so re-adapting is idempotent and
+    # never compounds. None until the stage is first adapted.
+    base_goal: Optional[str] = None
+    base_success_metric: Optional[str] = None
     # Rubric evaluation at the gate: weighted dimension breakdown produced by
     # the Foundry rubric evaluator (live) or derived deterministically from the
     # validators (simulation). The UI fills the gate bar from these dimensions.

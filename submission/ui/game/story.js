@@ -237,27 +237,44 @@ async function narrate(text, speed = 18, opts = {}) {
     // the text is retained on the agent's dossier.
     setNarrationSpeaker();
     clearLiveAgentCaption();
-    // If a core game-master agent is talking, pop its character onto the stage
-    // with a live speech bubble (and any image this beat carries). Workers keep
-    // the reasoning theater; their lines never trigger the spotlight.
+    // If a core game-master agent is talking - or any agent the caller flags as
+    // the featured speaker (the group-chat stand-up does this) - pop its
+    // character onto the stage with a live speech bubble (and any image this
+    // beat carries). Plain worker chapters keep the reasoning theater instead.
+    // When opts.into is given, the caption is typed straight into that element
+    // (the transcript message card) - the single home for the line, so no
+    // floating spotlight or center bar duplicates it.
+    const into = opts.into || null;
     const spk = activeSpeakerSnapshot();
-    const spotlight = SPOTLIGHT_ROLES.has(spk.role);
+    const spotlight = !into && (opts.spotlight || SPOTLIGHT_ROLES.has(spk.role));
     if (spotlight) showSpeakerSpotlight(spk.role, spk.heroName, opts);
-    else if (opts.image) showSpeakerSpotlight(spk.role, spk.heroName, opts);
+    else if (!into && opts.image) showSpeakerSpotlight(spk.role, spk.heroName, opts);
+    // Single home for the live caption: when a spotlight card is up, the line
+    // lives INSIDE that card, so the center narration bar stays hidden (showing
+    // it too was the duplicate caption stacking over the worker rail). Worker
+    // chapters have no spotlight, so the center bar is their caption.
     const track = $("narration");
     if (track) {
-        track.hidden = false;
-        track.removeAttribute("aria-hidden");
-        track.classList.add("show");
+        if (spotlight || into) {
+            track.classList.remove("show");
+            track.hidden = true;
+            track.setAttribute("aria-hidden", "true");
+        } else {
+            track.hidden = false;
+            track.removeAttribute("aria-hidden");
+            track.classList.add("show");
+        }
     }
-    el.innerHTML = "";
+    const target = into || el;
+    target.innerHTML = "";
     const caret = document.createElement("span");
     caret.className = "caret";
-    el.appendChild(caret);
+    target.appendChild(caret);
     for (let i = 0; i < text.length; i++) {
         if (myToken !== typeToken) return;
         caret.insertAdjacentText("beforebegin", text[i]);
         if (spotlight) setSpeakerSpotlightLine(text.slice(0, i + 1));
+        if (into && typeof opts.onType === "function") opts.onType();
         const ch = text[i];
         const d = ch === "." || ch === "," ? speed * 6 : speed;
         await sleep(d);
@@ -294,12 +311,19 @@ async function narrate(text, speed = 18, opts = {}) {
 
 // --- Diagram rendering -----------------------------------------------------
 let diagramSeq = 0;
+// Single source of truth for compiling a Mermaid definition into an SVG string.
+// Every diagram in the app - the world canvas, gate receipts, and inline
+// transcript media - flows through here, so there is exactly one render path.
+async function mermaidToSvg(def) {
+    const id = `m${++diagramSeq}`;
+    const { svg } = await mermaid.render(id, def);
+    return svg;
+}
 async function renderMermaid(def) {
     const host = $("diagram");
-    const id = `m${++diagramSeq}`;
     let svg;
     try {
-        ({ svg } = await mermaid.render(id, def));
+        svg = await mermaidToSvg(def);
     } catch (e) {
         host.innerHTML = `<div style="color:${T.bad};font-family:${T.fontMono};font-size:12px">diagram error: ${e.message}</div>`;
         return;
@@ -321,6 +345,18 @@ async function renderMermaid(def) {
     const ticks = Math.min(items.length, 8);
     for (let i = 0; i < ticks; i++) {
         setTimeout(() => A.tick && A.tick(true), 220 + i * 75);
+    }
+}
+// Render a Mermaid diagram inline into an arbitrary element (transcript media,
+// inspector receipts) - reuses the one compile path, never touches #diagram.
+async function renderMermaidInto(el, def) {
+    if (!el) return false;
+    try {
+        el.innerHTML = await mermaidToSvg(def);
+        return true;
+    } catch (e) {
+        el.innerHTML = `<div class="media-err">diagram unavailable</div>`;
+        return false;
     }
 }
 
@@ -621,7 +657,6 @@ const state = {
     playerCommands: [], // free-form CEO moves issued from the persistent footer input
     archetype: null, // {name, skill} - character creation, seeds the org brief
     fromFilm: false, // true when the intro film handed off - the welcome already happened
-    autoMode: false, // autoplay auto-picks dilemma option 1 after a beat
     idx: 0,
     phase: "title", // title | designed | running | done
     live: false,
@@ -645,6 +680,66 @@ function chapterProgressLabel() {
     if (!total) return "1/1";
     const current = Math.min(total, Math.max(1, (Number(state.idx) || 0) + 1));
     return `${current}/${total}`;
+}
+
+function moneyCompact(value) {
+    const n = Number(value) || 0;
+    let sign = "";
+    if (n > 0) sign = "+";
+    else if (n < 0) sign = "-";
+    const abs = Math.abs(n);
+    let compact = String(abs);
+    if (abs >= 1000) {
+        const digits = abs >= 10000 ? 0 : 1;
+        compact = `${(abs / 1000).toFixed(digits).replace(/\.0$/, "")}k`;
+    }
+    return `${sign}$${compact}`;
+}
+
+function runPulse(actionText = "") {
+    const total = Array.isArray(state.stages) ? state.stages.length : 0;
+    if (!total) return escText(actionText || "Enter a pitch to begin");
+
+    const econ = state.economics || {};
+    const game = state.game || {};
+    const current = Math.min(total, Math.max(1, (Number(state.idx) || 0) + 1));
+    const net = Number(econ.net_profit_usd || 0);
+    const runwayDays = Number(econ.runway_days || 0);
+    const threat = Number((game.antagonist_arc || {}).threat_level || 0);
+    const runStatus = String(game.run_status || "active").toLowerCase();
+    let label = "Stable";
+    let tone = "stable";
+
+    if (runStatus === "victory") {
+        label = "Winning";
+        tone = "good";
+    } else if (runStatus === "defeat") {
+        label = "Defeat risk hit";
+        tone = "bad";
+    } else if (threat >= 80) {
+        label = "Rival closing in";
+        tone = "bad";
+    } else if (runwayDays > 0 && runwayDays <= 10) {
+        label = "Cash at risk";
+        tone = "bad";
+    } else if (net < 0 || clamp(econ.burn_pressure) >= 65 || threat >= 55) {
+        label = "At risk";
+        tone = "warn";
+    } else if (net > 0 && clamp(econ.proof) >= 30) {
+        label = "Winning";
+        tone = "good";
+    }
+
+    const runwayText = runwayDays > 0 && runwayDays < 999 ? ` · ${Math.round(runwayDays)}d runway` : "";
+    const action = actionText ? `<span class="run-next">${escText(actionText)}</span>` : "";
+    return `<span class="run-pulse"><span class="run-stage">Stage ${current}/${total}</span>`
+        + `<span class="run-state ${tone}">${label} ${moneyCompact(net)}/mo${runwayText}</span>${action}</span>`;
+}
+
+function setActionHint(actionText = "") {
+    const host = $("hint");
+    if (!host) return;
+    host.innerHTML = runPulse(actionText);
 }
 
 function setSceneStatus(patch) {
@@ -737,7 +832,7 @@ function setResourcesFromOrg(org) {
         leverage_ratio: org ? org.leverage_ratio : 0,
         monthly_revenue_usd: 0,
         net_profit_usd: -burn,
-        points: 10000,
+        points: 25000,
     };
     renderResources();
 }
@@ -756,6 +851,10 @@ function setResourcesFromEconomics(economics, org) {
         autonomy: clamp(economics.autonomy),
     };
     renderResources();
+    // Single seam: every economics update (card play, reward, decision, tick)
+    // also refreshes the footer econ HUD so Treasury/Market/Rev/threat pills
+    // never lag behind the numbers the player just changed.
+    setEconHud(org || state.org);
 }
 
 function cardEffectLine(card) {
@@ -770,9 +869,75 @@ function cardEffectLine(card) {
         const v = Number(effects.antagonist_threat_delta);
         parts.push(`${v > 0 ? "+" : ""}${v} threat`);
     }
+    if (effects.market_share_delta) {
+        const v = Number(effects.market_share_delta);
+        parts.push(`${v > 0 ? "+" : ""}${v}% customers`);
+    }
     if (effects.draw) parts.push(`draw ${effects.draw}`);
     if (effects.party && effects.party.fatigue) parts.push(`fatigue +${effects.party.fatigue}`);
     return parts.join(" / ") || card.description || card.kind || "card";
+}
+
+// Card design: one place that maps a card's kind to its accent color/label, its
+// raw effects to color-coded consequence chips, and its source to a provenance
+// line. The hand and the reward draft both read from these - one grammar.
+const CARD_KIND_META = {
+    proof:       { label: "proof",   accent: "#34d399", soft: "rgba(52,211,153,0.12)" },
+    worker:      { label: "worker",  accent: "#2dd4bf", soft: "rgba(45,212,191,0.12)" },
+    counterplay: { label: "counter", accent: "#fb7185", soft: "rgba(251,113,133,0.12)" },
+    tactic:      { label: "tactic",  accent: "#5b8cff", soft: "rgba(91,140,255,0.12)" },
+    resource:    { label: "resource", accent: "#f4c95d", soft: "rgba(244,201,93,0.12)" },
+};
+function cardKindMeta(kind) {
+    return CARD_KIND_META[kind] || { label: kind || "card", accent: "#94a3b8", soft: "rgba(148,163,184,0.12)" };
+}
+
+// Meters where "up" helps the company; burn_pressure is the inverse (down good).
+const CARD_GOOD_UP = new Set(["proof", "trust", "velocity", "autonomy", "market"]);
+function cardEffectChips(card) {
+    const effects = card && card.effects ? card.effects : {};
+    const econ = effects.economics_delta || {};
+    const chips = [];
+    Object.entries(econ).forEach(([key, value]) => {
+        const v = Number(value);
+        const signed = v > 0 ? `+${v}` : `${v}`;
+        let cls = "util";
+        if (key === "burn_pressure") cls = v <= 0 ? "gain" : "cost";
+        else if (CARD_GOOD_UP.has(key)) cls = v >= 0 ? "gain" : "cost";
+        chips.push(`<span class="gc-chip ${cls}">${signed} ${escText(key.replace(/_/g, " "))}</span>`);
+    });
+    if (effects.antagonist_threat_delta) {
+        const v = Number(effects.antagonist_threat_delta);
+        chips.push(`<span class="gc-chip ${v < 0 ? "threat-down" : "threat-up"}">${v > 0 ? "+" : ""}${v} threat</span>`);
+    }
+    if (effects.market_share_delta) {
+        const v = Number(effects.market_share_delta);
+        chips.push(`<span class="gc-chip ${v >= 0 ? "gain" : "cost"}">${v > 0 ? "+" : ""}${v}% customers</span>`);
+    }
+    if (effects.draw) chips.push(`<span class="gc-chip util">draw ${Number(effects.draw)}</span>`);
+    if (effects.party && effects.party.fatigue) chips.push(`<span class="gc-chip cost">fatigue +${Number(effects.party.fatigue)}</span>`);
+    if (!chips.length) chips.push(`<span class="gc-chip">${escText(card.description || card.kind || "card")}</span>`);
+    return chips.join("");
+}
+
+// Provenance: name the agent/seam a card came from so the deck reads as the
+// product of the run - reward cards say which worker forged them, starters say
+// they came with the founder. Closes the dynamics<->reasoning loop on the face.
+function workerTitleById(id) {
+    if (!id) return "";
+    const roles = (state.org && state.org.roles) || [];
+    const r = roles.find((x) => x.id === id);
+    return r ? r.title : "";
+}
+function cardSourceLine(card) {
+    const src = card && card.source;
+    if (src === "stage_reward") {
+        const who = workerTitleById(card.owner_worker_id);
+        return who ? `forged by ${who}` : "stage reward";
+    }
+    if (src === "choice_reward") return "from your decision";
+    if (src === "founder") return "your signature move";
+    return "starter deck";
 }
 
 let rewardResolve = null;
@@ -816,26 +981,38 @@ function renderGameHand(game) {
     if (!game) {
         host.hidden = true;
         host.innerHTML = "";
+        host.classList.remove("reward-draft");
         queueFooterAwareLayoutSync();
         return;
     }
     const hand = Array.isArray(game.hand) ? game.hand : [];
     const pending = Array.isArray(game.pending_rewards) ? game.pending_rewards : [];
     host.hidden = false;
+    host.classList.remove("reward-draft");
     const energy = Number(game.energy || 0);
-    const stats = `<div class="hand-stat"><b>${energy}/${game.max_energy ?? 0}</b>energy &middot; deck ${game.deck ? game.deck.length : 0} &middot; discard ${game.discard ? game.discard.length : 0}${pending.length ? ` &middot; draft ${pending.length}` : ""}</div>`;
+    const threat = Number((game.antagonist_arc || {}).threat_level || 0);
+    const stats = `<div class="hand-stat"><b>${energy}/${game.max_energy ?? 0}</b> energy<span>deck ${game.deck ? game.deck.length : 0} &middot; discard ${game.discard ? game.discard.length : 0}</span>${pending.length ? `<span>draft ${pending.length} ready</span>` : ""}</div>`;
     const cards = hand.map((card) => {
         const cost = Number(card.cost || 0);
-        const disabled = cost > energy ? "disabled" : "";
-        return `<button class="game-card-btn" type="button" data-card-id="${escText(card.id)}" ${disabled} title="${escText(card.description || "")}">
-            <span class="game-card-top"><span class="game-card-name">${escText(card.name)}</span><span class="game-card-cost">${cost}</span></span>
-            <span class="game-card-kind">${escText(card.kind || "card")} &middot; ${escText(cardEffectLine(card))}</span>
+        const affordable = cost <= energy;
+        const meta = cardKindMeta(card.kind);
+        // Teach the antagonist loop: when the rival is closing in, the cards
+        // that push threat back pulse so the player learns the counter.
+        const counterHot = card.kind === "counterplay" && threat >= 45 && affordable;
+        const cls = ["game-card-btn", counterHot ? "counter-hot" : ""].filter(Boolean).join(" ");
+        return `<button class="${cls}" type="button" data-card-id="${escText(card.id)}" ${affordable ? "" : "disabled"} style="--gc-accent:${meta.accent};--gc-soft:${meta.soft}" title="${escText(card.description || "")}">
+            <span class="game-card-top"><span class="gc-kind">${escText(meta.label)}</span><span class="game-card-cost">${cost}</span></span>
+            <span class="game-card-name">${escText(card.name)}</span>
+            <span class="gc-effects">${cardEffectChips(card)}</span>
+            <span class="gc-source">${escText(cardSourceLine(card))}${card.upgraded ? " &middot; upgraded" : ""}</span>
         </button>`;
     }).join("");
     const draft = pending.length
-        ? `<button class="game-card-btn pending" type="button" data-open-reward="1">
-            <span class="game-card-top"><span class="game-card-name">Draft ready</span><span class="game-card-cost">${pending.length}</span></span>
-            <span class="game-card-kind">choose one stage reward</span>
+        ? `<button class="game-card-btn pending" type="button" data-open-reward="1" style="--gc-accent:#f4c95d;--gc-soft:rgba(244,201,93,0.12)">
+            <span class="game-card-top"><span class="gc-kind">reward</span><span class="game-card-cost">${pending.length}</span></span>
+            <span class="game-card-name">Draft ready</span>
+            <span class="gc-effects"><span class="gc-chip util">choose 1 of ${pending.length}</span></span>
+            <span class="gc-source">forged from this stage</span>
         </button>`
         : "";
     host.innerHTML = stats + cards + draft;
@@ -849,14 +1026,18 @@ function renderGameHand(game) {
 
 function renderRewardDraft(game, forceOpen = false) {
     const overlay = $("reward-overlay");
-    const host = $("reward-options");
+    const overlayHost = $("reward-options");
+    const host = $("card-hand");
     if (!overlay || !host) return;
     const pending = game && Array.isArray(game.pending_rewards) ? game.pending_rewards : [];
+    overlay.hidden = true;
+    if (overlayHost) overlayHost.innerHTML = "";
     if (!pending.length) {
-        overlay.hidden = true;
-        host.innerHTML = "";
+        host.classList.remove("reward-draft");
         return;
     }
+    host.hidden = false;
+    host.classList.add("reward-draft");
     host.innerHTML = pending.slice(0, 3).map((card, i) => `
         <button class="reward-pick" type="button" data-reward-card-id="${escText(card.id)}">
             <b>${i + 1} &middot; ${escText(card.name)} <span class="game-card-cost">${Number(card.cost || 0)}</span></b>
@@ -868,12 +1049,9 @@ function renderRewardDraft(game, forceOpen = false) {
     });
     if (forceOpen || !overlay.dataset.seenRewardIds || overlay.dataset.seenRewardIds !== pending.map((c) => c.id).join("|")) {
         overlay.dataset.seenRewardIds = pending.map((c) => c.id).join("|");
-        overlay.hidden = false;
     }
-    if (!overlay.hidden) {
-        $("hint").textContent = "Choose a reward to continue.";
-        updateCommandControls();
-    }
+    setActionHint("Next: choose a reward card to bank this stage.");
+    updateCommandControls();
     setSceneStatus({ source: state.live ? "live foundry session" : "simulation session" });
 }
 
@@ -891,6 +1069,58 @@ function syncGameState(game) {
     if (arc.threat_level !== undefined) {
         lens("reliability", `antagonist ${arc.escalation_stage || "watching"}: threat ${arc.threat_level}/100`);
     }
+    // The run-over beat: every game-state update flows through here, so this is
+    // the single place that surfaces victory/defeat the moment the run decides.
+    maybeShowRunOver(game);
+}
+
+// Render the run-over moment (victory or defeat) once, when the run leaves the
+// active state. Idempotent: re-syncs while the overlay is up are no-ops.
+function maybeShowRunOver(game) {
+    const overlay = $("run-over-overlay");
+    if (!overlay) return;
+    const status = String((game && game.run_status) || "active").toLowerCase();
+    if (status !== "victory" && status !== "defeat") {
+        if (!overlay.hidden) { overlay.hidden = true; overlay.classList.remove("show"); overlay.setAttribute("aria-hidden", "true"); }
+        overlay.dataset.shownFor = "";
+        return;
+    }
+    // Guard against re-rendering the same outcome every poll/sync.
+    if (overlay.dataset.shownFor === status && !overlay.hidden) return;
+    overlay.dataset.shownFor = status;
+
+    const econ = state.economics || {};
+    const arc = game.antagonist_arc || {};
+    const stages = Array.isArray(state.stages) ? state.stages : [];
+    const done = stages.filter((s) => String(s.status || "").toLowerCase() === "completed").length;
+    const victory = status === "victory";
+
+    const card = $("run-over-card");
+    if (card) card.className = `run-over-card ${victory ? "victory" : "defeat"}`;
+    const sigil = $("run-over-sigil"); if (sigil) sigil.textContent = victory ? "\u2728" : "\u2620\uFE0F";
+    const kicker = $("run-over-kicker"); if (kicker) kicker.textContent = victory ? "The run is won" : "The run is over";
+    const title = $("run-over-title");
+    if (title) title.textContent = victory ? "Cooperative Equilibrium" : ((arc.antagonist_name || "The rival") + " prevailed");
+    const reason = $("run-over-reason");
+    if (reason) reason.textContent = (victory ? game.victory_reason : game.defeat_reason)
+        || (victory ? "The venture launched and the workforce held the line." : "The company could not hold its position.");
+
+    const treasury = Math.max(0, Math.round(Number(econ.points || 0)));
+    const days = Math.round(Number(econ.days_elapsed || game.day_index || 0));
+    const stats = $("run-over-stats");
+    if (stats) {
+        stats.innerHTML = [
+            ["Stages shipped", `${done}/${stages.length || 8}`],
+            ["Days survived", days.toLocaleString()],
+            ["Treasury", `$${treasury.toLocaleString()}`],
+            ["Rival threat", `${Math.round(Number(arc.threat_level || 0))}/100`],
+        ].map(([k, v]) => `<div class="run-over-stat"><span>${esc(k)}</span><b>${esc(String(v))}</b></div>`).join("");
+    }
+    const btn = $("run-over-btn");
+    if (btn) btn.textContent = victory ? "Begin a new run" : "Try again";
+    overlay.hidden = false;
+    overlay.classList.add("show");
+    overlay.setAttribute("aria-hidden", "false");
 }
 
 async function playGameCard(cardId, targetId = "") {
@@ -911,7 +1141,7 @@ async function playGameCard(cardId, targetId = "") {
         lens("reasoning", `played ${move.card_id || cardId}: ${move.summary || "card effects applied"}`);
         return res;
     } catch (e) {
-        $("hint").textContent = "Card could not be played.";
+        setActionHint("Card could not be played.");
         lens("reliability", `card play rejected: ${e.message || e}`);
         return null;
     }
@@ -941,24 +1171,19 @@ async function claimRewardCard(cardId) {
         return res;
     } catch (e) {
         document.querySelectorAll("[data-reward-card-id]").forEach((el) => { el.disabled = false; });
-        $("hint").textContent = "Reward could not be drafted.";
+        setActionHint("Reward could not be drafted.");
         lens("reliability", `reward draft rejected: ${e.message || e}`);
         return null;
     }
 }
 
-async function runRewardDraftGate(game, auto = false) {
+async function runRewardDraftGate(game) {
     const pending = game && Array.isArray(game.pending_rewards) ? game.pending_rewards : [];
     if (!pending.length) return null;
     renderRewardDraft(game, true);
-    $("hint").textContent = "Choose one reward card for the run deck.";
+    setActionHint("Next: choose one reward card for the run deck.");
     return new Promise((resolve) => {
         rewardResolve = resolve;
-        if (auto) {
-            setTimeout(() => {
-                if (rewardResolve && pending[0]) claimRewardCard(pending[0].id);
-            }, 2500);
-        }
     });
 }
 
@@ -1117,13 +1342,12 @@ function setParty(activeKey, line, activeName) {
         const hasCard = !!cardEvidence[m.name];
         const score = hasCard ? clamp(cardEvidence[m.name].score) : null;
         const gm = isGameMaster(m.role);
-        const ev = cardEvidence[m.name] || liveCardEvidence(m.name) || { role: m.role, name: m.name };
-        const flipped = flippedOwners.has(m.name);
-        // Each agent is a board piece: front = who it is + the world meters it
-        // moves + live state; tapping flips it in place to its dossier back.
-        return `<div class="party-agent${active ? " active" : ""}${done ? " done" : ""}${flipped ? " flipped" : ""}"`
+        // Each agent is a board piece: who it is + the world meters it moves +
+        // live state. Tapping opens its dossier as a dialog (the inspector
+        // overlay) so the full receipts are never clipped by the hand rail.
+        return `<div class="party-agent${active ? " active" : ""}${done ? " done" : ""}"`
             + ` data-owner="${esc(m.name)}" role="button" tabindex="0"`
-            + ` title="${esc(m.name)} - tap to flip to its dossier">`
+            + ` title="${esc(m.name)} - tap to open its dossier">`
             + `<div class="pa-inner">`
             + `<div class="pa-face pa-front">`
             + `<div class="pa-layer ${gm ? "gm" : "dw"}">${gm ? "Game Master" : "Digital Worker"}</div>`
@@ -1132,12 +1356,10 @@ function setParty(activeKey, line, activeName) {
             + `<div class="party-role">${esc(ROLE_NAME[m.role] || m.role || "agent")}</div>`
             + partyMetricMarkup(m)
             + `<div class="party-line">${esc(statusLine).slice(0, 110)}</div>`
-            + `<div class="party-badge">${hasCard ? `flip &middot; ${score}/100` : `tap to flip`}</div>`
+            + `<div class="party-badge">${hasCard ? `open &middot; ${score}/100` : `tap to open`}</div>`
             + `</div>`
-            + `<div class="pa-face pa-back">${dossierBackHTML(ev)}</div>`
             + `</div></div>`;
     }).join("");
-    document.body.classList.toggle("party-flipped", flippedOwners.size > 0);
 }
 
 // --- Character cards: a face AND a presence -------------------------------
@@ -1184,14 +1406,9 @@ function isGameMaster(role) {
     return role === "narrator" || role === "orgdesigner";
 }
 
-// Which cards are currently flipped to their dossier back. Kept in a Set so the
-// flip survives the frequent setParty() re-renders (the card is the inspector;
-// there is no modal).
-const flippedOwners = new Set();
-
-// The dossier back of a card: the real receipts - tools the model called,
+// The dossier of a card: the real receipts - tools the model called,
 // reasoning, memory injected, gate score, and the world meters it moves. Reuses
-// the cc-* receipt classes, now rendered straight onto the card's back face.
+// the cc-* receipt classes; rendered into the inspector dialog.
 function dossierBackHTML(ev) {
     if (!ev) return "";
     const color = ROLE_COLOR[ev.role] || T.narrator;
@@ -1225,28 +1442,6 @@ function dossierBackHTML(ev) {
         + (ev.reasoningPreview ? `<div class="cc-section"><div class="cc-h">Reasoning${ev.reasoningTokens ? ` &middot; ${ev.reasoningTokens} tok` : ""}</div><div class="cc-text quote">&ldquo;${esc((ev.reasoningPreview || "").slice(0, 150))}&hellip;&rdquo;</div></div>` : ``)
         + `<div class="cc-section"><div class="cc-h">World it moves</div><div class="cc-metric-grid">${worldStats}</div></div>`
         + `<div class="cc-badge-back">tap to return</div>`;
-}
-
-// Flip a card to/from its dossier in place. The card itself is the inspector -
-// it lifts and scales up to read its receipts, then taps back to the board.
-function flipCard(owner) {
-    if (!owner) return;
-    const willFlip = !flippedOwners.has(owner);
-    flippedOwners.clear();
-    if (willFlip) flippedOwners.add(owner);
-    document.querySelectorAll("#party .party-agent").forEach((el) => {
-        el.classList.toggle("flipped", el.dataset.owner === owner && willFlip);
-    });
-    document.body.classList.toggle("party-flipped", willFlip);
-    if (A.cardDraw) { try { A.cardDraw(); } catch (_) { /* audio optional */ } }
-}
-
-// Return every flipped card to its front (Escape / leaving the board).
-function unflipAllCards() {
-    if (!flippedOwners.size) return;
-    flippedOwners.clear();
-    document.querySelectorAll("#party .party-agent.flipped").forEach((el) => el.classList.remove("flipped"));
-    document.body.classList.remove("party-flipped");
 }
 
 function setWorker(role, deployLabel, stateText, thinking, displayName) {
@@ -1294,7 +1489,7 @@ function setWorker(role, deployLabel, stateText, thinking, displayName) {
     // A worker stepping onto the stage clears the core-agent spotlight; the
     // reasoning theater takes over for worker chapters.
     if (!SPOTLIGHT_ROLES.has(role)) hideSpeakerSpotlight();
-    if (inspectorOpen) openAgentInspector();
+    if (inspectorOpen) openAgentInspector(inspectorOwner);
 }
 
 // --- Active-agent inspector: the gorgeous floating card, on demand ----------
@@ -1303,6 +1498,10 @@ function setWorker(role, deployLabel, stateText, thinking, displayName) {
 // summons that agent's collectible card and flips it straight to its receipts,
 // so every agent in the run is inspectable, not just the digital workforce.
 let inspectorOpen = false;
+// Which card the open dossier belongs to: null = the agent live on stage, or a
+// party member's name when the player tapped a specific card. Kept so a stage
+// advance re-renders the SAME card the player is reading, not a different one.
+let inspectorOwner = null;
 function roleFromWorkerName(name) {
     const clean = String(name || "").trim();
     for (const entry of Object.entries(ROLE_NAME)) {
@@ -1345,24 +1544,47 @@ function castKeyForRole(role) {
     return "strategist";
 }
 
-function openAgentInspector() {
+function openAgentInspector(owner) {
     const stage = $("cast-stage");
     if (!stage) return;
-    const aw = activeWorkerSnapshot();
+    document.body.classList.remove("spotlight-active");
+    // Owner given = the player tapped a specific party card; otherwise inspect
+    // whoever is live on stage (the footer mini's front door).
+    let aw, ev;
+    if (owner) {
+        const m = partyMembers().find((x) => x.name === owner || x.key === owner);
+        aw = { role: m ? m.role : roleFromWorkerName(owner), deployLabel: "", stateText: "", displayName: m ? m.name : owner };
+        ev = cardEvidence[owner] || liveCardEvidence(owner) || activeAgentEv();
+    } else {
+        aw = activeWorkerSnapshot();
+        ev = activeAgentEv();
+    }
+    inspectorOwner = owner || null;
     const role = aw.role || "narrator";
     const key = castKeyForRole(role);
-    const ev = activeAgentEv();
+    // Game-master agents get the special gold dossier; the digital workforce
+    // gets a flatter role-colored variant so the two layers never look alike.
+    const gm = isGameMaster(role);
     const color = ROLE_COLOR[role] || ROLE_COLOR[key] || T.narrator;
-    const heroName = CAST_NAME[key] || ROLE_NAME[key] || key;
-    const tag = aw.displayName && aw.displayName !== heroName ? aw.displayName : "";
-    const src = `/game/assets/generated/characters/${key}.png`;
+    // Two distinct identities. Game masters ARE the cast: full-body hero art +
+    // their in-world name (Worldkeeper / Architect). A digital worker is its
+    // own seat: it shows ITS title and a role-icon avatar (not a hero sprite),
+    // so a worker never masquerades as a cast character.
+    const heroName = gm ? (CAST_NAME[key] || ROLE_NAME[key] || key)
+        : (aw.displayName || ROLE_NAME[role] || role);
+    const tag = gm
+        ? (aw.displayName && aw.displayName !== heroName ? aw.displayName : "")
+        : (ROLE_NAME[role] || role);
+    const artSrc = gm
+        ? `/game/assets/generated/characters/${key}.png`
+        : `/game/assets/generated/${ROLE_PORTRAIT[role] || key}.png`;
     stage.style.setProperty("--card-accent", hexToRgba(color, 0.9));
     stage.style.setProperty("--cast-aura", hexToRgba(color, 0.34));
     stage.innerHTML =
-        `<div class="cast-card">`
-        + `<div class="cast-card-art"><div class="cast-fig" style="background-image:url('${src}')"></div></div>`
+        `<div class="cast-card${gm ? " gm" : " worker"}">`
+        + `<div class="cast-card-art${gm ? "" : " icon"}"><div class="cast-fig" style="background-image:url('${artSrc}')"></div></div>`
         + `<div class="cast-card-plate"><div class="cast-card-name">${esc(heroName)}</div>`
-        + `<div class="cast-card-role">${esc(aw.displayName || ROLE_NAME[role] || role)}</div>`
+        + `<div class="cast-card-role">${esc(ROLE_NAME[role] || role)}</div>`
         + `<div class="cast-card-tag">${esc(tag)}</div></div>`
         + `<button class="cast-close" type="button" aria-label="Close dossier">&times;</button>`
         + `<div class="cast-dossier">${dossierBackHTML(ev)}</div>`
@@ -1374,6 +1596,7 @@ function openAgentInspector() {
 }
 function closeAgentInspector() {
     inspectorOpen = false;
+    inspectorOwner = null;
     const stage = $("cast-stage");
     if (stage) {
         stage.className = "";
@@ -1393,13 +1616,16 @@ function toggleAgentInspector() {
 // yields to the on-demand inspector. Workers keep the reasoning theater instead.
 const SPOTLIGHT_ROLES = new Set(["narrator", "orgdesigner"]);
 let spotlightRole = null;
+let spotlightName = null;
 
 function showSpeakerSpotlight(role, displayName, opts = {}) {
     const stage = $("cast-stage");
     if (!stage || inspectorOpen) return;
     const key = castKeyForRole(role);
-    // Same role already on stage: just refresh the optional image, keep the card.
-    if (spotlightRole === role && stage.classList.contains("speaking")) {
+    // Same speaker already on stage: just refresh the optional image, keep the
+    // card. Keyed on the display name too so a different group-chat persona
+    // sharing a role (e.g. a dynamic NPC vs the Strategist) rebuilds the card.
+    if (spotlightRole === role && spotlightName === (displayName || null) && stage.classList.contains("speaking")) {
         if (opts.image) setSpeakerSpotlightImage(opts.image, opts.caption);
         return;
     }
@@ -1421,7 +1647,11 @@ function showSpeakerSpotlight(role, displayName, opts = {}) {
         + `<div class="cast-speech-line" id="cast-speech-line"></div></div>`
         + `</div>`;
     stage.className = "speaking show";
+    // CSS uses this body class to resize the world canvas and remove the hidden
+    // narration reserve. Always clear it in hideSpeakerSpotlight/openInspector.
+    document.body.classList.add("spotlight-active");
     spotlightRole = role;
+    spotlightName = displayName || null;
 }
 
 function setSpeakerSpotlightLine(text) {
@@ -1453,7 +1683,9 @@ function hideSpeakerSpotlight() {
     if (!stage || !spotlightRole) return;
     stage.className = "";
     stage.innerHTML = "";
+    document.body.classList.remove("spotlight-active");
     spotlightRole = null;
+    spotlightName = null;
 }
 
 
@@ -1725,42 +1957,190 @@ function renderConsequenceEffect(consequence) {
     if (A.chime) { try { A.chime(); } catch (_) {} }
 }
 
-// Footer economy HUD: the one global thing worth tracking at a glance - the
-// digital workforce headcount, the monthly burn it costs, and the leverage it
-// buys the single human operator. Everything else (proof/trust/etc.) lives on
-// the agent cards now, so the footer is economy + controls, not duplicate meters.
+// Footer economy HUD: the real-time payroll clock. The player runs a company
+// and pays the workforce its normal wages over time - 1 real minute is 1
+// in-game day, so the treasury drains every day. This is the stake: keep the
+// treasury above zero or the run is lost. Everything else (proof/trust/etc.)
+// lives on the agent cards now, so the footer is the money + the clock.
 function setEconHud(org) {
     const host = $("econ-hud");
     if (!host) return;
     const econ = state.economics || {};
     const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
-    const points = num(econ.points ?? 10000).toLocaleString();
-    const revenueN = num(econ.monthly_revenue_usd);
-    const burnN = num(econ.monthly_burn_usd ?? (org ? org.monthly_burn_usd : 0));
-    const netProfit = Number.isFinite(Number(econ.net_profit_usd))
-        ? Number(econ.net_profit_usd)
-        : revenueN - burnN;
-    const netSign = netProfit >= 0 ? "+" : "-";
-    const netClass = netProfit >= 0 ? "good" : "bad";
+    const treasury = num(econ.points ?? econ.treasury_started_usd ?? 10000);
+    const burnMonth = num(econ.monthly_burn_usd ?? (org ? org.monthly_burn_usd : 0));
+    const dailyBurn = num(econ.daily_burn_usd) || Math.round(burnMonth / 30);
+    const revMonth = num(econ.monthly_revenue_usd);
+    const dailyRev = Math.round(revMonth / 30);
+    const dayN = Math.floor(num(econ.days_elapsed));
+    const runwayDays = num(econ.runway_days);
+    const treasuryClass = runwayDays <= 7 ? "bad" : (runwayDays <= 21 ? "warn" : "good");
+    const runwayLabel = runwayDays >= 999 ? "profitable"
+        : (runwayDays >= 365 ? `${Math.round(runwayDays / 30).toLocaleString()}mo runway`
+        : `${runwayDays.toLocaleString()}d runway`);
 
-    // Present-world benchmark: what this team would cost as humans, and the
-    // monthly savings the digital workforce buys (burn vs median story).
-    const humanEq = num(org && org.human_equivalent_usd);
-    const savings = num(org && org.monthly_savings_usd) || Math.max(0, humanEq - burnN);
+    let html = `<span class="econ-pill ${treasuryClass}" title="Treasury - cash left to keep the company running. At zero, the run is over."><i>💰</i> Treasury: <b>$${treasury.toLocaleString()}</b></span>`
+        + `<span class="econ-pill gold-glow" title="In-game day. 1 real minute = 1 day."><i>📅</i> Day <b>${dayN.toLocaleString()}</b></span>`
+        + `<span class="econ-pill" title="Daily run cost - cheap model inference + tooling for the digital workforce, charged every in-game day"><i>📉</i> Burn: <b>-$${dailyBurn.toLocaleString()}</b>/day</span>`;
+    if (dailyRev > 0) {
+        html += `<span class="econ-pill good" title="Daily revenue booked"><i>📈</i> Rev: <b>+$${dailyRev.toLocaleString()}</b>/day</span>`;
+    }
+    html += `<span class="econ-pill ${treasuryClass}" title="Days of treasury left at the current net burn"><i>⏳</i> <b>${runwayLabel}</b></span>`;
 
-    let html = `<span class="econ-pill gold-glow" title="Points / Treasury Balance"><i>💎</i> Points: <b>${points}</b></span>`
-        + `<span class="econ-pill" title="Monthly Revenue (Income)"><i>📈</i> Rev: <b>+$${revenueN.toLocaleString()}</b>/mo</span>`
-        + `<span class="econ-pill" title="Monthly Burn: sum of what each digital worker costs us"><i>📉</i> Burn: <b>-$${burnN.toLocaleString()}</b>/mo</span>`
-        + `<span class="econ-pill ${netClass}" title="Net Monthly Cash Flow"><b>${netSign}$${Math.abs(netProfit).toLocaleString()}</b>/mo</span>`;
-
-    if (savings > 0) {
-        html += `<span class="econ-pill good" title="Estimated vs a human team in these seats (~$${humanEq.toLocaleString()}/mo at market salaries)"><i>🤝</i> Saving ~<b>$${savings.toLocaleString()}</b>/mo vs humans</span>`;
+    // Market share: the company's earned slice of its addressable market. This
+    // is where revenue comes from - won by shipping verified work and good
+    // strategy, contested by the rival. It is the "are we actually winning?"
+    // number, distinct from the cash treasury.
+    const share = num(econ.market_share);
+    if (share > 0 || num(econ.addressable_market_usd) > 0) {
+        const shareClass = share >= 15 ? "good" : (share >= 5 ? "" : "warn");
+        html += `<span class="econ-pill ${shareClass}" title="Share of your addressable market. Revenue is a slice of the market this size. Win it by shipping verified stages and smart strategy; the rival contests it."><i>🌐</i> Market: <b>${share.toFixed(1)}%</b></span>`;
     }
 
     if (org && org.digital_worker_count) {
-        html += `<span class="econ-pill" title="digital workforce"><i>🛠️</i> <b>${org.digital_worker_count}</b> workers</span>`;
+        html += `<span class="econ-pill" title="digital workforce on payroll"><i>🛠️</i> <b>${org.digital_worker_count}</b> workers</span>`;
+    }
+    // The live threat: the rival gains ground over time. At 100 the run is lost -
+    // play counterplay cards and complete stages to push it back down.
+    const arc = (state.game && state.game.antagonist_arc) || {};
+    const threat = num(arc.threat_level);
+    if (threat > 0) {
+        const rival = arc.antagonist_name || "Rival";
+        const stage = arc.escalation_stage || "watching";
+        const tClass = threat >= 60 ? "bad" : (threat >= 40 ? "warn" : "");
+        html += `<span class="econ-pill ${tClass}" title="${esc(rival)} is your antagonist - a rival that gains ground over time and whenever you stall. At 100/100 it wins the market and the run is lost. Push it back by playing counter cards and shipping stages.">`
+            + `<i>&#9876;</i> ${esc(rival)}: <b>${threat}</b>/100 &middot; ${esc(stage)}</span>`;
     }
     host.innerHTML = html;
+    ensureEconClock();
+}
+
+// Real-time payroll clock: while a run is active, poll the server (the single
+// source of truth for elapsed wall-clock -> in-game days -> wages charged) so
+// the treasury visibly drains and a bankruptcy is surfaced even between moves.
+let _econClockTimer = null;
+function ensureEconClock() {
+    if (_econClockTimer) return;
+    _econClockTimer = setInterval(async () => {
+        const game = state.game || {};
+        if (!Array.isArray(state.stages) || !state.stages.length
+            || String(game.run_status || "active").toLowerCase() !== "active") {
+            return; // nothing running; keep the timer cheap and idle
+        }
+        let snap;
+        try {
+            const res = await fetch("/api/state");
+            if (!res.ok) return;
+            snap = (await res.json()).state;
+        } catch (_) { return; }
+        if (!snap) return;
+        if (snap.economics) state.economics = snap.economics;
+        if (snap.org) state.org = snap.org;
+        if (snap.game) state.game = snap.game;
+        setEconHud(state.org);
+        reactToRivalEscalation(snap.game);
+        const status = String((snap.game || {}).run_status || "active").toLowerCase();
+        if (status !== "active") {
+            // The clock just decided the run (bankruptcy or the rival reaching
+            // 100 between moves). Route through syncGameState so the run-over
+            // moment surfaces exactly as it does after a played card.
+            syncGameState(snap.game);
+            const hint = $("hint");
+            if (hint) hint.textContent = (snap.game && (snap.game.defeat_reason || snap.game.victory_reason)) || "The run is over.";
+        }
+    }, 4000);
+}
+
+// The world reacts when the rival escalates. The clock can push the antagonist
+// into a higher stage between moves; when it does, the rival plays a visible
+// move (arc.current_pressure). Surface that as a scene beat + action hint and
+// flash the threat pill so the rising number lands as a felt event, not a
+// silent tick. Fires once per stage transition.
+let _lastEscalationStage = "";
+function reactToRivalEscalation(game) {
+    const arc = (game && game.antagonist_arc) || {};
+    const stage = String(arc.escalation_stage || "watching");
+    const order = ["watching", "probing", "contesting", "crisis", "endgame"];
+    if (!_lastEscalationStage) { _lastEscalationStage = stage; return; }
+    if (order.indexOf(stage) <= order.indexOf(_lastEscalationStage)) {
+        _lastEscalationStage = stage;
+        return;
+    }
+    _lastEscalationStage = stage;
+    const rival = arc.antagonist_name || "The rival";
+    const pressure = arc.current_pressure || `${rival} escalates to ${stage}.`;
+    ensureVillainPortrait();
+    // Scene-head beat: the world announces the rival's move.
+    const beat = $("scene-beat");
+    if (beat) beat.textContent = `${rival} \u2014 ${stage}`;
+    const prov = $("scene-prov");
+    if (prov) prov.textContent = "rival escalation";
+    const hint = $("hint");
+    if (hint) hint.innerHTML = `<span class="run-pulse"><span class="run-state bad">\u2694\ufe0f ${esc(pressure)}</span>`
+        + `<span class="run-next">Answer with a counterplay card.</span></span>`;
+    // Flash the threat pill so the eye goes to the rising number.
+    const pill = document.querySelector("#econ-hud .econ-pill.bad, #econ-hud .econ-pill.warn");
+    if (pill) { pill.classList.remove("pulse-flash"); void pill.offsetWidth; pill.classList.add("pulse-flash"); }
+    // The game master draws the threat arc: a mermaid diagram of the rival's
+    // escalation, current stage lit, so the move is shown, not just told.
+    renderRivalArc(arc, rival);
+    try { if (A && A.chime) A.chime(); } catch (_) {}
+}
+
+// Render the antagonist escalation as a transient mermaid arc diagram - the
+// five stages left to right, the current one lit, passed stages dimmed. Built
+// through the single mermaid render path and auto-dismissed so it never fights
+// the world canvas.
+const _RIVAL_STAGES = ["watching", "probing", "contesting", "crisis", "endgame"];
+let _rivalArcTimer = null;
+let _villainPortraitPending = false;
+// Ask the game master to render the villain's portrait once per run. The
+// endpoint tries the image deployment, then a deterministic offline crest, so
+// the villain always has a face. Cached on state so we never re-fetch.
+async function ensureVillainPortrait() {
+    if (state.villainPortrait || _villainPortraitPending) return;
+    _villainPortraitPending = true;
+    try {
+        const res = await api("/api/world/villain-portrait", {});
+        if (res && res.url) state.villainPortrait = res.url;
+    } catch (_) { /* a missing face degrades gracefully */ }
+    finally { _villainPortraitPending = false; }
+}
+async function renderRivalArc(arc, rival) {
+    const stage = String((arc && arc.escalation_stage) || "watching");
+    const here = Math.max(0, _RIVAL_STAGES.indexOf(stage));
+    const threat = Number((arc && arc.threat_level) || 0);
+    const nodes = _RIVAL_STAGES.map((s, i) => {
+        const label = i === here ? `${s}<br/>${threat}/100` : s;
+        return `  s${i}["${label}"]`;
+    }).join("\n");
+    const edges = _RIVAL_STAGES.slice(1).map((_, i) => `  s${i} --> s${i + 1}`).join("\n");
+    const passed = _RIVAL_STAGES.map((_, i) => i < here ? `s${i}` : "").filter(Boolean).join(",");
+    const future = _RIVAL_STAGES.map((_, i) => i > here ? `s${i}` : "").filter(Boolean).join(",");
+    const def = `flowchart LR\n${nodes}\n${edges}\n`
+        + `classDef now fill:#3a0d14,stroke:#fb7185,stroke-width:2px,color:#ffe;\n`
+        + `classDef past fill:#1a1d27,stroke:#3a3f4d,color:#7a8190;\n`
+        + `classDef soon fill:#10131c,stroke:#262b36,color:#5a6172;\n`
+        + `class s${here} now;\n`
+        + (passed ? `class ${passed} past;\n` : "")
+        + (future ? `class ${future} soon;\n` : "");
+    let svg;
+    try { svg = await mermaidToSvg(def); } catch (_) { return; }
+    let panel = $("rival-arc");
+    if (!panel) {
+        panel = document.createElement("div");
+        panel.id = "rival-arc";
+        panel.className = "rival-arc";
+        (document.getElementById("scene") || document.body).appendChild(panel);
+    }
+    const face = state.villainPortrait
+        ? `<img class="rival-arc-face" src="${esc(state.villainPortrait)}" alt="" onerror="this.style.display='none'" />`
+        : "";
+    panel.innerHTML = `<div class="rival-arc-head">${face}<span>\u2694\ufe0f ${esc(rival)} \u2014 ${esc(stage)}</span></div>`
+        + `<div class="rival-arc-svg">${svg}</div>`;
+    panel.classList.add("show");
+    if (_rivalArcTimer) clearTimeout(_rivalArcTimer);
+    _rivalArcTimer = setTimeout(() => panel.classList.remove("show"), 7000);
 }
 
 // Populate the persistent "Digital Workforce" rail: stats + operating model +
@@ -1773,13 +2153,14 @@ function setOrgPanel(org) {
         host.innerHTML = `<div class="mem-empty">No org designed yet.</div>`;
         return;
     }
-    const burn = Number(org.monthly_burn_usd || 0).toLocaleString();
+    const burn = Number(org.monthly_burn_usd || 0);
+    const humanEq = Number(org.monthly_human_equivalent_usd || 0);
+    const savings = Number(org.monthly_savings_usd != null ? org.monthly_savings_usd : Math.max(0, humanEq - burn));
     let html = `<div class="org-stat">Founder + <b>${org.digital_worker_count}</b> digital workers`
-        + ` &middot; <b>$${burn}</b>/mo &middot; <b>${org.leverage_ratio}&times;</b> leverage</div>`;
-    const humanEq = Number(org.human_equivalent_usd || 0);
-    const savings = Number(org.monthly_savings_usd || 0) || Math.max(0, humanEq - Number(org.monthly_burn_usd || 0));
-    if (savings > 0) {
-        html += `<div class="org-model">A human team in these seats would run roughly <b>$${humanEq.toLocaleString()}</b>/mo at estimated market salaries &mdash; the digital workforce saves about <b style="color:var(--gold-soft);font-style:normal">$${savings.toLocaleString()}</b>/mo.</div>`;
+        + ` &middot; <b>$${burn.toLocaleString()}</b>/mo run cost &middot; <b>${org.leverage_ratio}&times;</b> leverage</div>`;
+    if (humanEq > 0) {
+        const gold = "color:var(--gold-soft);font-style:normal";
+        html += `<div class="org-model">A human team for these seats would cost <b style="${gold}">$${humanEq.toLocaleString()}</b>/mo. Your digital workforce runs for <b>$${burn.toLocaleString()}</b>/mo &mdash; saving <b style="${gold}">$${savings.toLocaleString()}</b>/mo.</div>`;
     }
     if (org.operating_model) html += `<div class="org-model">${esc(org.operating_model)}</div>`;
     if (Array.isArray(org.notes) && org.notes.length) {
@@ -2334,7 +2715,7 @@ async function beginStory() {
     await narrate(`${org.company_summary} The operating model: ${org.operating_model} That is ${org.digital_worker_count} digital workers behind one human - ${org.leverage_ratio}x leverage.`);
 
     // ---- Beat 2: the World Designer decomposes the venture ----
-    $("hint").textContent = "Designing the venture world...";
+    setActionHint("Designing the 8-stage venture world...");
     setWorker("narrator", "NARRATOR_MODEL (Foundry)", "Decomposing the pitch", true);
     if (A.thinkingStart) A.thinkingStart();
 
@@ -2343,9 +2724,11 @@ async function beginStory() {
 
     let res;
     const worldSig = worldDesignSignature();
-    const reusedWorld = worldReuseGet(worldSig);
     try {
-        res = reusedWorld || await api("/api/world/design", {
+        // World design mutates authoritative server state (world stages, game
+        // run, replay log). Do not satisfy it from the client cache, or reloads
+        // lose the run even though the browser painted a world.
+        res = await api("/api/world/design", {
                 pitch: state.pitch,
                 company_name: state.company,
                 founder_name: state.founderName,
@@ -2356,8 +2739,7 @@ async function beginStory() {
                 founder_voice: state.founderVoice,
                 founder_avatar: state.founderAvatar
             });
-        if (!reusedWorld) worldReusePut(worldSig, res);
-        else lens("reasoning", "reused the already-generated world graph for this active run");
+        worldReusePut(worldSig, res);
     } catch (e) {
         if (A.thinkingStop) A.thinkingStop();
         $("hint").textContent = "Design failed";
@@ -2394,8 +2776,7 @@ async function beginStory() {
 
     await revealWorldDrop();
     state.phase = "ready";
-    $("hint").textContent = "World set. Send a move to advance, or Auto Play.";
-    const auto = $("auto"); if (auto) auto.disabled = false;
+    setActionHint("Next: send a move to advance the story.");
     updateCommandControls();
 }
 
@@ -2469,7 +2850,10 @@ function standupToolMarkup(turn) {
 function speakerProfileForTurn(turn) {
     const role = turn.role || "narrator";
     const profile = turn.speaker_profile || {};
-    const portrait = profile.portrait_url || `/game/assets/generated/${ROLE_PORTRAIT[role] || "narrator"}.png`;
+    let portrait = profile.portrait_url || `/game/assets/generated/${ROLE_PORTRAIT[role] || "narrator"}.png`;
+    // The villain's face is whatever the game master actually rendered (png or
+    // the offline svg crest), so its standup turn shows the real portrait.
+    if (role === "antagonist" && state.villainPortrait) portrait = state.villainPortrait;
     return {
         displayName: profile.display_name || turn.speaker || ROLE_NAME[role] || role,
         roleLabel: profile.role_label || ROLE_NAME[role] || role,
@@ -2480,6 +2864,41 @@ function speakerProfileForTurn(turn) {
     };
 }
 
+// Keep the transcript pinned to the newest line, but never yank the view away
+// from a player who has scrolled up to re-read earlier turns.
+function scrollLogToBottom(log) {
+    if (!log) return;
+    const slack = log.scrollHeight - log.scrollTop - log.clientHeight;
+    if (slack < 90) log.scrollTop = log.scrollHeight;
+}
+
+// Attach a turn's rich media to its transcript card: an explicit image and/or a
+// Mermaid diagram. A turn whose tool drew the org graph shows the live org
+// blueprint, so the media capability is wired to real gameplay, not a stub.
+async function attachTurnMedia(mediaEl, turn) {
+    if (!mediaEl) return;
+    let shown = false;
+    if (turn && turn.image) {
+        const cap = turn.image_caption
+            ? `<span class="media-cap">${esc(turn.image_caption)}</span>` : "";
+        mediaEl.insertAdjacentHTML("beforeend",
+            `<div class="council-shot"><img src="${esc(turn.image)}" alt="${esc(turn.image_caption || "")}" `
+            + `onerror="this.closest('.council-shot').remove()" />${cap}</div>`);
+        shown = true;
+    }
+    let mer = turn && turn.mermaid;
+    const tool = turn && turn.tool_call && turn.tool_call.tool;
+    if (!mer && tool === "render_org_graph" && state.org) mer = orgBlueprintMermaid(state.org);
+    if (mer) {
+        const box = document.createElement("div");
+        box.className = "council-diagram";
+        mediaEl.appendChild(box);
+        await renderMermaidInto(box, mer);
+        shown = true;
+    }
+    if (shown) mediaEl.hidden = false;
+}
+
 async function renderAgentStandup(standup) {
     const turns = standup && Array.isArray(standup.turns) ? standup.turns : [];
     if (!turns.length) return;
@@ -2487,8 +2906,16 @@ async function renderAgentStandup(standup) {
     setSceneHead("Agent stand-up", "The party reacts to your call",
         `group chat orchestration - ${esc(trigger.rule_id || "decision")}`);
 
-    // Set up empty council container
-    $("diagram").innerHTML = `<div class="council fade-scene"></div>`;
+    // Any prior speaker spotlight yields: the transcript itself is now the home
+    // for who is speaking, so nothing floats a duplicate over it.
+    hideSpeakerSpotlight();
+    // The standup owns the stage: hide the redundant party roster (those same
+    // workers are in the transcript) and give the transcript the freed height.
+    document.body.classList.add("standup-active");
+    // Scrollable conversation transcript - a vertical log you can scroll back
+    // through (earlier turns + your own responses); each message can carry an
+    // image or a Mermaid diagram.
+    $("diagram").innerHTML = `<div class="council standup-log fade-scene"></div>`;
     const council = $("diagram").querySelector(".council");
 
     const accumulatedHistory = [];
@@ -2501,25 +2928,35 @@ async function renderAgentStandup(standup) {
             const handoff = turn.handoff_to ? `<div class="standup-handoff">handoff: ${esc(turn.handoff_to)}</div>` : "";
             const source = turn.source ? `<span>${esc(turn.source)}</span>` : "";
 
-            const cardHtml = `<div class="council-member standup-member" style="opacity: 1; transform: none; transition: opacity 300ms ease;">`
+            const cardHtml = `<div class="council-member standup-member" style="transition: opacity 300ms ease;">`
                 + `<div class="council-top"><img class="council-face" src="${esc(profile.portraitUrl)}" alt="" onerror="this.style.display='none'" />`
                 + `<div><div class="council-name">${esc(profile.displayName)}</div><div class="council-role">${esc(profile.roleLabel)}</div></div></div>`
                 + `<div class="standup-profile"><span>${esc(profile.textStyle)}</span>${source}</div>`
                 + standupToolMarkup(turn)
-                + `<div class="council-says">&ldquo;${esc(turn.message || "")}&rdquo;</div>`
+                + `<div class="council-says quote" aria-live="polite"></div>`
+                + `<div class="council-media" hidden></div>`
                 + handoff
                 + `</div>`;
 
             council.insertAdjacentHTML("beforeend", cardHtml);
             const lastCard = council.lastElementChild;
-            try { lastCard.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch (_) {}
+            const saysEl = lastCard.querySelector(".council-says");
+            const mediaEl = lastCard.querySelector(".council-media");
+            scrollLogToBottom(council);
 
             setParty(profile.workerId, "reacting in stand-up", profile.displayName);
+            // Feature THIS speaker in the footer mini; the line types straight
+            // into this transcript card (no floating spotlight duplicate).
+            state.activeWorker = { role, deployLabel: "", stateText: "reacting in stand-up", displayName: profile.displayName };
             if (A.turnCue) { try { A.turnCue(); } catch (_) {} }
             const previousVoice = currentVoice;
             currentVoice = profile.voiceId || VOICE_BY_ROLE[role] || NARRATOR_VOICE;
-            await narrate(turn.message || `${profile.displayName} is processing the handoff.`, 15);
+            await narrate(turn.message || `${profile.displayName} is processing the handoff.`, 15,
+                { into: saysEl, onType: () => scrollLogToBottom(council) });
             currentVoice = previousVoice;
+            // Rich media for this message: image and/or Mermaid diagram.
+            await attachTurnMedia(mediaEl, turn);
+            scrollLogToBottom(council);
             await sleep(220);
 
             accumulatedHistory.push({
@@ -2540,6 +2977,7 @@ async function renderAgentStandup(standup) {
     lens("reasoning", `Agent group chat: ${turns.length} character turns, ${selection} selection, reacted to ${trigger.rule_id || "the CEO decision"}`);
 
     // Keep the standup itself text-first; the narrator only closes the beat.
+    state.activeWorker = { role: "narrator", deployLabel: "", stateText: "", displayName: ROLE_NAME.narrator };
     currentVoice = NARRATOR_VOICE;
     await narrate(`Stand-up. ${line}`);
     await sleep(400);
@@ -2547,7 +2985,12 @@ async function renderAgentStandup(standup) {
     // Now loop conversation infinitely
     let replySeq = 0;
     return new Promise((resolve) => {
+        // Leaving the standup restores the normal stage layout (party roster back).
+        const finish = () => { document.body.classList.remove("standup-active"); resolve(); };
         async function promptCEO() {
+            // The floor is back with the CEO: clear the speaking spotlight so the
+            // response card owns the stage.
+            hideSpeakerSpotlight();
             // Present the CEO response input card
             const seq = ++replySeq;
             const responseId = `standup-response-wrap-${seq}`;
@@ -2557,24 +3000,25 @@ async function renderAgentStandup(standup) {
             const micId = `${inputId}-mic`;
             const statusId = `${inputId}-status`;
 
-            const founderCardHtml = `<div id="${responseId}" class="council-member standup-member" style="border: 1px solid var(--blue); background: rgba(91, 140, 255, 0.04); padding: 18px; width: 100%; transition: opacity 300ms ease;">`
+            const founderCardHtml = `<div id="${responseId}" class="council-member standup-ceo-turn" style="transition: opacity 300ms ease;">`
                 + `<div class="council-top">`
                 + `<img class="council-face" src="${state.founderAvatar || "/game/assets/generated/narrator.png"}" alt="" onerror="this.style.display='none'" />`
-                + `<div><div class="council-name">${esc(state.founderName || "CEO")} (You)</div><div class="council-role">Human Operator</div></div></div>`
+                + `<div><div class="council-name">${esc(state.founderName || "CEO")} (You) &middot; your turn</div><div class="council-role">Human Operator</div></div></div>`
                 + `<div style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">`
-                + `<div style="position: relative; display: flex; align-items: center;">`
-                + `<input id="${inputId}" autocomplete="off" style="width: 100%; background: rgba(7, 10, 20, 0.6); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink); padding: 9px 42px 9px 13px; font-size: 13.5px; outline: none; transition: 140ms ease;" placeholder="Respond to your workforce (e.g., 'Focus on speed' or 'Optimize runway')..." />`
-                + `<button id="${micId}" class="mic-btn" type="button" title="Speak your response" aria-label="Speak your response" style="position: absolute; right: 8px; background: transparent; border: none; cursor: pointer; font-size: 18px; color: var(--gold-soft);">&#127908;</button>`
+                + `<div class="standup-ceo-input-row">`
+                + `<div class="standup-ceo-input-wrap">`
+                + `<input id="${inputId}" autocomplete="off" placeholder="Respond to your workforce (e.g., 'Focus on speed' or 'Optimize runway')..." />`
+                + `<button id="${micId}" class="mic-btn standup-ceo-mic" type="button" title="Speak your response" aria-label="Speak your response">&#127908;</button>`
+                + `</div>`
+                + `<button id="${skipId}" class="btn ghost" style="padding: 9px 16px; font-size: 12.5px; font-weight: 500; cursor: pointer; flex: 0 0 auto;">End Standup</button>`
+                + `<button id="${btnId}" class="btn primary" style="padding: 9px 18px; font-size: 12.5px; font-weight: 600; cursor: pointer; flex: 0 0 auto;">Send Response</button>`
                 + `</div>`
                 + `<div id="${statusId}" style="font-size: 10.5px; min-height: 16px; color: var(--ink-faint);"></div>`
-                + `<div style="display: flex; gap: 8px; justify-content: flex-end;">`
-                + `<button id="${skipId}" class="btn ghost" style="padding: 7px 16px; font-size: 12.5px; font-weight: 500; cursor: pointer;">End Standup</button>`
-                + `<button id="${btnId}" class="btn primary" style="padding: 7px 16px; font-size: 12.5px; font-weight: 600; cursor: pointer;">Send Response</button>`
-                + `</div></div></div>`;
+                + `</div></div>`;
 
             council.insertAdjacentHTML("beforeend", founderCardHtml);
             const fsCard = council.lastElementChild;
-            try { fsCard.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch (_) {}
+            scrollLogToBottom(council);
 
             const inputEl = $(inputId);
             const sendBtn = $(btnId);
@@ -2653,7 +3097,7 @@ async function renderAgentStandup(standup) {
 
                 } catch (err) {
                     fsCard.remove();
-                    resolve();
+                    finish();
                 }
             };
 
@@ -2661,7 +3105,7 @@ async function renderAgentStandup(standup) {
                 cleanup();
                 if (A.uiHover) { try { A.uiHover(); } catch (_) {} }
                 fsCard.remove();
-                resolve();
+                finish();
             };
 
             sendBtn.addEventListener("click", handleSend);
@@ -2797,7 +3241,6 @@ async function runNextChapter() {
     state.phase = "running";
     updateCommandControls();
     const nextBtn = $("next"); if (nextBtn) nextBtn.disabled = true;
-    const autoBtn = $("auto"); if (autoBtn) autoBtn.disabled = true;
     markProgress(state.idx);
 
     setSceneHead(`Stage ${state.idx + 1}`, ch.title,
@@ -2811,7 +3254,7 @@ async function runNextChapter() {
     setReasoning(null);
     setTools(null);
     if (A.thinkingStart) A.thinkingStart();
-    $("hint").textContent = `${ownerName} is working...`;
+    setActionHint(`Working: ${ownerName} is executing your move.`);
 
     // Session memory, spoken: the worker is briefed with the CEO's last gate
     // decision - the player hears their own words come back (game_design 5).
@@ -2851,7 +3294,7 @@ async function runNextChapter() {
         } catch (e2) {
             if (A.thinkingStop) A.thinkingStop();
             theaterClose();
-            $("hint").textContent = "Chapter failed - press Retry to resume";
+            setActionHint("Chapter failed - press Retry to resume.");
             await narrate(`The worker could not finish: ${e2.message}. Click Retry to send it back in.`);
             const retry = $("retry");
             if (retry) retry.classList.remove("is-hidden");
@@ -2919,7 +3362,7 @@ async function runNextChapter() {
         ? `A Foundry rubric evaluation scored it ${score} of 100 across four weighted dimensions, floored by the deterministic validator`
         : `The deterministic validator scored it ${score} of 100`;
     await narrate(`${ownerName} delivered ${artifactKind}. ${rubricLine} - ${score >= 80 ? "it passes the gate and the company graph grows." : "bronze, so it pauses for a human gate."}`);
-    await runRewardDraftGate(state.game, state.autoMode);
+    await runRewardDraftGate(state.game);
 
     completedStages.push({ title: ch.title, role: ch.owner_role });
     state.idx += 1;
@@ -2928,12 +3371,11 @@ async function runNextChapter() {
         await finale(res.state);
     } else {
         // The CEO decision gate: pick a path before the next worker spins up.
-        await runDilemmaGate(stage, state.autoMode);
+        await runDilemmaGate(stage);
         state.phase = "ready";
         updateCommandControls();
         const next = $("next"); if (next) next.disabled = false;
-        const auto = $("auto"); if (auto) auto.disabled = false;
-        $("hint").textContent = "Resuming campaign...";
+        setActionHint("Next: send a move to brief the next worker.");
     }
 }
 
@@ -2949,8 +3391,7 @@ function describeArtifact(role) {
 // --- Dilemma gate (game_design.md section 5) -------------------------------
 // After a chapter seals, the narrator poses a 2-option CEO tradeoff (live
 // Foundry; canned offline). The pick is recorded via /api/decision and the
-// next worker treats it as binding direction. Autoplay auto-picks option 1
-// after a beat so the reliable demo path never blocks.
+// next worker treats it as binding direction.
 let dilemmaResolve = null;
 let dilemmaVoiceBound = false; // one-time bind of the dilemma mic to STT
 
@@ -2963,7 +3404,7 @@ function hideDilemma() {
     dilemmaResolve = null;
 }
 
-async function runDilemmaGate(stage, auto) {
+async function runDilemmaGate(stage) {
     let dilemma;
     try {
         dilemma = await api("/api/dilemma", { stage_id: stage.id });
@@ -2974,7 +3415,7 @@ async function runDilemmaGate(stage, auto) {
     const speaker = dilemma.speaker || {};
     const kicker = document.querySelector("#dilemma-overlay .dilemma-kicker");
     if (kicker) {
-        kicker.textContent = `${speaker.display_name || "The Narrator"} - ${speaker.role || "CEO decision"} - your call shapes the next stage`;
+        kicker.textContent = `${speaker.display_name || "The Narrator"} - your workforce proposes, you decide - your call shapes the next stage`;
     }
     // Provenance strip: the dilemma is written by the Narrator FROM the
     // artifact just sealed - show the reasoning trail, not a popup from nowhere.
@@ -3011,7 +3452,14 @@ async function runDilemmaGate(stage, auto) {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "dilemma-opt";
-        btn.innerHTML = `<b>${i + 1} &middot; ${esc(o.option)}</b>`
+        // The worker who would own this path - the choice is a worker proposal,
+        // not a popup from nowhere. Show who is championing it.
+        const by = o.proposed_by || null;
+        const proposer = by && by.title
+            ? `<span class="dilemma-by"><img src="${esc(by.portrait_url || "")}" alt="" onerror="this.style.display='none'"><em>${esc(by.title)}</em> proposes</span>`
+            : "";
+        btn.innerHTML = proposer
+            + `<b>${i + 1} &middot; ${esc(o.option)}</b>`
             + `<span>tradeoff: ${esc(o.tradeoff || "none stated")}</span>`
             + (o.effect_line ? `<em>${esc(o.effect_line)}</em>` : "")
             + (o.rule_id ? `<small>${esc(o.rule_id)}</small>` : "");
@@ -3024,11 +3472,8 @@ async function runDilemmaGate(stage, auto) {
     $("dilemma-own-input").value = "";
     const ownStatus = $("dilemma-own-status");
     if (ownStatus) { ownStatus.hidden = true; ownStatus.textContent = ""; ownStatus.classList.remove("live"); }
-    $("hint").textContent = "Your call, CEO - 1 / 2, or speak your own path";
-    const cd = $("dilemma-countdown");
-    if (cd) { cd.hidden = true; cd.textContent = ""; }
-    let promptSpeech = Promise.resolve();
-    if (A.speak) { try { promptSpeech = A.speak(dilemma.prompt, { voice: NARRATOR_VOICE }) || Promise.resolve(); } catch (_) {} }
+    setActionHint("Decision gate: choose 1 / 2, or speak your own path.");
+    if (A.speak) { try { A.speak(dilemma.prompt, { voice: NARRATOR_VOICE }); } catch (_) {} }
 
     // Wire the free-text path BEFORE parking on the promise - statements after
     // the await only run once the dilemma is already decided, which left the
@@ -3066,30 +3511,6 @@ async function runDilemmaGate(stage, auto) {
 
     const picked = await new Promise((resolve) => {
         dilemmaResolve = resolve;
-        if (auto) {
-            // Autoplay never steals the CEO's moment: the clock starts only
-            // AFTER the narrator finishes posing the question (capped), shows
-            // a visible countdown inside the card, and option 1 is only the
-            // default when it hits zero. Any human pick cancels it.
-            (async () => {
-                await Promise.race([promptSpeech, sleep(Math.min(24000, 3000 + dilemma.prompt.length * 80))]);
-                if (!dilemmaResolve) return; // decided while the question was read
-                let left = 15;
-                if (cd) { cd.hidden = false; cd.textContent = `auto-deciding in ${left}s - press 1 / 2 / 3 to take the wheel`; }
-                const tickDown = setInterval(() => {
-                    if (!dilemmaResolve) { clearInterval(tickDown); if (cd) cd.hidden = true; return; }
-                    left -= 1;
-                    if (left <= 0) {
-                        clearInterval(tickDown);
-                        if (cd) cd.hidden = true;
-                        if (dilemmaResolve) decide(dilemma.options[0], false);
-                    } else {
-                        if (cd) cd.textContent = `auto-deciding in ${left}s - press 1 / 2 / 3 to take the wheel`;
-                        $("hint").textContent = `Your call, CEO - auto-deciding in ${left}s (press 1 / 2 / 3 to choose)`;
-                    }
-                }, 1000);
-            })();
-        }
     });
 
     async function decide(choice, custom) {
@@ -3098,7 +3519,7 @@ async function runDilemmaGate(stage, auto) {
         const tradeoff = typeof choice === "string" ? "" : (choice.tradeoff || "");
         const r = dilemmaResolve; dilemmaResolve = null;
         document.querySelectorAll("#dilemma-options .dilemma-opt, #dilemma-own-btn, #dilemma-own-go").forEach((el) => { el.disabled = true; });
-        $("hint").textContent = "Committing decision to company state...";
+        setActionHint("Committing decision to company state...");
         let consequence = null;
         try {
             const res = await api("/api/decision", {
@@ -3122,7 +3543,7 @@ async function runDilemmaGate(stage, auto) {
             dilemmaResolve = r;
             $("dilemma-overlay").hidden = false;
             document.querySelectorAll("#dilemma-options .dilemma-opt, #dilemma-own-btn, #dilemma-own-go").forEach((el) => { el.disabled = false; });
-            $("hint").textContent = "Decision did not persist - choose again to retry";
+            setActionHint("Decision did not persist - choose again to retry.");
             return;
         }
         document.querySelectorAll("#dilemma-options .dilemma-opt, #dilemma-own-btn, #dilemma-own-go").forEach((el) => { el.disabled = false; });
@@ -3178,8 +3599,7 @@ async function finale(s) {
     if (A.complete) A.complete();
     await renderMermaid(companyGraphDef());
     setWorker("narrator", "Venture: launched", "All stages verified", false);
-    $("hint").textContent = "Venture launched";
-    const auto = $("auto"); if (auto) auto.disabled = true;
+    setActionHint("Venture launched.");
     await narrate(`${state.stages.length} stages, ${state.stages.length} verified gates. From one founder signal you now have an org, the systems it runs on, a launch plan, and the numbers behind it - level ${s.level ?? 1}, ${s.xp ?? 0} XP. That is the mission, mapped as a living system you changed.`);
     await incomeBeat(s);
 }
@@ -3230,7 +3650,7 @@ async function incomeBeat(s) {
         await sleep(1300);
     }
     await narrate(`That is the thesis, closed: your skill set the direction, the gates kept it honest, and the workforce turned it into income - ${workers.length || "your"} digital workers, one human seal. This, times a billion founders, is how a desert turns green.`);
-    $("hint").textContent = "The loop is closed - Reset to run another venture";
+    setActionHint("The loop is closed - Reset to run another venture.");
 }
 
 function updateCommandControls() {
@@ -3246,8 +3666,13 @@ function updateCommandControls() {
     input.disabled = !ready;
     send.disabled = !ready;
     input.placeholder = ready
-        ? "Tell the workforce your next move before this stage..."
+        ? `Tell the workforce your move for stage ${state.idx + 1}...`
         : (state.phase === "running" ? "Worker is executing your last move..." : "Waiting for the world to finish loading...");
+    if (ready) {
+        const stage = state.stages[state.idx] || {};
+        const owner = stage.assigned_worker_title || ROLE_NAME[stage.owner_role] || stage.owner_role || "worker";
+        setActionHint(`Ready: Send Move briefs ${owner} for stage ${state.idx + 1}.`);
+    }
     queueFooterAwareLayoutSync();
 }
 
@@ -3260,7 +3685,7 @@ async function submitPlayerCommand(e) {
     if (text) {
         const stage = state.stages[state.idx] || {};
         state.playerCommands.push({ stage_id: stage.id || "", text: text, ts: Date.now() });
-        $("hint").textContent = "Move registered. Briefing the worker...";
+        setActionHint("Move registered. Briefing the worker...");
         try {
             await api("/api/world/standup/respond", { text: text });
             lens("reasoning", `CEO move recorded in memory before stage ${state.idx + 1}: "${text.slice(0, 54)}"`);
@@ -3270,18 +3695,6 @@ async function submitPlayerCommand(e) {
         }
     }
     await runNextChapter();
-}
-
-async function autoPlay() {
-    const autoControl = $("auto");
-    if (autoControl) autoControl.disabled = true;
-    state.autoMode = true;
-    while (state.idx < state.stages.length) {
-        await runNextChapter();
-        await sleep(900);
-    }
-    state.autoMode = false;
-    if (autoControl) autoControl.disabled = false;
 }
 
 async function resetStory() {
@@ -3559,12 +3972,12 @@ $("begin").addEventListener("mouseenter", () => {
     if (party) {
         party.addEventListener("click", (e) => {
             const tile = e.target.closest(".party-agent");
-            if (tile && tile.dataset.owner) flipCard(tile.dataset.owner);
+            if (tile && tile.dataset.owner) { openAgentInspector(tile.dataset.owner); if (A.cardDraw) { try { A.cardDraw(); } catch (_) {} } }
         });
         party.addEventListener("keydown", (e) => {
             if (e.key !== "Enter" && e.key !== " ") return;
             const tile = e.target.closest(".party-agent");
-            if (tile && tile.dataset.owner) { e.preventDefault(); flipCard(tile.dataset.owner); }
+            if (tile && tile.dataset.owner) { e.preventDefault(); openAgentInspector(tile.dataset.owner); }
         });
         party.addEventListener("mouseover", (e) => {
             if (!e.target.closest(".party-agent")) return;
@@ -3599,11 +4012,11 @@ $("begin").addEventListener("mouseenter", () => {
     // Click anywhere outside the open dossier (and not on its trigger) closes it.
     document.addEventListener("click", (e) => {
         if (!inspectorOpen) return;
-        if (e.target.closest("#cast-stage") || e.target.closest("#worker")) return;
+        if (e.target.closest("#cast-stage") || e.target.closest("#worker") || e.target.closest("#party")) return;
         closeAgentInspector();
     });
     document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape") { closeAgentInspector(); unflipAllCards(); }
+        if (e.key === "Escape") closeAgentInspector();
     });
 })();
 
@@ -3629,8 +4042,6 @@ window.CampaignStory = window.DungeonStory = {
     },
 };
 
-const autoBtn = $("auto");
-if (autoBtn) autoBtn.addEventListener("click", autoPlay);
 const commandForm = $("player-command");
 if (commandForm) commandForm.addEventListener("submit", submitPlayerCommand);
 // Voice path for the player's move card: speak instead of type. Reuses the same
@@ -3643,11 +4054,18 @@ if (commandForm) commandForm.addEventListener("submit", submitPlayerCommand);
 })();
 const resetBtn = $("reset");
 if (resetBtn) resetBtn.addEventListener("click", resetStory);
+// The run-over overlay's single action: begin a fresh run (same as Reset).
+const runOverBtn = $("run-over-btn");
+if (runOverBtn) runOverBtn.addEventListener("click", () => {
+    const overlay = $("run-over-overlay");
+    if (overlay) { overlay.hidden = true; overlay.classList.remove("show"); overlay.dataset.shownFor = ""; }
+    resetStory();
+});
 const retryBtn = $("retry");
 if (retryBtn) {
     retryBtn.addEventListener("click", async () => {
         retryBtn.classList.add("is-hidden");
-        await autoPlay();
+        await runNextChapter();
     });
 }
 const advBtn = $("btn-cc-adv");
@@ -3857,6 +4275,11 @@ function restoreRunFromState(s) {
     setHud(s);
     setOrgPanel(s.org);
     setEconHud(s.org);
+    // Restore the card/roguelike layer too (hand, party, antagonist arc, run
+    // status). This is also what surfaces the run-over moment when a saved run
+    // was already decided - resume must not silently drop a finished game.
+    if (s.economics) state.economics = s.economics;
+    if (s.game) syncGameState(s.game);
     buildProgress(stages.length);
     markProgress(state.idx);
     setParty("narrator", "run resumed");
@@ -3874,14 +4297,13 @@ function restoreRunFromState(s) {
     $("diagram").innerHTML = `<div class="founding fade-scene">`
         + `<div class="kicker">Run resumed</div>`
         + `<h1>${esc(state.company)}</h1>`
-        + `<p>${done} of ${stages.length} stages complete &mdash; send a move or Auto Play to continue.</p>`
+        + `<p>${done} of ${stages.length} stages complete &mdash; send a move to continue.</p>`
         + `</div>`;
 
     const hasNext = state.phase !== "done";
     const next = $("next"); if (next) next.disabled = !hasNext;
-    const auto = $("auto"); if (auto) auto.disabled = !hasNext;
     updateCommandControls();
-    $("hint").textContent = hasNext ? "Run restored - send a move or Auto Play to continue." : "Run restored - venture launched.";
+    if (!hasNext) setActionHint("Run restored - venture launched.");
     queueFooterAwareLayoutSync();
 }
 

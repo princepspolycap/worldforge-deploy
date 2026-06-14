@@ -46,18 +46,24 @@ mission the player is leading.
 
 The live-battle rubric in
 [`starter-kits/2-reasoning-agents/live_battle_challenge.md`](starter-kits/2-reasoning-agents/live_battle_challenge.md)
-uses these weights:
+and the official contest rules use these weights:
 
 | Criterion | Weight |
 |---|---:|
-| Accuracy and Relevance | 25% |
-| Reasoning and Multi-step Thinking | 25% |
+| Accuracy and Relevance | 20% |
+| Reasoning and Multi-step Thinking | 20% |
 | Reliability and Safety | 20% |
 | Creativity and Originality | 15% |
 | User Experience and Presentation | 15% |
+| Community vote (Discord poll) | 10% |
 
 Detailed mapping is in
 [`submission/docs/rubric_mapping.md`](submission/docs/rubric_mapping.md).
+The final 24-hour submission checklist is in that same doc under
+"Final 24-Hour Checklist (Highest-EV Target: Best Overall Agent)".
+
+Prize stacking is limited by rule: one prize per person during the Entry Period
+unless otherwise noted in the official rules table.
 
 ## Microsoft Platform Links
 

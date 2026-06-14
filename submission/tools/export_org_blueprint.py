@@ -136,8 +136,7 @@ def org_to_workforce_bundle(org: Dict[str, Any]) -> Dict[str, Any]:
             "digital_worker_count": org.get("digital_worker_count", len(worker_specs)),
             "human_count": org.get("human_count", len(human_specs)),
             "monthly_burn_usd": org.get("monthly_burn_usd", 0),
-            "human_equivalent_usd": org.get("human_equivalent_usd", 0),
-            "monthly_savings_usd": org.get("monthly_savings_usd", 0),
+            "monthly_inference_usd": org.get("monthly_inference_usd", 0),
             "leverage_ratio": org.get("leverage_ratio", 0.0),
         },
         "team": {

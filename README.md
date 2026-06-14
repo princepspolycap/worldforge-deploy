@@ -144,15 +144,19 @@ If you have product feedback or errors while building visit:
 
 Projects are evaluated by experts and product teams using this rubric:
 
-- **Accuracy & Relevance (25%)** — Meets challenge requirements
-- **Reasoning & Multi-step Thinking (25%)** — Clear problem-solving approach
+- **Accuracy & Relevance (20%)** — Meets challenge requirements
+- **Reasoning & Multi-step Thinking (20%)** — Clear problem-solving approach
+- **Reliability & Safety (20%)** — Solid patterns, avoids obvious pitfalls
 - **Creativity & Originality (15%)** — Novel ideas or unexpected execution
 - **User Experience & Presentation (15%)** — Clear, polished, demoable
-- **Reliability & Safety (20%)** — Solid patterns, avoids obvious pitfalls
+- **Community vote (10%)** — Discord poll at https://aka.ms/agentsleague/discord
 
 Battle-specific rubrics can differ by track; the Reasoning Agents live-battle
 rubric is mirrored in
 [`starter-kits/2-reasoning-agents/live_battle_challenge.md`](./starter-kits/2-reasoning-agents/live_battle_challenge.md).
+
+Official contest rules are the final authority for deadlines, eligibility,
+judging, and prize limits.
 
 ## Resources
 

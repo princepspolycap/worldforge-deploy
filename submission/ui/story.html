@@ -116,9 +116,21 @@
         }
         .iconbtn:hover { color: var(--ink); border-color: var(--line-bright); }
 
-        /* ---- Stage: full-bleed cinema. The scene IS the screen; header,
-           rail and footer float above it as glass overlays, so gameplay
-           inherits the film's full-screen language. ---- */
+                /* ---- Stage: full-bleed cinema. The scene IS the screen; header,
+                     rail and footer float above it as glass overlays, so gameplay
+                     inherits the film's full-screen language.
+
+                     Layer contract for future UI work:
+                     - #diagram / .world-canvas is the lowest gameplay layer and must fit
+                         inside #scene's reserved content box.
+                     - #cast-stage.speaking is non-modal: it may sit beside the canvas,
+                         but it must stay above the party hand and never steal pointer focus.
+                     - #party is the persistent card hand above the canvas and below the
+                         footer; do not put dossiers directly in this rail.
+                     - #cast-stage.inspect is the only interactive dossier layer and is
+                         allowed to dim/blur the scene while it owns focus.
+                     - footer is the top HUD/control layer. Dynamic footer height flows
+                         back into --hand-bottom from story.js. ---- */
         #stage {
             position: fixed; inset: 0;
             overflow: hidden;
@@ -135,6 +147,11 @@
                 padding: 64px 44px var(--lower-stage-reserve) 44px;
             overflow: hidden;
         }
+        /* A speaking game-master card replaces the center narration bar, so the
+           world can reclaim that vertical space while still reserving the hand. */
+        body.spotlight-active #scene {
+            --lower-stage-reserve: calc(var(--hand-bottom) + var(--hand-card-h) + 34px);
+        }
         #stage.rail-hidden #scene { padding-right: 44px; }
         #stage.rail-hidden #scene-head { right: 44px; }
         #stage.rail-hidden #narration { right: 0; }
@@ -145,6 +162,7 @@
             align-items: center;
             justify-content: center;
             position: relative;
+            overflow: hidden;
         }
         .world-canvas {
             width: min(1040px, 100%);
@@ -154,6 +172,15 @@
             justify-content: center;
             position: relative;
             isolation: isolate;
+            overflow: hidden;
+            transition: width 220ms ease, margin-left 220ms ease;
+        }
+        /* Keep the world artifact readable when the non-modal speaker card is
+           present: the canvas moves into the remaining lane instead of hiding
+           underneath the character card. */
+        #cast-stage.speaking + #diagram .world-canvas {
+            width: calc(100% - min(30vw, 392px));
+            margin-left: min(30vw, 392px);
         }
         .world-canvas::before {
             content: "";
@@ -219,7 +246,7 @@
             width: auto !important;
             height: auto !important;
             max-width: 100% !important;
-            max-height: 60vh !important; /* fits the band between scene-head and narration */
+            max-height: 100% !important; /* fits the currently reserved stage band */
         }
         #diagram .node rect,
         #diagram .node polygon,
@@ -790,15 +817,17 @@
         .cta:hover { transform: translateY(-1px); }
         .cta:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
-        /* Scene heading shown above diagrams - sits BELOW the fixed header
-           glass (header is ~64px tall, z-20) so the beat pill never hides. */
+        /* Scene heading shown above diagrams - kept quiet so status lives near
+           the player's controls instead of becoming top-of-screen captions. */
         #scene-head {
-            position: absolute; top: 24px; left: 44px; right: 400px; z-index: 5;
-            display: flex; align-items: center; gap: 12px;
+            position: absolute; top: 26px; left: 48px; right: 48px; z-index: 5;
+            display: none !important; align-items: center; gap: 12px;
             opacity: 0; transition: opacity 400ms ease;
+            pointer-events: none;
         }
         #scene-head.show { opacity: 1; }
         .beat-pill {
+            display: none;
             font-family: var(--font-mono); font-size: 10px;
             letter-spacing: 0.2em; text-transform: uppercase;
             padding: 4px 10px; border-radius: var(--radius-pill);
@@ -806,12 +835,14 @@
             background: rgba(91,140,255,0.08);
         }
         #scene-title {
-            font-family: var(--font-display); font-size: 20px; color: var(--ink);
+            font-family: var(--font-display); font-size: 17px; color: rgba(232,236,246,0.86);
             text-shadow: 0 1px 12px rgba(5,8,16,0.9);
+            max-width: min(680px, 68vw); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
         /* Provenance chip: names WHO made the diagram on stage and HOW - the
            audience should never wonder where an artifact came from. */
         .prov-chip {
+            display: none;
             font-family: var(--font-mono); font-size: 10px;
             letter-spacing: 0.06em; color: var(--ink-dim);
             border: 1px solid var(--line); border-radius: var(--radius-pill);
@@ -1083,10 +1114,7 @@
             transform-style: preserve-3d;
             transition: transform 540ms cubic-bezier(.2,.7,.2,1);
         }
-        .party-agent.flipped .pa-inner { transform: rotateY(180deg); }
-        /* a flipped/active card lifts out of the hand to read */
-        .party-agent.flipped { transform: translateY(-34px) scale(1.14); z-index: 92; }
-        .party-agent.active:not(.flipped) { transform: translateY(-10px); }
+        .party-agent.active { transform: translateY(-10px); }
         .pa-face {
             position: absolute; inset: 0;
             -webkit-backface-visibility: hidden; backface-visibility: hidden;
@@ -1097,7 +1125,6 @@
             padding: 10px; overflow: hidden;
             display: flex; flex-direction: column;
         }
-        .pa-back { transform: rotateY(180deg); overflow-y: auto; }
         .party-agent.active .pa-front {
             border-color: var(--spk, rgba(91,140,255,0.78));
             background: linear-gradient(180deg, var(--spk-alpha, rgba(91,140,255,0.18)), rgba(7,10,20,0.78));
@@ -1109,7 +1136,7 @@
             50% { box-shadow: 0 0 24px -1px var(--spk, rgba(91,140,255,0.6)); }
         }
         .party-agent.done .pa-front { border-color: rgba(52,211,153,0.5); }
-        .party-agent:not(.active):not(.flipped) .pa-front { opacity: 0.9; }
+        .party-agent:not(.active) .pa-front { opacity: 0.9; }
         .pa-layer {
             align-self: flex-start; font-family: var(--font-mono); font-size: 7px;
             letter-spacing: 0.16em; text-transform: uppercase;
@@ -1152,7 +1179,7 @@
             display: block; height: 100%; border-radius: inherit; transition: width 500ms ease;
         }
         /* the card lifts on hover; the front face shows the gold edge */
-        .party-agent:hover:not(.flipped) .pa-face {
+        .party-agent:hover .pa-face {
             border-color: rgba(245,200,122,0.7);
             box-shadow: 0 22px 54px -28px rgba(245,200,122,0.5);
         }
@@ -1163,28 +1190,6 @@
             letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold-soft);
             opacity: 0.85;
         }
-        /* Dossier back, tuned to read inside the card (and crisp when it scales
-           up on flip). Reuses the cc-* receipt classes. */
-        .pa-back .cc-head { margin-bottom: 9px; padding-bottom: 8px; gap: 9px; }
-        .pa-back .cc-head.compact { align-items: flex-start; }
-        .pa-back .cc-name { font-size: 12px; }
-        .pa-back .cc-role { font-size: 7px; margin-top: 2px; }
-        .pa-back .cc-deploy { font-size: 7px; margin-top: 2px; }
-        .pa-back .cc-score b { font-size: 17px; }
-        .pa-back .cc-score span { font-size: 8px; }
-        .pa-back .cc-section { margin-bottom: 9px; }
-        .pa-back .cc-h { font-size: 7px; margin-bottom: 4px; }
-        .pa-back .cc-text { font-size: 9px; line-height: 1.4; }
-        .pa-back .cc-chip { font-size: 7px; padding: 1px 5px; }
-        .pa-back .cc-metric-grid { grid-template-columns: 1fr; gap: 5px; }
-        .pa-back .cc-metric { padding: 5px 6px; }
-        .pa-back .cc-metric-top { font-size: 7px; }
-        .pa-back .cc-trace { font-size: 7px; }
-        .pa-back .cc-badge-back {
-            margin-top: 4px; font-family: var(--font-mono); font-size: 7px;
-            letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold-soft); opacity: 0.7;
-        }
-
         .arch-builder { color: var(--good); }
         .arch-seller { color: var(--gold-soft); }
         .arch-designer { color: var(--blue-soft); }
@@ -1315,8 +1320,9 @@
            by default: narration, graph, and the agent hand own the screen; the
            full character card is an intentional inspect action. */
         #cast-stage {
-            position: fixed; left: 28px; bottom: 78px; z-index: 6;
-            width: min(28vw, 360px); height: min(74vh, 590px);
+            position: fixed; left: 28px; bottom: calc(var(--hand-bottom) + 12px); z-index: 6;
+            width: min(28vw, 360px);
+            height: clamp(320px, calc(100vh - var(--hand-bottom) - 72px), 560px);
             pointer-events: none;
             --card-accent: rgba(91,140,255,0.9);
             display: none;
@@ -1350,12 +1356,9 @@
             border: 1px solid rgba(255,255,255,0.07);
             display: flex; flex-direction: column; gap: 12px;
         }
-        .cast-dossier::-webkit-scrollbar,
-        .pa-back::-webkit-scrollbar { width: 6px; }
-        .cast-dossier::-webkit-scrollbar-track,
-        .pa-back::-webkit-scrollbar-track { background: transparent; }
-        .cast-dossier::-webkit-scrollbar-thumb,
-        .pa-back::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.34); border-radius: 999px; }
+        .cast-dossier::-webkit-scrollbar { width: 6px; }
+        .cast-dossier::-webkit-scrollbar-track { background: transparent; }
+        .cast-dossier::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.34); border-radius: 999px; }
         .cast-close {
             position: absolute; top: 14px; right: 14px; z-index: 3;
             width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
@@ -1396,6 +1399,14 @@
                 will-change: transform, opacity;
                 animation: castCardIn 420ms cubic-bezier(.16,.84,.24,1) both;
         }
+        /* Digital-workforce dossier: same shape, role-colored not gold, so the
+           workforce reads as a different layer from the gold game-master cards. */
+        .cast-card.worker {
+            background:
+                linear-gradient(160deg, var(--card-accent), rgba(7,10,20,0.55) 62%),
+                linear-gradient(180deg, rgba(12,18,32,0.96), rgba(7,10,20,0.98));
+            border-color: var(--card-accent);
+        }
         #cast-stage.speaking .cast-card {
             box-shadow:
                 0 0 0 1px rgba(0,0,0,0.4) inset,
@@ -1419,6 +1430,18 @@
         #cast-stage.inspect .cast-card-art .cast-fig {
             background-position: top center;
             background-size: min(112%, 330px) auto;
+        }
+        /* Digital-worker avatar: a role icon, not a full-body cast hero. Render
+           it as a centered badge floating on the role aura so a worker card is
+           instantly distinct from the gold game-master hero card. */
+        #cast-stage.inspect .cast-card-art.icon .cast-fig {
+            background-position: center;
+            background-size: min(56%, 188px) auto;
+        }
+        .cast-card-art.icon {
+            background:
+                radial-gradient(60% 50% at 50% 46%, var(--cast-aura, rgba(91,140,255,0.4)), transparent 70%),
+                linear-gradient(180deg, #0b1322, #070a14);
         }
         /* holographic sheen sweeping across the card */
         .cast-card-art::after {
@@ -1469,9 +1492,14 @@
 
         /* ---- Speaker spotlight: a core agent talking, popped onto the stage ----
            Non-modal sibling of the inspector. Same card art, but with a live
-           speech bubble and an optional image. No stage blur, no pointer lock. */
+              speech bubble and an optional image. No stage blur, no pointer lock.
+              If this layer ever overlaps #party or footer, adjust this block and
+              body.spotlight-active together; they are one layout state. */
         #cast-stage.speaking {
             display: block; pointer-events: none; z-index: 7;
+            bottom: calc(var(--hand-bottom) + var(--hand-card-h) + 30px);
+            width: min(24vw, 324px);
+            height: clamp(260px, calc(100vh - var(--hand-bottom) - var(--hand-card-h) - 96px), 440px);
         }
         #cast-stage.speaking .cast-card { gap: 10px; }
         .cast-shot {
@@ -1564,7 +1592,85 @@
         .council-name { font-family: var(--font-display); font-size: 15px; color: var(--ink); line-height: 1.15; }
         .council-role { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); }
         .council-says { color: var(--ink-dim); font-size: 12.5px; line-height: 1.5; }
+        .council-says.quote::before { content: "\201C"; }
+        .council-says.quote::after { content: "\201D"; }
         .standup-member { min-height: 178px; }
+
+        /* Scrollable conversation transcript: the standup becomes a vertical log
+           you can scroll back through (earlier turns + your own responses).
+           Same card grammar as the council, but one column so message media
+           (images, Mermaid diagrams) get full width. */
+        .council.standup-log {
+            display: flex;
+            flex-direction: column;
+            grid-template-columns: none;
+            gap: 12px;
+            width: min(680px, 100%);
+            max-height: 100%;
+            align-self: stretch;
+            overflow-y: auto;
+            padding: 2px 10px 2px 2px;
+            scrollbar-width: thin;
+            scrollbar-color: var(--line-bright) transparent;
+            scroll-behavior: smooth;
+        }
+        .council.standup-log::-webkit-scrollbar { width: 8px; }
+        .council.standup-log::-webkit-scrollbar-thumb { background: var(--line-bright); border-radius: 999px; }
+        .council.standup-log .council-member,
+        .council.standup-log .standup-member {
+            min-height: 0; width: 100%;
+            /* Never shrink below content: cards grow to hold their media and the
+               log scrolls, instead of squashing so media overflows the card. */
+            flex: 0 0 auto;
+        }
+        /* During a standup the transcript owns the stage: the party roster is
+           redundant (those workers are in the log) and would overlap it, so it
+           steps aside and the transcript claims the freed vertical band. */
+        body.standup-active #party { display: none !important; }
+        body.standup-active #scene { --lower-stage-reserve: 260px; }
+
+        /* Inline message media: an image or a Mermaid diagram inside a turn.
+           Both are height-bounded so a tall image or diagram can never blow up
+           the transcript layout - oversized media is cropped / scrolls. */
+        .council-media { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+        .council-shot { border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; background: rgba(7,10,20,0.5); }
+        .council-shot img { display: block; width: 100%; max-height: 220px; object-fit: cover; }
+        .council-diagram { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px; background: rgba(7,10,20,0.4); max-height: 300px; overflow: auto; }
+        .council-diagram svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+        .media-cap { display: block; padding: 6px 10px; font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); }
+        .media-err { color: var(--bad); font-family: var(--font-mono); font-size: 11px; padding: 6px; }
+
+        /* The CEO's turn is the human's move, not another agent card: it spans
+           the full council width and sits apart as a distinct "your turn" bar
+           so the player never confuses their input for an agent message. In the
+           scrollable log it sticks to the bottom as a chat composer. */
+        .standup-ceo-turn {
+            grid-column: 1 / -1;
+            min-height: 0;
+            border: 1px solid var(--blue);
+            background: linear-gradient(180deg, rgba(91,140,255,0.10), rgba(91,140,255,0.03));
+            box-shadow: 0 18px 48px -34px rgba(91,140,255,0.8);
+        }
+        /* In the scrollable transcript the composer pins to the bottom (opaque
+           base so scrolling history never bleeds through). */
+        .council.standup-log .standup-ceo-turn {
+            position: sticky; bottom: -2px; z-index: 3;
+            background:
+                linear-gradient(180deg, rgba(16,22,40,0.97), rgba(10,15,29,0.97)),
+                linear-gradient(180deg, rgba(91,140,255,0.12), rgba(91,140,255,0.04));
+        }
+        .standup-ceo-input-row { display: flex; align-items: center; gap: 10px; }
+        .standup-ceo-input-wrap { position: relative; display: flex; align-items: center; flex: 1; min-width: 0; }
+        .standup-ceo-input-wrap input {
+            width: 100%; background: rgba(7,10,20,0.6); border: 1px solid var(--line);
+            border-radius: var(--radius-sm); color: var(--ink); padding: 10px 42px 10px 13px;
+            font-size: 13.5px; outline: none; transition: 140ms ease;
+        }
+        .standup-ceo-input-wrap input:focus { border-color: var(--blue); background: rgba(91,140,255,0.06); }
+        .standup-ceo-mic {
+            position: absolute; right: 8px; background: transparent; border: none;
+            cursor: pointer; font-size: 18px; color: var(--gold-soft);
+        }
         .standup-profile {
             display: flex; align-items: center; justify-content: space-between; gap: 8px;
             margin: -2px 0 10px;
@@ -1730,6 +1836,63 @@
         .dilemma-opt small { display: inline-block; margin-top: 7px; font-family: var(--font-mono);
             font-size: 10px; color: var(--ink-faint); letter-spacing: 0.04em; }
         .dilemma-opt:disabled { opacity: 0.55; cursor: wait; }
+        /* Worker proposer chip: the choice is championed by a named digital worker. */
+        .dilemma-by { display: flex; align-items: center; gap: 7px; margin-bottom: 7px;
+            font-size: 11px; color: var(--ink-faint); letter-spacing: 0.02em; }
+        .dilemma-by img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover;
+            border: 1px solid var(--line); }
+        .dilemma-by em { font-style: normal; color: var(--ink-dim); font-weight: 600; }
+        /* Run-over moment: the most important beat of a roguelike. Reuses the
+           dilemma-card grammar with a victory (gold/good) or defeat (bad) accent.
+           No new palette - only existing tokens. */
+        #run-over-overlay {
+            position: fixed; inset: 0; z-index: 70; display: flex; align-items: center;
+            justify-content: center; background: rgba(2,5,13,0.82);
+            -webkit-backdrop-filter: blur(11px); backdrop-filter: blur(11px);
+            opacity: 1;
+        }
+        #run-over-overlay[hidden] { display: none; }
+        /* Resting state is always fully opaque; the entrance only animates the
+           card's transform (no opacity), so it can never get stuck at 0 when
+           the element is revealed from display:none. */
+        .run-over-card {
+            width: min(560px, 92vw); text-align: center; padding: 32px 30px 26px;
+            border-radius: var(--radius-lg); border: 1px solid var(--line);
+            background: linear-gradient(180deg, #0e1424, #0a0f1d);
+            box-shadow: 0 28px 90px rgba(0,0,0,0.6);
+            opacity: 1;
+        }
+        #run-over-overlay.show .run-over-card { animation: runOverRise 420ms cubic-bezier(0.2,0.7,0.2,1) both; }
+        @keyframes runOverRise { from { transform: translateY(16px) scale(0.98); } to { transform: none; } }
+        .run-over-card.victory { border-color: rgba(244,201,93,0.5); box-shadow: 0 28px 90px rgba(244,201,93,0.16); }
+        .run-over-card.defeat { border-color: rgba(251,113,133,0.45); box-shadow: 0 28px 90px rgba(251,113,133,0.14); }
+        .run-over-sigil { font-size: 40px; line-height: 1; margin-bottom: 12px; }
+        .run-over-kicker {
+            font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.22em;
+            text-transform: uppercase; margin-bottom: 8px;
+        }
+        .run-over-card.victory .run-over-kicker { color: var(--gold-soft); }
+        .run-over-card.defeat .run-over-kicker { color: var(--bad); }
+        .run-over-title { font-family: var(--font-display); font-size: 30px; line-height: 1.15; margin-bottom: 10px; }
+        .run-over-reason { font-size: 13.5px; color: var(--ink-dim); line-height: 1.5; margin-bottom: 20px; }
+        .run-over-stats {
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 22px;
+        }
+        .run-over-stat {
+            border: 1px solid var(--line); border-radius: var(--radius-sm);
+            padding: 10px 12px; background: rgba(255,255,255,0.03); text-align: left;
+        }
+        .run-over-stat span {
+            display: block; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em;
+            text-transform: uppercase; color: var(--ink-faint); margin-bottom: 3px;
+        }
+        .run-over-stat b { font-size: 17px; font-family: var(--font-display); color: var(--ink); }
+        .run-over-btn {
+            width: 100%; border: none; border-radius: var(--radius-md); padding: 14px 24px;
+            font-family: inherit; font-size: 14.5px; font-weight: 600; cursor: pointer;
+            color: var(--ink-on-accent); background: var(--gold); transition: 140ms ease;
+        }
+        .run-over-btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
         #reward-overlay {
             position: fixed; inset: 0; z-index: 61; display: flex; align-items: center;
             justify-content: center; background: rgba(2,5,13,0.72); -webkit-backdrop-filter: blur(9px);
@@ -1742,11 +1905,21 @@
             border-radius: 12px; padding: 13px; color: var(--ink);
             background: rgba(255,255,255,0.03); cursor: pointer; transition: 140ms ease;
         }
+        .card-hand.reward-draft { align-items: stretch; gap: 10px; padding-top: 3px; }
+        .card-hand.reward-draft .reward-pick {
+            flex: 1 0 176px; min-height: 78px; padding: 10px 12px;
+            background: linear-gradient(180deg, rgba(244,201,93,0.08), rgba(7,10,20,0.74));
+        }
+        .card-hand.reward-draft .reward-pick b { font-size: 13px; margin-bottom: 5px; }
+        .card-hand.reward-draft .reward-pick > span { font-size: 10.5px; line-height: 1.3; }
+        .card-hand.reward-draft .reward-pick em { margin-top: 6px; font-size: 9px; }
         .reward-pick:hover:not(:disabled) { border-color: var(--gold-soft); background: rgba(244,201,93,0.08); transform: translateY(-1px); }
         .reward-pick:disabled { opacity: 0.55; cursor: wait; }
         .reward-pick b { display: block; font-family: var(--font-display); font-size: 17px; line-height: 1.12; margin-bottom: 8px; }
-        .reward-pick span { display: block; font-size: 12px; color: var(--ink-dim); line-height: 1.4; }
+        /* Direct-child only: the nested .game-card-cost badge keeps its gold circle. */
+        .reward-pick > span { display: block; font-size: 12px; color: var(--ink-dim); line-height: 1.4; }
         .reward-pick em { display: block; margin-top: 11px; font-style: normal; font-family: var(--font-mono); font-size: 10px; color: var(--gold-soft); }
+        .reward-pick .game-card-cost { display: inline-flex; width: 18px; min-width: 18px; font-size: 10px; line-height: 1; color: var(--ink-on-accent); }
         @media (max-width: 760px) {
             .reward-card-list { grid-template-columns: 1fr; }
             .card-hand { order: 3; flex-basis: 100%; max-width: none; }
@@ -1830,7 +2003,7 @@
         .caret { display: inline-block; width: 8px; height: 1.05em; vertical-align: text-bottom; background: var(--spk, var(--blue)); margin-left: 3px; animation: blink 1s steps(1) infinite; }
         @keyframes blink { 50% { opacity: 0; } }
 
-        /* ---- Footer controls: three floating glass cards ---- */
+        /* ---- Footer: two gameplay cards plus small utility controls ---- */
         footer {
             position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
             display: grid; grid-template-columns: minmax(260px, 320px) minmax(320px, 1fr) auto;
@@ -1847,16 +2020,14 @@
             padding: 12px 16px;
             display: flex; flex-direction: column; justify-content: center;
         }
-        body.party-flipped footer {
-            opacity: 0.24;
-            transform: translateY(22px);
-            pointer-events: none;
-        }
-        body.party-flipped #party { z-index: 88; }
         .progress { display: flex; align-items: center; gap: 7px; }
         .footer-left { gap: 10px; min-width: 0; }
         .footer-mid { min-width: 0; }
-        .footer-controls { justify-content: center; }
+        .footer-utility {
+            align-self: end; justify-self: end;
+            display: flex; align-items: center; gap: 8px;
+            padding: 0 0 2px;
+        }
         .footer-center { min-width: 0; display: grid; gap: 8px; }
         /* Active worker mini in the footer (identity only; receipts on cards) */
         .hud-worker { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 320px; cursor: pointer; border-radius: var(--radius-sm); padding: 2px 6px; margin: -2px -6px; transition: background 140ms ease; }
@@ -1886,9 +2057,39 @@
         .econ-pill.bad { border-color: rgba(251,113,133,0.3); background: rgba(251,113,133,0.06); }
         .econ-pill.bad i { color: var(--bad); }
         .econ-pill.bad b { color: var(--bad); }
+        .econ-pill.warn { border-color: rgba(245,200,122,0.32); background: rgba(245,200,122,0.05); }
+        .econ-pill.warn b { color: var(--gold-soft); }
         .econ-pill.gold-glow { border-color: rgba(245,200,122,0.4); background: rgba(245,200,122,0.08); box-shadow: 0 0 10px rgba(245,200,122,0.15); }
         .econ-pill.gold-glow i { color: var(--gold-soft); }
         .econ-pill.gold-glow b { color: var(--gold-soft); }
+        @keyframes pillFlash {
+            0% { box-shadow: 0 0 0 0 rgba(251,113,133,0.55); transform: scale(1); }
+            30% { box-shadow: 0 0 16px 3px rgba(251,113,133,0.5); transform: scale(1.08); }
+            100% { box-shadow: 0 0 0 0 rgba(251,113,133,0); transform: scale(1); }
+        }
+        .econ-pill.pulse-flash { animation: pillFlash 900ms ease-out 2; }
+        /* Rival escalation arc: the game master draws the villain's advance as a
+           transient mermaid panel over the lower stage, then auto-dismisses. */
+        .rival-arc {
+            position: absolute; left: 50%; bottom: calc(var(--lower-stage-reserve) + 8px);
+            transform: translate(-50%, 12px); z-index: 46;
+            max-width: min(720px, 86vw); padding: 12px 16px 14px;
+            border: 1px solid rgba(251,113,133,0.34); border-radius: var(--radius-md);
+            background: linear-gradient(180deg, rgba(28,12,16,0.92), rgba(12,8,12,0.86));
+            box-shadow: 0 18px 48px rgba(0,0,0,0.5), 0 0 24px rgba(251,113,133,0.12);
+            opacity: 0; pointer-events: none; transition: opacity 360ms ease, transform 360ms ease;
+        }
+        .rival-arc.show { opacity: 1; transform: translate(-50%, 0); }
+        .rival-arc-head {
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em;
+            text-transform: uppercase; color: var(--bad); margin-bottom: 8px; text-align: center;
+        }
+        .rival-arc-face {
+            width: 26px; height: 26px; border-radius: 50%; object-fit: cover;
+            border: 1px solid rgba(251,113,133,0.55); box-shadow: 0 0 10px rgba(251,113,133,0.3);
+        }
+        .rival-arc-svg svg { max-width: 100%; height: auto; }
         .player-command {
             display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
             align-items: center; gap: 8px;
@@ -1919,31 +2120,47 @@
         .cmd-status.live { color: var(--blue); }
         .card-hand {
             min-width: 0; max-width: none;
-            display: flex; align-items: center; gap: 8px; overflow-x: auto;
+            display: flex; align-items: stretch; gap: 9px; overflow-x: auto;
             padding: 2px 4px 4px;
         }
         .card-hand[hidden] { display: none; }
         .hand-stat {
-            flex: 0 0 auto; min-width: 86px;
-            font-family: var(--font-mono); font-size: 9px; line-height: 1.35;
+            flex: 0 0 auto; min-width: 96px; align-self: stretch;
+            display: flex; flex-direction: column; justify-content: center; gap: 3px;
+            font-family: var(--font-mono); font-size: 9px; line-height: 1.4;
             color: var(--ink-dim); border: 1px solid var(--line);
-            border-radius: var(--radius-sm); padding: 6px 8px;
+            border-radius: var(--radius-sm); padding: 8px 10px;
             background: rgba(255,255,255,0.025);
         }
-        .hand-stat b { display: block; color: var(--gold-soft); font-size: 12px; font-weight: 600; }
+        .hand-stat b { display: block; color: var(--gold-soft); font-size: 14px; font-weight: 600; }
+        .hand-stat span { color: var(--ink-faint); }
+        /* Playable card: kind-colored accent, effects spelled out as polarity
+           chips, and the agent that forged it named - so a glance tells the
+           player what the card costs, what it moves, and where it came from. */
         .game-card-btn {
-            flex: 0 0 132px; min-height: 50px; text-align: left;
+            position: relative; flex: 0 0 162px; min-height: 100px; text-align: left;
+            display: flex; flex-direction: column; gap: 6px;
             color: var(--ink); border: 1px solid rgba(44,58,94,0.72);
-            border-radius: var(--radius-sm); padding: 7px 8px;
+            border-left: 3px solid var(--gc-accent, var(--blue));
+            border-radius: var(--radius-sm); padding: 9px 10px;
             background: linear-gradient(180deg, rgba(12,18,32,0.92), rgba(7,10,20,0.8));
             cursor: pointer; transition: 140ms ease;
         }
-        .game-card-btn:hover:not(:disabled) { border-color: var(--gold-soft); transform: translateY(-1px); }
-        .game-card-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+        .game-card-btn:hover:not(:disabled) { border-color: var(--gc-accent, var(--gold-soft)); transform: translateY(-2px); box-shadow: 0 16px 32px -22px var(--gc-accent, rgba(91,140,255,0.6)); }
+        .game-card-btn:disabled { opacity: 0.42; cursor: not-allowed; }
+        /* Counterplay cards pulse when the rival is closing in - teaches the loop. */
+        .game-card-btn.counter-hot:not(:disabled) { animation: counterHot 1.8s ease-in-out infinite; border-color: var(--bad); }
+        @keyframes counterHot { 0%,100% { box-shadow: 0 0 12px -5px var(--bad); } 50% { box-shadow: 0 0 20px -2px var(--bad); } }
         .game-card-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+        .gc-kind {
+            font-family: var(--font-mono); font-size: 7.5px; letter-spacing: 0.14em;
+            text-transform: uppercase; color: var(--gc-accent, var(--ink-dim));
+            border: 1px solid var(--gc-soft, var(--line)); background: var(--gc-soft, transparent);
+            padding: 2px 6px; border-radius: 999px;
+        }
         .game-card-name {
-            font-family: var(--font-display); font-size: 12px; line-height: 1.05;
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            font-family: var(--font-display); font-size: 13px; line-height: 1.1;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
         }
         .game-card-cost {
             flex: 0 0 auto; min-width: 18px; height: 18px; border-radius: 50%;
@@ -1951,12 +2168,23 @@
             font-family: var(--font-mono); font-size: 10px; color: var(--ink-on-accent);
             background: var(--gold-grad);
         }
-        .game-card-kind {
-            margin-top: 4px; font-family: var(--font-mono); font-size: 8px;
-            letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint);
+        .gc-effects { display: flex; flex-wrap: wrap; gap: 4px; margin-top: auto; }
+        .gc-chip {
+            font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.03em;
+            padding: 2px 5px; border-radius: 5px; white-space: nowrap;
+            border: 1px solid var(--line); color: var(--ink-dim); background: rgba(255,255,255,0.03);
+        }
+        .gc-chip.gain { color: var(--good); border-color: rgba(52,211,153,0.34); background: rgba(52,211,153,0.07); }
+        .gc-chip.cost { color: var(--marketer); border-color: rgba(245,158,11,0.3); background: rgba(245,158,11,0.06); }
+        .gc-chip.threat-down { color: var(--good); border-color: rgba(52,211,153,0.34); background: rgba(52,211,153,0.07); }
+        .gc-chip.threat-up { color: var(--bad); border-color: rgba(251,113,133,0.3); background: rgba(251,113,133,0.07); }
+        .gc-chip.util { color: var(--blue); border-color: rgba(91,140,255,0.3); background: rgba(91,140,255,0.06); }
+        .gc-source {
+            font-family: var(--font-mono); font-size: 7.5px; letter-spacing: 0.1em;
+            text-transform: uppercase; color: var(--ink-faint);
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .game-card-btn.pending { border-color: rgba(244,201,93,0.38); }
+        .game-card-btn.pending { border-color: rgba(244,201,93,0.38); border-left-color: var(--gold-soft); justify-content: center; }
         .seg { width: 30px; height: 4px; border-radius: 999px; background: rgba(255,255,255,0.08); transition: background 300ms ease; }
         .seg.done { background: var(--blue); }
         .seg.active { background: linear-gradient(90deg, var(--blue), var(--designer)); box-shadow: 0 0 12px rgba(91,140,255,0.6); }
@@ -1970,9 +2198,29 @@
         .btn:hover:not(:disabled) { border-color: var(--line-bright); background: rgba(255,255,255,0.06); }
         .btn:disabled { opacity: 0.4; cursor: not-allowed; }
         .btn.primary { color: var(--ink-on-accent); background: linear-gradient(180deg, var(--blue-bright), var(--blue)); border: none; font-weight: 600; }
+        .btn.primary:hover:not(:disabled) {
+            color: var(--ink-on-accent);
+            background: linear-gradient(180deg, #8db5ff, var(--blue));
+            box-shadow: 0 10px 24px -16px rgba(91,140,255,0.95);
+            transform: translateY(-1px);
+        }
         .btn.ghost { color: var(--ink-dim); }
 
         .hint { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); }
+        .action-hint { padding: 0 4px; }
+        .run-pulse { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; line-height: 1.45; }
+        .run-stage {
+            color: var(--ink); font-weight: 700; font-family: var(--font-body); font-size: 12px;
+        }
+        .run-state {
+            padding: 2px 8px; border-radius: var(--radius-pill);
+            border: 1px solid var(--line); background: rgba(255,255,255,0.035);
+            color: var(--ink-dim);
+        }
+        .run-state.good { color: var(--good-soft); border-color: rgba(52,211,153,0.35); background: rgba(52,211,153,0.07); }
+        .run-state.warn { color: var(--gold-soft); border-color: rgba(244,201,93,0.38); background: rgba(244,201,93,0.07); }
+        .run-state.bad { color: var(--bad); border-color: rgba(251,113,133,0.38); background: rgba(251,113,133,0.07); }
+        .run-next { color: var(--ink-faint); }
 
           /* Runtime compact mode (set by story.js based on viewport): trims
               footer verbosity so medium screens still read like a game HUD. */
@@ -1983,7 +2231,6 @@
           body.compact-ui .econ-hud { gap: 8px; }
           body.compact-ui .econ-pill { font-size: 9.5px; padding: 4px 9px; }
           body.compact-ui .controls { gap: 8px; }
-          body.compact-ui .hint { display: none; }
 
         /* Mermaid node entrance: fade only. NEVER animate transform here -
            mermaid uses transform:translate(x,y) to POSITION each node, so
@@ -2337,6 +2584,10 @@
             .footer-center {
                 grid-column: 1 / -1;
             }
+            .footer-utility {
+                grid-column: 1 / -1;
+                justify-self: end;
+            }
             .card-hand {
                 min-width: 0;
                 max-width: none;
@@ -2369,8 +2620,6 @@
                 right: 12px;
             }
             .scene-chip { max-width: 100%; }
-            .party-agent.flipped { transform: translateY(-26px) scale(1.1); }
-            body.party-flipped footer { transform: translateY(10px); opacity: 0.2; }
             .prov-chip {
                 max-width: 100%;
                 flex: 1 1 100%;
@@ -2424,9 +2673,7 @@
             }
             .player-command { grid-template-columns: minmax(0, 1fr) auto auto; }
             .player-command .btn { width: 100%; justify-content: center; }
-            .hint {
-                display: none;
-            }
+            .action-hint { font-size: 10px; }
             .game-card-btn {
                 flex-basis: 120px;
             }
@@ -2448,7 +2695,6 @@
             #scene-status { top: 82px; }
             .scene-chip.speaker,
             .scene-chip.source { display: none; }
-            .party-agent.flipped { transform: translateY(-20px) scale(1.08); }
             #diagram svg {
                 max-height: 36vh !important;
             }
@@ -2599,6 +2845,7 @@
             </div>
             <div class="footer-card footer-mid">
                 <div class="footer-center">
+                    <span id="hint" class="hint action-hint">Enter a pitch to begin</span>
                     <form id="player-command" class="player-command" hidden>
                         <input id="player-command-input" autocomplete="off" placeholder="Tell the workforce your next move..." />
                         <button id="player-command-mic" class="iconbtn cmd-mic" type="button" title="Speak your move" aria-label="Speak your move">&#127908;</button>
@@ -2608,10 +2855,8 @@
                     <div id="card-hand" class="card-hand" hidden></div>
                 </div>
             </div>
-            <div class="footer-card footer-controls">
+            <div class="footer-utility" aria-label="Run utilities">
                 <div class="controls">
-                    <span id="hint" class="hint">Enter a pitch to begin</span>
-                    <button id="auto" class="btn" disabled>Auto Play</button>
                     <button id="mute" class="iconbtn" title="Toggle audio">&#9834;</button>
                     <button id="retry" class="btn primary is-hidden">Retry</button>
                     <button id="reset" class="btn" disabled>Reset</button>
@@ -2656,6 +2901,20 @@
         </div>
     </div>
 
+    <!-- Run-over moment: victory or defeat. The end of a run is the headline beat
+         of a roguelike - it gets a designed screen with the outcome, the reason,
+         the run's stats, and a single clear "begin again" action. -->
+    <div id="run-over-overlay" hidden aria-hidden="true">
+        <div id="run-over-card" class="run-over-card">
+            <div id="run-over-sigil" class="run-over-sigil"></div>
+            <div id="run-over-kicker" class="run-over-kicker"></div>
+            <div id="run-over-title" class="run-over-title"></div>
+            <div id="run-over-reason" class="run-over-reason"></div>
+            <div id="run-over-stats" class="run-over-stats"></div>
+            <button id="run-over-btn" class="run-over-btn" type="button">Begin a new run</button>
+        </div>
+    </div>
+
     <!-- Lore / tutorial intro: the game introduces itself before the first pitch.
          Fully skippable (Skip button / Esc). Append ?intro=0 to bypass on reload. -->
     <div id="intro-overlay" aria-hidden="false">
@@ -2668,7 +2927,7 @@
     </div>
 
     <script src="/game/game/audio.js?v=11"></script>
-    <script type="module" src="/game/game/story.js?v=170"></script>
+    <script type="module" src="/game/game/story.js?v=193"></script>
     <script src="/game/game/intro.js?v=30"></script>
 </body>
 </html>

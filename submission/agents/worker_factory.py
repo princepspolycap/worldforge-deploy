@@ -529,12 +529,44 @@ def _apply_decision_context_to_artifact(artifact: Dict[str, Any], decisions: Opt
         })
 
 
+def _world_state_block(ws: Dict[str, Any]) -> str:
+    """Format the live world-model snapshot for the worker brief.
+
+    `ws` is the consequences.world_snapshot shape (proof/trust/velocity/...),
+    optionally carrying `antagonist_threat`. Kept compact so it grounds the
+    worker's reasoning in the company as it exists NOW without crowding the
+    artifact contract. This is the seam that makes the world model visibly
+    evolve inside the reasoning loop, not only on the HUD.
+    """
+    def _n(key: str) -> int:
+        try:
+            return int(ws.get(key, 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+    lines = [
+        "\n\nCurrent company world-state (live - reflects every stage, decision, "
+        "and cost so far; reason from THIS, not the original pitch alone):",
+        f"- proof {_n('proof')}/100, trust {_n('trust')}/100, velocity {_n('velocity')}/100, "
+        f"burn_pressure {_n('burn_pressure')}/100, autonomy {_n('autonomy')}/100",
+        f"- runway {_n('runway_months')} months, burn ${_n('monthly_burn_usd')}/mo, "
+        f"revenue ${_n('monthly_revenue_usd')}/mo, net ${_n('net_profit_usd')}/mo, "
+        f"{_n('digital_worker_count')} digital workers",
+    ]
+    if "antagonist_threat" in ws:
+        lines.append(f"- antagonist threat {_n('antagonist_threat')}/100")
+    lines.append(
+        "Your artifact must fit the company as it exists now and push these "
+        "numbers in the right direction.")
+    return "\n".join(lines) + "\n"
+
+
 def execute_stage(
     stage: Stage,
     brief: str,
     previous_artifacts: Optional[List[Dict]] = None,
     org: Optional[OrgBlueprint] = None,
     decisions: Optional[List[Dict]] = None,
+    world_state: Optional[Dict[str, Any]] = None,
 ) -> Tuple[WorkerInvocation, Optional[Dict], int]:
     """Execute a single stage's worker and return (invocation, artifact, score).
 
@@ -600,6 +632,14 @@ def execute_stage(
             context_block += f"  Stage {i}: {json.dumps(art)[:500]}\n"
         user += context_block
 
+    # Live world model: the company as it exists NOW. Appended to `user` so it
+    # reaches BOTH reasoning paths in one place - the direct prompt (user_direct
+    # copies user below) and the MAF prompt (=user). Without this, the worker
+    # only ever saw the original pitch plus the last gate decision; now every
+    # stage reasons against the evolving proof/trust/velocity/burn/runway state.
+    if world_state:
+        user += _world_state_block(world_state)
+
     retrieval_query = f"{brief} {stage.goal} {stage.success_metric}"
     _t_recall = time.perf_counter()
     _recall_res = tools_call("recall", {"query": retrieval_query, "top_k": 2})
@@ -635,6 +675,18 @@ def execute_stage(
         injected.append({"kind": "iq_recall", "text": str(h.get("source", ""))[:120]})
     for m in memories[:3]:
         injected.append({"kind": "agent_memory", "text": str(m.get("text", ""))[:120]})
+    # Proof point: the live world-state the worker was briefed with - shown on
+    # the card-back receipts so the player sees the model reasoned on the
+    # current company, not a stale snapshot.
+    if world_state:
+        injected.insert(0, {
+            "kind": "world_state",
+            "text": (f"proof {int(world_state.get('proof', 0) or 0)} / "
+                     f"trust {int(world_state.get('trust', 0) or 0)} / "
+                     f"velocity {int(world_state.get('velocity', 0) or 0)} / "
+                     f"burn ${int(world_state.get('monthly_burn_usd', 0) or 0)}/mo / "
+                     f"runway {int(world_state.get('runway_months', 0) or 0)}mo")[:120],
+        })
     invocation.maf_memory = injected
 
     # Direct-path prompt: decisions + IQ snippets pasted in. The MAF path
@@ -833,11 +885,13 @@ def _remember_stage(stage: Stage, worker_title: str, score: int) -> None:
 
 
 def run_world(world: WorldGraph, brief: str, auto_approve_threshold: int = 80,
-              org: Optional[OrgBlueprint] = None):
+              org: Optional[OrgBlueprint] = None,
+              world_state: Optional[Dict[str, Any]] = None):
     """Execute all stages in sequence. Yields (stage, invocation, artifact, score).
 
     When `org` is provided, each stage is executed by its designed digital
-    worker (see `execute_stage`).
+    worker (see `execute_stage`). `world_state` is the live world-model snapshot
+    threaded into each worker brief so reasoning tracks the evolving company.
     """
     previous_artifacts: List[Dict] = []
     for i, stage in enumerate(world.stages):
@@ -851,7 +905,8 @@ def run_world(world: WorldGraph, brief: str, auto_approve_threshold: int = 80,
         world.current_stage_index = i
 
         invocation, artifact, score = execute_stage(
-            stage, brief, previous_artifacts, org=org, decisions=world.decisions)
+            stage, brief, previous_artifacts, org=org, decisions=world.decisions,
+            world_state=world_state)
         world.invocations.append(invocation)
 
         if artifact:

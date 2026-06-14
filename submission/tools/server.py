@@ -32,10 +32,13 @@ from state.schema import (
 )
 from state.consequences import (
     apply_decision_consequence,
+    apply_stage_outcome,
     initialize_economics_from_org,
     preview_decision_consequence,
     rule_ids_for_role,
     select_rule_id,
+    tick_economy,
+    world_snapshot,
 )
 from state.api_contract import state_response, step_response, stage_response, reset_response
 from state.game_state import (
@@ -51,7 +54,7 @@ from state.game_state import (
 from state.knowledge_records import profile_from_payload, record_world_day, refresh_session_knowledge
 from agents.foundry_agents import MasterNarrator, StrategistAgent, DesignerAgent, MarketerAgent, generate_lore
 from agents.model_config import model_for, is_live, runtime_mode, get_foundry_client, create_chat_completion
-from agents.world_designer import design_world
+from agents.world_designer import design_world, adapt_remaining_stages, derive_run_name, PLACEHOLDER_RUN_NAMES
 from agents.worker_factory import run_world, execute_stage, bind_world_to_org
 from agents.org_designer import design_org
 from agents.retrieval import retrieve, brief_from_url
@@ -138,10 +141,39 @@ def forge_antagonist(state: CompanyState, *, mission_brief: str = "", target_cus
         },
     )
 
+def _advance_clock(state) -> dict:
+    """Tick the real-time clock once and log any rival escalation / run-end.
+
+    Single source for the read endpoints: both /api/state and /api/game call
+    this so the treasury drain, the antagonist's escalating moves, and the
+    bankruptcy/defeat outcomes are logged to the replay trace and persisted
+    consistently, not duplicated per route.
+    """
+    result = tick_economy(state)
+    if not result.get("ticked"):
+        return result
+    arc_info = result.get("antagonist") or {}
+    if arc_info.get("escalated_to"):
+        store.log_event(
+            "ANTAGONIST_ESCALATED",
+            arc_info.get("rival") or "antagonist",
+            arc_info.get("pressure") or "The rival escalates.",
+            {
+                "escalation_stage": arc_info.get("escalated_to"),
+                "threat_level": (state.game.antagonist_arc.threat_level if state.game else None),
+                "days_elapsed": round(float(getattr(state.economics, "days_elapsed", 0) or 0), 2),
+            },
+        )
+    store.save()
+    return result
+
+
 @app.get("/api/state")
 def get_state():
     """Gets the current company state from disk."""
     state = store.load()
+    if state and state.economics and state.org:
+        _advance_clock(state)
     return state_response(state)
 
 
@@ -177,6 +209,8 @@ def get_game_state():
     state = store.load()
     if not state:
         raise HTTPException(status_code=404, detail="No active game session.")
+    if state.economics and state.org:
+        _advance_clock(state)
     return {
         "game": state.game.model_dump(),
         "economics": state.economics.model_dump(),
@@ -631,6 +665,99 @@ def generate_founder_avatar_endpoint(payload: GenerateAvatarRequest):
     return {"url": "/game/assets/generated/founder.svg", "source": "offline-svg"}
 
 
+@app.post("/api/world/villain-portrait")
+def generate_villain_portrait_endpoint():
+    """Game-master-generated portrait of the forged antagonist.
+
+    Mirrors the founder avatar path: try the configured image deployment, then
+    fall back to a deterministic menacing SVG so the villain always has a face
+    even with no credentials. The villain is an active, shown player - not a HUD
+    number - so it gets a real portrait surfaced in the standup and threat arc.
+    """
+    import base64
+    state = store.load()
+    ant = state.antagonist if state else None
+    if not ant:
+        raise HTTPException(status_code=400, detail="No antagonist forged yet.")
+    name = ant.name or "The Rival"
+    threat_type = ant.threat_type or "market"
+    archetype = ant.archetype or "Operator"
+
+    prompt = (
+        f"minimal flat geometric portrait of a menacing rival business antagonist "
+        f"named {name}, a {archetype} posing a {threat_type} threat, "
+        "dark crimson and charcoal background filling the entire canvas edge to edge, "
+        "sharp red and steel accents, cold ominous lighting, clean vector style game "
+        "villain avatar, centered bust, no text, no border, no frame, no letterboxing"
+    )
+
+    image_endpoint = os.getenv("IMAGE_ENDPOINT", "").strip().rstrip("/")
+    image_deployment = os.getenv("IMAGE_DEPLOYMENT", "MAI-Image-2e").strip()
+    image_api_key = os.getenv("IMAGE_API_KEY", "").strip()
+
+    out_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ui", "assets", "generated")
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, "villain.png")
+
+    if image_endpoint and image_api_key:
+        try:
+            body = json.dumps({
+                "model": image_deployment, "prompt": prompt,
+                "width": 1024, "height": 1024,
+            }).encode("utf-8")
+            url = f"{image_endpoint}/mai/v1/images/generations"
+            req = urllib.request.Request(
+                url, data=body, method="POST",
+                headers={"api-key": image_api_key, "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                raw = resp.read()
+            ctype = (resp.headers.get("Content-Type") or "").lower()
+            png_bytes = None
+            if "image/" in ctype:
+                png_bytes = raw
+            else:
+                payload_data = json.loads(raw.decode("utf-8"))
+                data = (payload_data.get("data") or [{}])[0]
+                b64 = data.get("b64_json") or data.get("b64") or ""
+                if b64:
+                    png_bytes = base64.b64decode(b64)
+                elif data.get("url"):
+                    with urllib.request.urlopen(data["url"], timeout=30) as r2:
+                        png_bytes = r2.read()
+            if png_bytes:
+                with open(out_path, "wb") as f:
+                    f.write(png_bytes)
+                store.log_event("VILLAIN_PORTRAIT", "narrator",
+                                f"Game master rendered a portrait of {name}.", {"source": "azure"})
+                return {"url": "/game/assets/generated/villain.png", "source": "azure"}
+        except Exception as e:
+            store.log_event("VILLAIN_PORTRAIT_ERROR", "system", f"Villain image generation failed: {e}")
+
+    # Offline fallback: a deterministic menacing crest keyed to the threat type.
+    threat_glyph = {
+        "market": '<path d="M30,68 L50,30 L70,68 Z" fill="none" stroke="#fb7185" stroke-width="3"/><circle cx="50" cy="56" r="6" fill="#fb7185"/>',
+        "technical": '<rect x="32" y="34" width="36" height="36" rx="3" fill="none" stroke="#fb7185" stroke-width="3"/><line x1="32" y1="52" x2="68" y2="52" stroke="#f59e0b" stroke-width="2"/><line x1="50" y1="34" x2="50" y2="70" stroke="#f59e0b" stroke-width="2"/>',
+        "internal": '<circle cx="50" cy="50" r="20" fill="none" stroke="#fb7185" stroke-width="3"/><path d="M40,42 L60,58 M60,42 L40,58" stroke="#f59e0b" stroke-width="2"/>',
+        "cultural": '<polygon points="50,28 68,44 60,70 40,70 32,44" fill="none" stroke="#fb7185" stroke-width="3"/><circle cx="50" cy="52" r="5" fill="#f59e0b"/>',
+    }.get(threat_type, '<path d="M30,68 L50,30 L70,68 Z" fill="none" stroke="#fb7185" stroke-width="3"/>')
+    safe_name = html_escape(str(name).upper()[:24], quote=False)
+    svg_content = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+        <rect width="100" height="100" fill="#0b0507"/>
+        <circle cx="50" cy="50" r="42" fill="none" stroke="#3a1419" stroke-width="2"/>
+        <circle cx="50" cy="47" r="20" fill="#fb7185" opacity="0.10"/>
+        <circle cx="50" cy="47" r="14" fill="#fb7185" opacity="0.20"/>
+        {threat_glyph}
+        <text x="50" y="90" font-family="monospace" font-size="6.5" fill="#fb7185" text-anchor="middle">{safe_name}</text>
+    </svg>"""
+    svg_path = os.path.join(out_dir, "villain.svg")
+    with open(svg_path, "w") as f:
+        f.write(svg_content)
+    store.log_event("VILLAIN_PORTRAIT", "narrator",
+                    f"Game master sketched {name} (offline crest).", {"source": "offline-svg"})
+    return {"url": "/game/assets/generated/villain.svg", "source": "offline-svg"}
+
+
 # ---------------------------------------------------------------------------
 # Shared agent-execution + reasoning-trace helpers (used by the plain POST
 # endpoint and the SSE streaming endpoint, so both run identical logic).
@@ -983,6 +1110,11 @@ def analyze_founder(payload: AnalyzeRequest):
         raise HTTPException(status_code=400, detail="Provide a profile URL or mission pitch.")
 
     company_name = payload.company_name or "QuestForge Ltd."
+    # Name the run from the pitch when the founder never typed a real company
+    # name (the onboarding asks for a URL, not a name). Pitch-only: never derive
+    # from a bare URL. Falls back to the placeholder for anything ambiguous.
+    if pitch and company_name.strip().lower() in PLACEHOLDER_RUN_NAMES:
+        company_name = derive_run_name(pitch, fallback=company_name)
     prev = store.load()
     founder = parse_founder(payload)
     if not founder and prev and prev.founder:
@@ -1161,6 +1293,14 @@ def design_world_endpoint(payload: AutoplayRequest):
     founder = parse_founder(payload)
     if not founder and prev and prev.founder:
         founder = prev.founder
+    # Carry a personalized name forward from a prior analyze session, else name
+    # the run from the pitch (pitch-only, never a bare URL). Placeholder stays
+    # only when nothing better is available.
+    if company_name.strip().lower() in PLACEHOLDER_RUN_NAMES:
+        if prev and prev.name and prev.name.strip().lower() not in PLACEHOLDER_RUN_NAMES:
+            company_name = prev.name
+        elif brief:
+            company_name = derive_run_name(brief, fallback=company_name)
 
     state = store.initialize_new_company(
         name=company_name, pitch=brief, description="A venture forged in QuestForge.", founder=founder
@@ -1336,6 +1476,40 @@ def _effect_line(preview: Dict[str, Any]) -> str:
     return ", ".join(parts) or "keeps the company steady"
 
 
+def _worker_for_rule(state: CompanyState, rule_id: str, owner_role: str) -> Dict[str, Any]:
+    """Identify the digital worker who would champion a dilemma option.
+
+    The rule_id's prefix is the artifact role (strategist|designer|marketer|ops).
+    We resolve that to an actual seat in the designed org when one matches, so a
+    choice is attributed to a named worker the player can see - the bridge from
+    the multi-agent workforce to the CEO decision gate.
+    """
+    role = (rule_id.split(".", 1)[0] or owner_role or "strategist").strip().lower()
+    if role not in _ROLE_PORTRAIT:
+        role = (owner_role or "strategist").lower()
+    title = ""
+    worker_id = ""
+    org = getattr(state, "org", None)
+    if org:
+        for r in org.roles:
+            if r.kind == "human":
+                continue
+            hay = f"{r.deployment_hint} {r.lifecycle_stage} {r.id} {r.title}".lower()
+            if role and role in hay:
+                title = r.title
+                worker_id = r.id
+                break
+    profile = _speaker_profile(title, role, worker_id or role)
+    return {
+        "worker_id": profile["worker_id"],
+        "title": profile["display_name"],
+        "role": role,
+        "role_label": profile["role_label"],
+        "portrait_url": profile["portrait_url"],
+        "voice_id": profile["voice_id"],
+    }
+
+
 def _enrich_dilemma_options(
     state: CompanyState,
     stage: Stage,
@@ -1360,6 +1534,11 @@ def _enrich_dilemma_options(
             "option": candidate["option"],
             "tradeoff": candidate["tradeoff"],
             "rule_id": rule_id,
+            # The digital worker who would own this path - so the choice reads as
+            # "your workforce proposes, you decide" instead of a popup from
+            # nowhere. The rule's role determines the consequence; this names the
+            # worker accountable for it.
+            "proposed_by": _worker_for_rule(state, rule_id, stage.owner_role),
             "spoken_summary": preview.get("summary", ""),
             "effect_line": _effect_line(preview),
             "effect_preview": preview,
@@ -1601,6 +1780,17 @@ def record_decision(payload: DecisionRequest):
         store.log_event("ANTAGONIST_MOVE", "antagonist",
             f"{antagonist_move.title}: {antagonist_move.counterplay}",
             antagonist_move.model_dump())
+
+    # Living world graph: bend the not-yet-played stages to the company that now
+    # exists after this decision, so the quest line visibly tracks the pivot.
+    adapted_ids = adapt_remaining_stages(
+        world, stage.id, _live_world_state(state),
+        decisions=world.decisions, brief=world.brief)
+    if adapted_ids:
+        store.log_event("WORLD_ADAPTED", "world_designer",
+            f"Adapted {len(adapted_ids)} pending stage(s) to the CEO choice and current company state.",
+            {"stage_ids": adapted_ids, "after": stage.id})
+
     refresh_session_knowledge(state)
     store.log_event("KNOWLEDGE_STRUCTURED", "iq_sync",
         f"Structured {len(state.knowledge_records)} generated Search document(s) after CEO choice.",
@@ -1629,6 +1819,7 @@ _ROLE_DISPLAY = {
     "ops": "Operations",
     "narrator": "World Designer",
     "orgdesigner": "Org Designer",
+    "antagonist": "The Rival",
 }
 
 _ROLE_PORTRAIT = {
@@ -1639,6 +1830,7 @@ _ROLE_PORTRAIT = {
     "narrator": "narrator",
     "orgdesigner": "orgdesigner",
     "founder": "founder",
+    "antagonist": "villain",
 }
 
 _ROLE_TEXT_STYLE = {
@@ -1649,6 +1841,7 @@ _ROLE_TEXT_STYLE = {
     "narrator": "world-state posture",
     "orgdesigner": "org-design posture",
     "founder": "CEO direction",
+    "antagonist": "adversarial posture",
 }
 
 _ROLE_VOICE = {
@@ -1659,7 +1852,35 @@ _ROLE_VOICE = {
     "narrator": "onyx",
     "orgdesigner": "sage",
     "founder": "onyx",
+    "antagonist": "ash",
 }
+
+# Dan Harmon Story Circle beats, indexed by stage position (0-7). The villain is
+# tied to this arc: it tests the founder hardest at TAKE (beat 6), where "the win
+# has a cost and rivalry arrives," so the antagonist's voice references the beat.
+_STORY_BEATS = [
+    ("YOU", "your comfort zone"),
+    ("NEED", "the thing you lack"),
+    ("GO", "your crossing into the market"),
+    ("SEARCH", "your road of trials"),
+    ("FIND", "the traction you just found"),
+    ("TAKE", "the price of your win"),
+    ("RETURN", "your road back"),
+    ("CHANGE", "the founder you have become"),
+]
+
+
+def _story_beat_for_state(state: CompanyState) -> Tuple[str, str]:
+    """Return the (BEAT, gloss) the run is currently on, from the world index."""
+    stages = (state.world.stages if state.world else [])
+    idx = 0
+    for i, s in enumerate(stages):
+        if str(getattr(s, "status", "")).lower() != "completed":
+            idx = i
+            break
+    else:
+        idx = max(0, len(stages) - 1)
+    return _STORY_BEATS[min(idx, len(_STORY_BEATS) - 1)]
 
 
 def _worker_title_for_stage(stage: Optional[Stage]) -> str:
@@ -1849,17 +2070,44 @@ def _build_standup_turns(
         ))
 
     if state.economics:
+        share = float(getattr(state.economics, "market_share", 0.0) or 0.0)
+        share_line = f"{share:.1f}% market share, " if share > 0 else ""
         turns.append(_standup_turn(
             speaker="Runway Steward",
             role="ops",
             worker_id="runway_steward",
             tool="watch_burn",
             message=(
-                f"Operating numbers changed: {state.economics.digital_worker_count} digital workers, "
+                f"Numbers moved: {share_line}{state.economics.digital_worker_count} workers, "
                 f"${state.economics.monthly_burn_usd:,}/mo burn, {state.economics.runway_months} months runway. "
-                f"{owner_title}, I will back the plan only if your next artifact lowers ambiguity faster than it raises burn."
+                f"{owner_title}, I back the plan only if the next artifact wins share faster than it burns."
             ),
             handoff_to=next_title if next_stage else "",
+        ))
+
+    # The rival is a shared, ACTIVE player - not a HUD number. When the
+    # antagonist has elevated threat it speaks for itself in the standup, in its
+    # own adversarial voice, taunting the founder at the current Story Circle
+    # beat (Dan Harmon) and naming the counterplay it dares them to use. This is
+    # how the villain lives across the multi-agent conversation.
+    arc = state.game.antagonist_arc if state.game else None
+    if arc and arc.threat_level >= 20 and (arc.current_pressure or arc.antagonist_name):
+        rival = arc.antagonist_name or "The rival"
+        beat, beat_gloss = _story_beat_for_state(state)
+        tactic = (state.antagonist.signature_tactic if state.antagonist else "") or "relentless pressure"
+        counter = (arc.open_counterplays[-1] if arc.open_counterplays
+                   else "Answer me before your next gate.")
+        turns.insert(1, _standup_turn(
+            speaker=rival,
+            role="antagonist",
+            worker_id="antagonist",
+            tool="press_advantage",
+            message=(
+                f"[{beat}] While you debate {beat_gloss}, I move: {tactic}. "
+                f"Threat {arc.threat_level}/100 and climbing. "
+                f"You think '{counter[0].lower() + counter[1:]}' saves you? Try it."
+            ),
+            handoff_to=owner_title,
         ))
 
     context = {
@@ -1868,8 +2116,11 @@ def _build_standup_turns(
         "next_worker_title": next_title if next_stage else "",
         "rule_id": rule_id,
         "summary": summary,
+        "antagonist_threat": (arc.threat_level if arc else 0),
+        "antagonist_stage": (arc.escalation_stage if arc else "watching"),
+        "story_beat": _story_beat_for_state(state)[0],
     }
-    return turns[:4], context
+    return turns[:5], context
 
 
 def _build_standup_turns_for_history(
@@ -1921,12 +2172,32 @@ def _build_standup_turns_for_history(
 
     consequence = decision.get("consequence") or {}
     summary = consequence.get("summary") or "The CEO choice is now binding direction."
+    # Keep the villain in the room across follow-up rounds: if it is pressing,
+    # it answers the CEO's latest line in its own voice at the current beat.
+    arc = state.game.antagonist_arc if state.game else None
+    if arc and arc.threat_level >= 20 and (arc.current_pressure or arc.antagonist_name):
+        rival = arc.antagonist_name or "The rival"
+        beat, beat_gloss = _story_beat_for_state(state)
+        tactic = (state.antagonist.signature_tactic if state.antagonist else "") or "relentless pressure"
+        turns.append(_standup_turn(
+            speaker=rival,
+            role="antagonist",
+            worker_id="antagonist",
+            tool="press_advantage",
+            message=(
+                f"[{beat}] '{user_msg[:48]}' - cute. I am still moving: {tactic}. "
+                f"Threat {arc.threat_level}/100. The market does not wait for your standup, {user_name}."
+            ),
+            handoff_to=owner_title,
+        ))
     context = {
         "stage_id": stage.id,
         "next_stage_id": next_stage.id if next_stage else "",
         "next_worker_title": next_title if next_stage else "",
         "rule_id": consequence.get("rule_id") or decision.get("rule_id") or "decision.custom",
         "summary": f"Looping feedback: '{user_msg[:60]}'. " + summary,
+        "antagonist_threat": (arc.threat_level if arc else 0),
+        "story_beat": _story_beat_for_state(state)[0],
     }
     return turns, context
 
@@ -2064,6 +2335,20 @@ def respond_to_standup(payload: StandupResponseRequest):
     return {"status": "success", "message": "Memory updated with response."}
 
 
+def _live_world_state(state) -> Dict[str, Any]:
+    """The current world model fed to each worker brief.
+
+    Reuses the same snapshot shape as the decision receipts (single source of
+    truth) and adds the antagonist's live threat level so the worker reasons
+    against the whole evolving situation, not just the original pitch.
+    """
+    ws = world_snapshot(state)
+    arc = getattr(state.game, "antagonist_arc", None) if state.game else None
+    if arc is not None:
+        ws["antagonist_threat"] = int(getattr(arc, "threat_level", 0) or 0)
+    return ws
+
+
 @app.post("/api/world/run-next")
 def run_next_stage():
     """Execute the next pending stage via the Worker Factory."""
@@ -2086,39 +2371,25 @@ def run_next_stage():
 
     previous_artifacts = [s.artifact for s in world.stages[:idx] if s.artifact]
     invocation, artifact, score = execute_stage(
-        stage, world.brief, previous_artifacts, org=state.org, decisions=world.decisions)
+        stage, world.brief, previous_artifacts, org=state.org,
+        decisions=world.decisions, world_state=_live_world_state(state))
     world.invocations.append(invocation)
 
     if artifact:
         stage.artifact = artifact
         stage.validation_score = score
     stage.status = "completed" if score >= 80 else "needs-review"
+    world.stages[idx] = stage
+    state.world = world
     record_stage_encounter(state, stage)
 
     if state.economics is None:
         state.economics = initialize_economics_from_org(state.org)
 
-    if score >= 80:
-        base_rev = {
-            "strategist": 500,
-            "designer": 1200,
-            "marketer": 2500,
-            "ops": 3500
-        }.get(stage.owner_role, 1000)
-        rev_gain = int(base_rev * (score / 100))
-        state.economics.monthly_revenue_usd += rev_gain
-        gate_bonus = score * 10
-    else:
-        gate_bonus = 0
-
-    net_profit = state.economics.monthly_revenue_usd - state.economics.monthly_burn_usd
-    state.economics.points = max(0, state.economics.points + net_profit + gate_bonus)
-    state.economics.net_profit_usd = net_profit
-    
-    if net_profit >= 0:
-        state.economics.runway_months = 36
-    else:
-        state.economics.runway_months = max(1, min(36, state.economics.points // max(1, abs(net_profit))))
+    # Single source of truth for what a shipped stage does to the economy:
+    # earned market share (weighted by role, contested by the antagonist) ->
+    # revenue -> one-time deal cash + recomputed runway. See consequences.py.
+    outcome = apply_stage_outcome(state, stage, score)
 
     xp_earned = 10 + (score // 10)
     state.xp += xp_earned
@@ -2126,6 +2397,12 @@ def run_next_stage():
         state.level = 2
     elif state.xp >= 100 and state.level < 3:
         state.level = 3
+
+    # Keep the store's authoritative pointer on the fully mutated object before
+    # replay logging, because log_event saves immediately.
+    world.stages[idx] = stage
+    state.world = world
+    store.state = state
 
     store.log_event("STAGE_EXECUTED", invocation.role,
         f"Stage '{stage.title}' -> score {score}, +{xp_earned} XP ({invocation.deployment}, {invocation.latency_s}s)",
@@ -2163,6 +2440,9 @@ def run_next_stage():
         stage,
         invocation,
         memory=memory,
+        # What shipping this stage did to the market and the books (single
+        # source: apply_stage_outcome) - the UI shows share won, not a flat XP.
+        stage_outcome=outcome,
         # The most recent CEO decision the worker was briefed with - the UI
         # name-checks it so the player hears their own words come back.
         recalled_decision=world.decisions[-1] if world.decisions else None,
@@ -2226,33 +2506,17 @@ def autoplay_world(payload: AutoplayRequest):
     refresh_session_knowledge(state)
 
     results = []
-    for stage, invocation, artifact, score in run_world(world, brief, auto_approve_threshold=threshold, org=state.org):
+    for stage, invocation, artifact, score in run_world(
+        world, brief, auto_approve_threshold=threshold, org=state.org,
+        world_state=_live_world_state(state),
+    ):
         record_stage_encounter(state, stage)
 
         if state.economics is None:
             state.economics = initialize_economics_from_org(state.org)
 
-        if score >= 80:
-            base_rev = {
-                "strategist": 500,
-                "designer": 1200,
-                "marketer": 2500,
-                "ops": 3500
-            }.get(stage.owner_role, 1000)
-            rev_gain = int(base_rev * (score / 100))
-            state.economics.monthly_revenue_usd += rev_gain
-            gate_bonus = score * 10
-        else:
-            gate_bonus = 0
-
-        net_profit = state.economics.monthly_revenue_usd - state.economics.monthly_burn_usd
-        state.economics.points = max(0, state.economics.points + net_profit + gate_bonus)
-        state.economics.net_profit_usd = net_profit
-        
-        if net_profit >= 0:
-            state.economics.runway_months = 36
-        else:
-            state.economics.runway_months = max(1, min(36, state.economics.points // max(1, abs(net_profit))))
+        # Same single-source stage economics as /api/world/run-next.
+        apply_stage_outcome(state, stage, score)
 
         xp_earned = 10 + (score // 10)
         state.xp += xp_earned

@@ -7,6 +7,7 @@ antagonist pressure track.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from typing import Any, Dict, List, Optional
 
@@ -21,6 +22,7 @@ from state.schema import (
     InventoryItem,
     PlayerMove,
     Stage,
+    WorkerInvocation,
     WorkerPartyMember,
 )
 
@@ -332,31 +334,58 @@ def _party_from_org(state: CompanyState) -> List[WorkerPartyMember]:
     return party
 
 
+# The founder's signature starter card, derived from their analyzed archetype so
+# the opening hand reads as THIS founder's deck - the character (founder profile)
+# showing up in the dynamics (the deck). One card, one archetype -> one strength.
+_FOUNDER_SIGNATURE = {
+    "Builder":  {"name": "Builder's Sprint",  "kind": "tactic",
+                 "description": "Your engineering reflex: ship the next system fast.",
+                 "effects": {"economics_delta": {"velocity": 4, "autonomy": 2}, "party": {"fatigue": 2}}},
+    "Seller":   {"name": "Founder's Pitch",   "kind": "proof",
+                 "description": "Your selling instinct: turn a conversation into a customer.",
+                 "effects": {"economics_delta": {"proof": 2}, "market_share_delta": 1.0}},
+    "Designer": {"name": "Founder's Polish",  "kind": "tactic",
+                 "description": "Your craft: raise the bar so the work earns trust.",
+                 "effects": {"economics_delta": {"trust": 4, "proof": 1}, "party": {"fatigue": 1}}},
+    "Operator": {"name": "Founder's Leverage", "kind": "worker",
+                 "description": "Your operating discipline: do more with less burn.",
+                 "effects": {"economics_delta": {"autonomy": 4, "burn_pressure": -3}}},
+}
+
+
+def _founder_signature_card(archetype: str) -> GameCard:
+    sig = _FOUNDER_SIGNATURE.get(archetype) or _FOUNDER_SIGNATURE["Builder"]
+    return GameCard(
+        id="card_founder_signature",
+        name=sig["name"],
+        kind=sig["kind"],
+        cost=1,
+        description=sig["description"],
+        source="founder",
+        effects=sig["effects"],
+        tags=["founder", "signature", archetype.lower()],
+    )
+
+
 def _starter_deck(state: CompanyState) -> List[GameCard]:
     archetype = ""
     if state.founder_profile:
         archetype = state.founder_profile.founder_archetype
     elif state.founder:
         archetype = state.founder.archetype
-    archetype = archetype or "Builder"
+    archetype = (archetype or "Builder").split(",")[0].strip().title()
+    if archetype not in _FOUNDER_SIGNATURE:
+        archetype = "Builder"
     deck = [
-        GameCard(
-            id="card_focus_sprint",
-            name="Focus Sprint",
-            kind="tactic",
-            cost=1,
-            description="Convert founder attention into velocity.",
-            effects={"economics_delta": {"velocity": 4}, "party": {"fatigue": 2}},
-            tags=["velocity", archetype.lower()],
-        ),
+        _founder_signature_card(archetype),
         GameCard(
             id="card_customer_signal",
             name="Customer Signal",
             kind="proof",
             cost=1,
-            description="Turn one real beneficiary signal into proof.",
-            effects={"economics_delta": {"proof": 5}, "draw": 1},
-            tags=["proof", "discovery"],
+            description="Convert one real beneficiary signal into a paying customer.",
+            effects={"economics_delta": {"proof": 3}, "market_share_delta": 1.2, "draw": 1},
+            tags=["proof", "discovery", "customer"],
         ),
         GameCard(
             id="card_trust_seal",
@@ -412,7 +441,32 @@ def _add_reward_card_from_stage(state: CompanyState, stage: Stage) -> None:
     ] + _reward_cards_from_stage(state, stage)
 
 
+def _invocation_for_stage(state: CompanyState, stage: Stage) -> Optional[WorkerInvocation]:
+    """The worker's real run record for this stage - the receipts a reward card
+    is minted from. Latest matching invocation wins."""
+    if not state.world:
+        return None
+    matches = [iv for iv in state.world.invocations if iv.stage_id == stage.id]
+    return matches[-1] if matches else None
+
+
+def _card_label(value: str, fallback: str = "") -> str:
+    """Turn a raw tool/source id (snake_case, file path, extension) into a
+    card-ready label, so cards can name the real thing the worker used."""
+    text = re.sub(r"\.[a-z0-9]+$", "", str(value or "").strip())   # drop extension
+    text = re.sub(r"[\\/]+", " ", text)                             # path -> words
+    text = re.sub(r"[_\-]+", " ", text).strip()
+    return text[:22].title() if text else fallback
+
+
 def _reward_cards_from_stage(state: CompanyState, stage: Stage) -> List[GameCard]:
+    """Mint this stage's reward draft from the worker's REAL run receipts.
+
+    The game engine authors each card from what the agent actually did this
+    stage - the tools it called, the knowledge it grounded in, its gate score -
+    so a reward is a product of the reasoning, not a fixed template. Degrades to
+    role/stage flavor when an invocation has no receipts (e.g. an early reload).
+    """
     score = stage.validation_score or 0
     upgraded = score >= 95
     owner = (stage.owner_role or "worker").title()
@@ -422,13 +476,42 @@ def _reward_cards_from_stage(state: CompanyState, stage: Stage) -> List[GameCard
     trust_delta = 2 if upgraded else 1
     velocity_delta = 6 if upgraded else 4
     counter_delta = -8 if upgraded else -5
+
+    # Real receipts (populated on every path, simulation included).
+    inv = _invocation_for_stage(state, stage)
+    tools_used = (inv.maf_tools_called or inv.tools_drawn) if inv else []
+    iq_sources = (inv.iq_sources or []) if inv else []
+    reasoning = (inv.reasoning_preview or "") if inv else ""
+
+    # 1) PROOF - named for the knowledge the worker actually recalled.
+    grounded = _card_label(iq_sources[0]) if iq_sources else ""
+    proof_name = f"{grounded} Proof" if grounded else f"{owner} Proof"
+    proof_desc = (f"Reusable proof {worker_title} grounded in {grounded}."
+                  if grounded else f"Reusable proof earned from {stage.title}.")
+
+    # 2) LEVERAGE - the tool the worker actually used, banked as repeatable speed.
+    tool_label = _card_label(tools_used[0]) if tools_used else ""
+    if tool_label:
+        sprint_name = f"{tool_label} Leverage"
+        sprint_desc = f"Re-run the {tool_label} this worker used to buy speed for fatigue."
+        sprint_effects = {"economics_delta": {"velocity": velocity_delta, "autonomy": 2}, "party": {"fatigue": 6}}
+    else:
+        sprint_name = f"{worker_title[:18]} Sprint"
+        sprint_desc = "Take a faster worker line now, accepting fatigue as the price."
+        sprint_effects = {"economics_delta": {"velocity": velocity_delta}, "party": {"fatigue": 6}}
+
+    # 3) COUNTER - answers the antagonist, flavored by the worker's reasoning.
+    counter_desc = (f"Answer {antagonist} with what {worker_title} proved: {reasoning[:60].strip()}"
+                    if reasoning.strip()
+                    else "Answer the antagonist's pressure with a focused counter-move.")
+
     return [
         GameCard(
             id=f"card_reward_{stage.id}_proof",
-            name=f"{owner} Proof",
+            name=proof_name,
             kind="proof",
             cost=1,
-            description=f"Reusable proof earned from {stage.title}.",
+            description=proof_desc,
             owner_worker_id=stage.assigned_worker_id or "",
             source="stage_reward",
             effects={"economics_delta": {"proof": proof_delta, "trust": trust_delta}, "draw": 1},
@@ -437,13 +520,13 @@ def _reward_cards_from_stage(state: CompanyState, stage: Stage) -> List[GameCard
         ),
         GameCard(
             id=f"card_reward_{stage.id}_sprint",
-            name=f"{worker_title[:18]} Sprint",
+            name=sprint_name,
             kind="worker",
             cost=0,
-            description="Take a faster worker line now, accepting fatigue as the price.",
+            description=sprint_desc,
             owner_worker_id=stage.assigned_worker_id or "",
             source="stage_reward",
-            effects={"economics_delta": {"velocity": velocity_delta}, "party": {"fatigue": 6}},
+            effects=sprint_effects,
             tags=["reward", "worker", "velocity", stage.owner_role, stage.id],
             upgraded=upgraded,
             exhausts=True,
@@ -453,7 +536,7 @@ def _reward_cards_from_stage(state: CompanyState, stage: Stage) -> List[GameCard
             name=f"Counter {antagonist[:16]}",
             kind="counterplay",
             cost=1,
-            description="Answer the antagonist's pressure with a focused counter-move.",
+            description=counter_desc,
             owner_worker_id=stage.assigned_worker_id or "",
             source="stage_reward",
             effects={"economics_delta": {"trust": trust_delta}, "antagonist_threat_delta": counter_delta},
@@ -468,6 +551,13 @@ def _apply_card_effects(state: CompanyState, card: GameCard, *, target_id: str =
     econ_delta = card.effects.get("economics_delta") or {}
     if econ_delta:
         applied["economics_delta"] = _apply_economics_delta(state, econ_delta)
+    # Customers won by a card route through the same share->revenue->cash math
+    # as a shipped stage (consequences.add_market_share), so "Customer Signal"
+    # actually books paying customers - profitability is earned, not seeded.
+    share_delta = float(card.effects.get("market_share_delta") or 0.0)
+    if share_delta:
+        from state.consequences import add_market_share
+        applied["market"] = add_market_share(state, share_delta, deal_fraction=0.25 if share_delta > 0 else 0.0)
     threat_delta = int(card.effects.get("antagonist_threat_delta") or 0)
     if threat_delta:
         arc = state.game.antagonist_arc
@@ -686,6 +776,144 @@ def _escalation_stage(threat_level: int) -> str:
     if threat_level >= 20:
         return "probing"
     return "watching"
+
+
+# Time pressure lives in the arc, not the wallet. Cheap burn means cash rarely
+# ends a run - the rival does. Each in-game day the antagonist gains threat,
+# faster the higher the escalation stage (the longer you stall, the worse it
+# gets), and slower when the company is visibly winning (positive net + proof).
+THREAT_PER_DAY = max(0.0, float(os.getenv("ANTAGONIST_THREAT_PER_DAY", "1.1") or 1.1))
+_THREAT_ACCEL = {"watching": 0.7, "probing": 1.0, "contesting": 1.3, "crisis": 1.6, "endgame": 2.0}
+
+# When time pushes the rival into a higher escalation stage it makes a visible
+# MOVE in the world (narrative + a counterplay) AND bites a metric, reusing the
+# same AntagonistMove machinery CEO decisions use - so the rising number
+# announces itself and is felt, instead of climbing silently. Each entry carries
+# (pressure_type, target_metric, narrative_line, economics_delta) so the bite is
+# data-driven and single-source. burn_pressure rises (worse); the others fall.
+_ESCALATION_PRESSURE = {
+    "probing": ("market", "velocity",
+                "starts probing your market - testing where the proof is thinnest",
+                {"velocity": -3}),
+    "contesting": ("market", "trust",
+                   "contests your accounts head-on, matching every move you make",
+                   {"trust": -4}),
+    "crisis": ("financial", "burn_pressure",
+               "escalates to open war - undercutting price and poaching while you stall",
+               {"burn_pressure": 6, "velocity": -3}),
+    "endgame": ("cultural", "autonomy",
+                "is at the gates - one more unanswered move and the market is theirs",
+                {"autonomy": -6, "trust": -4}),
+}
+
+# Story Circle (Dan Harmon) beat -> villain pressure multiplier, by the index of
+# the stage the run is currently on. The rival surges at TAKE (index 5, "the win
+# has a cost; rivalry arrives") and eases at the cooperative CHANGE finale.
+_BEAT_PRESSURE = [1.0, 1.0, 1.05, 1.1, 1.15, 1.45, 1.1, 0.8]
+
+
+def _story_beat_pressure(state: CompanyState) -> float:
+    stages = (state.world.stages if state.world else [])
+    if not stages:
+        return 1.0
+    idx = len(stages) - 1
+    for i, s in enumerate(stages):
+        if str(getattr(s, "status", "")).lower() != "completed":
+            idx = i
+            break
+    return _BEAT_PRESSURE[min(idx, len(_BEAT_PRESSURE) - 1)]
+
+
+def _build_time_escalation_move(state: CompanyState, to_stage: str) -> Optional[AntagonistMove]:
+    arc = state.game.antagonist_arc
+    rival = arc.antagonist_name or (state.antagonist.name if state.antagonist else "The rival")
+    tactic = (state.antagonist.signature_tactic if state.antagonist else "") or "relentless market pressure"
+    ptype, target_metric, line, _delta = _ESCALATION_PRESSURE.get(
+        to_stage, ("market", "trust", "tightens its grip on the market", {"trust": -3}))
+    narrative = f"{rival} {line}. Signature move: {tactic}."
+    return AntagonistMove(
+        id=f"move_time_{to_stage}",
+        day_index=int(state.game.day_index or 0),
+        stage_id="",
+        title=f"{rival}: {to_stage} pressure",
+        tactic=tactic,
+        pressure_type=ptype,
+        target_metric=target_metric,
+        pressure_delta=0,
+        narrative=narrative[:500],
+        counterplay=_counterplay_for_metric(target_metric),
+        source_rule_id="time.escalation",
+    )
+
+
+def tick_antagonist_over_time(state: CompanyState, days: float) -> Dict[str, Any]:
+    """Escalate antagonist threat as real time passes - the run's live pressure.
+
+    Driven by the real-time economy clock so a stalled company loses ground to
+    the rival even between moves. The climb accelerates with the escalation
+    stage and is suppressed when the company is clearly winning. Crossing into a
+    higher stage makes the rival play a visible move (narrative + counterplay);
+    at threat 100 the run is lost. Counterplay cards and strong stage outcomes
+    push it back.
+    """
+    game = getattr(state, "game", None)
+    if game is None or days <= 0 or game.run_status != "active":
+        return {"threat_advanced": 0.0}
+    arc = game.antagonist_arc
+    accel = _THREAT_ACCEL.get(arc.escalation_stage, 1.0)
+    # Story Circle (Dan Harmon) tie-in: the villain tests the founder hardest at
+    # TAKE (beat 6, index 5) - "the win has a cost and rivalry arrives." The
+    # rival surges on that beat and eases on the cooperative CHANGE beat.
+    beat_mult = _story_beat_pressure(state)
+    winning = 1.0
+    econ = state.economics
+    if econ is not None:
+        if int(econ.net_profit_usd or 0) > 0:
+            winning -= 0.35
+        if int(econ.proof or 0) >= 60:
+            winning -= 0.25
+    winning = max(0.3, winning)
+    gain = days * THREAT_PER_DAY * accel * winning * beat_mult
+    arc.threat_progress = float(getattr(arc, "threat_progress", 0.0) or 0.0) + gain
+    result: Dict[str, Any] = {"threat_advanced": round(gain, 3)}
+    whole = int(arc.threat_progress)
+    if whole >= 1:
+        arc.threat_progress -= whole
+        before = arc.threat_level
+        before_stage = arc.escalation_stage
+        arc.threat_level = min(100, arc.threat_level + whole)
+        arc.escalation_stage = _escalation_stage(arc.threat_level)
+        result.update({"threat_before": before, "threat_after": arc.threat_level})
+        # Crossing into a higher stage: the rival makes a move in the world.
+        if arc.escalation_stage != before_stage and arc.threat_level < 100:
+            move = _build_time_escalation_move(state, arc.escalation_stage)
+            if move:
+                arc.moves = [m for m in arc.moves if m.id != move.id]
+                arc.moves.append(move)
+                arc.current_pressure = move.narrative
+                arc.open_counterplays = [
+                    m.counterplay for m in arc.moves if not m.resolved and m.counterplay][-5:]
+                # The move bites: apply its data-driven metric pressure so the
+                # escalation is felt, not just narrated. This can itself end the
+                # run (e.g. trust -> 0), surfaced by the refresh below.
+                econ_delta = _ESCALATION_PRESSURE.get(arc.escalation_stage, (None, None, None, {}))[3]
+                if econ_delta and state.economics is not None:
+                    result["economics_delta"] = _apply_economics_delta(state, econ_delta)
+                result["escalated_to"] = arc.escalation_stage
+                result["rival"] = arc.antagonist_name
+                result["pressure"] = move.narrative
+                result["counterplay"] = move.counterplay
+        if arc.threat_level >= 100 and game.run_status == "active":
+            game.run_status = "defeat"
+            game.defeat_reason = (
+                f"{arc.antagonist_name or 'The antagonist'} seized the market while the company stalled."
+            )
+            result["defeated"] = True
+        # The metric bite can itself end the run (trust 0 / burn_pressure 100).
+        _refresh_run_status(state)
+        if game.run_status == "defeat":
+            result["defeated"] = True
+    return result
 
 
 def _seed_from_run_id(run_id: str) -> int:
