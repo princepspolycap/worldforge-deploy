@@ -1,8 +1,50 @@
 # Gamifying World Improvement
 
+**A card-stacking roguelike RPG powered by Microsoft Foundry reasoning agents.**
+
 Reasoning Agents submission for Microsoft Agents League, Battle #2.
 
-This project turns the live battle RPG prompt into a gamified world-improvement simulator: the player enters their public profile, a Foundry-powered Master Narrator decomposes the mission into a campaign graph, a customized AI workforce executes each step, and the player verifies artifacts at gates before XP is awarded.
+You sit in the founder's chair and pitch a world-improvement campaign - solar
+microgrids for rural clinics, food-security logistics, clean water access. A
+Microsoft Foundry-powered Master Narrator decomposes that mission into an 8-stage
+Story Circle graph. A digital workforce - Strategist, Designer, Marketer, Operations
+- is designed on the spot from your profile. Then the campaign runs like a roguelike
+deckbuilder: workers execute stages, you play cards from a hand of tactical moves,
+dilemma gates force real founder choices, a rival antagonist escalates pressure, and
+nothing counts until you press the verification seal.
+
+The player decides. The agents execute. The human verifies. The world improves.
+
+## Why this is a game, not a dashboard
+
+- **Roguelike card hand.** Each run gives you a starting deck built from your
+  founder archetype. Cards cost energy, produce market share, raise trust, and
+  counter the rival. Reward cards are forged from the real tool calls and IQ
+  sources your workers actually used - not templates.
+- **8-stage Story Circle (world graph).** Every run is a dependency-ordered DAG:
+  YOU / NEED / GO / SEARCH / FIND / TAKE / RETURN / CHANGE. Each node is a
+  stage owned by a worker. The graph is designed by a reasoning agent, not
+  hand-authored.
+- **Antagonist pressure.** A rival (named from market forces, never from your
+  name) escalates a 0-100 threat meter. The clock is real pressure.
+- **Party worker cards.** The workforce is your playable party: flip a card to
+  see the dossier - tools called, IQ recalled, reasoning quote, metric grid.
+- **Verification gates.** Every artifact is scored by a deterministic validator
+  before you approve it. Nothing advances on vibes alone.
+
+## Award positioning
+
+| Award target | Why this project qualifies |
+|---|---|
+| **Best Overall Agent** | Most complete reasoning-agent demo: multi-step decomposition, MAF group chat, IQ citations, four proof points per invocation, simulation fallback, human verification gates |
+| **Best Reasoning Agent** | World Designer decomposes pitch -> Org Designer builds workforce -> workers execute with recall + memory + tool calls + validation; CEO decisions chain across all 8 stages |
+| **Best Use of IQ Tools** | Foundry IQ grounds every worker brief with cited playbook knowledge; evidence rail shows IQ hits live; local `knowledge/` folder is the forkable fallback |
+| **Hack for Good** | The premise IS community benefit: solo founders run world-improvement campaigns (climate, health, food, housing) with an AI workforce fraction of the cost of a human team |
+| **Accessibility Award** | Keyboard-first grammar (space/arrows/1-4 keys); mic voice input; TTS narration on every beat; no color-only information; verification gate never requires mouse |
+
+Prize rules allow stacking one main-track prize (Best Overall or Best Reasoning) with
+the "otherwise noted" special prizes (Hack for Good, Accessibility) - see
+[docs/rubric_mapping.md](docs/rubric_mapping.md) for the full prize and checklist breakdown.
 
 ## Current Status
 

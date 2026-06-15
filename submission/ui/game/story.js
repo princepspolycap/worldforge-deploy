@@ -17,7 +17,7 @@ import {
     queueFooterAwareLayoutSync,
     ensureFooterLayoutObserver,
     wireFooterCardCollapse,
-} from "./layout.js?v=1";
+} from "./layout.js?v=3";
 
 mermaid.initialize({
     startOnLoad: false,
@@ -34,6 +34,7 @@ const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const DIAG_MAX_ENTRIES = 180;
+const LOCAL_RUNTIME_DRAFT_KEY = "poly.localRuntimeDraft";
 const diagnostics = {
     frontend: [],
 };
@@ -2934,7 +2935,7 @@ function bindInspectorInteractions(castStage) {
 // character pops onto the stage with a live speech bubble and an optional image.
 // Non-modal: it never blurs the stage or steals pointer focus, and it always
 // yields to the on-demand inspector. Workers keep the reasoning theater instead.
-const SPOTLIGHT_ROLES = new Set(["narrator", "orgdesigner"]);
+const SPOTLIGHT_ROLES = new Set(["narrator", "orgdesigner", "strategist", "designer", "marketer", "ops"]);
 let spotlightRole = null;
 let spotlightName = null;
 
@@ -3225,16 +3226,151 @@ function mafTraceEntries(run) {
     return out;
 }
 
+function safeLocalRuntimeDraft() {
+    try {
+        return JSON.parse(localStorage.getItem(LOCAL_RUNTIME_DRAFT_KEY) || "{}") || {};
+    } catch (_) {
+        return {};
+    }
+}
+
+function localRuntimeDraft(info = null) {
+    const local = info && info.local_runtime ? info.local_runtime : {};
+    const saved = safeLocalRuntimeDraft();
+    return {
+        base_url: saved.base_url || local.base_url || "http://localhost:11434/v1",
+        model: saved.model || local.default_model || "",
+        routing: saved.routing || (info && info.routing) || "local_first",
+        api_key: saved.api_key || "ollama",
+    };
+}
+
+function localRuntimeEnvBlock(info = null) {
+    const draft = localRuntimeDraft(info);
+    return [
+        "DEMO_MODE=local",
+        `AGENT_ROUTING=${draft.routing || "local_first"}`,
+        "LOCAL_AGENT_ENABLED=true",
+        `LOCAL_AGENT_BASE_URL=${draft.base_url || "http://localhost:11434/v1"}`,
+        `LOCAL_AGENT_API_KEY=${draft.api_key || "ollama"}`,
+        `LOCAL_AGENT_MODEL=${draft.model || "<model from ollama list>"}`,
+    ].join("\n");
+}
+
+function localRuntimeSmokeCommand(info = null) {
+    const draft = localRuntimeDraft(info);
+    const modelPrefix = draft.model ? `LOCAL_AGENT_MODEL=${draft.model} ` : "";
+    return `${modelPrefix}.venv/bin/python submission/tools/ollama_local_smoke_test.py`;
+}
+
+async function copySettingsText(text, status = "Copied") {
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch (_) {
+        const tmp = document.createElement("textarea");
+        tmp.value = text;
+        tmp.setAttribute("readonly", "true");
+        tmp.style.position = "fixed";
+        tmp.style.opacity = "0";
+        document.body.appendChild(tmp);
+        tmp.select();
+        try { document.execCommand("copy"); } catch (e) { /* copy best effort */ }
+        tmp.remove();
+    }
+    const meta = $("diag-meta");
+    if (meta) meta.textContent = status;
+}
+
+function saveLocalRuntimeDraftFromPanel() {
+    const draft = {
+        base_url: ($("local-base-url") && $("local-base-url").value.trim()) || "http://localhost:11434/v1",
+        model: ($("local-model") && $("local-model").value.trim()) || "",
+        routing: ($("local-routing") && $("local-routing").value) || "local_first",
+        api_key: ($("local-api-key") && $("local-api-key").value.trim()) || "ollama",
+    };
+    try { localStorage.setItem(LOCAL_RUNTIME_DRAFT_KEY, JSON.stringify(draft)); } catch (_) {}
+    const env = $("local-env-block");
+    const cmd = $("local-smoke-command");
+    if (env) env.textContent = localRuntimeEnvBlock({ routing: draft.routing, local_runtime: { base_url: draft.base_url, default_model: draft.model } });
+    if (cmd) cmd.textContent = localRuntimeSmokeCommand({ local_runtime: { default_model: draft.model } });
+}
+
+function renderLocalModelSettings(info = null) {
+    const host = $("diag-local");
+    if (!host) return;
+    const mode = (info && info.mode) || "simulation";
+    const local = info && info.local_runtime ? info.local_runtime : {};
+    const cloud = info && info.cloud_runtime ? info.cloud_runtime : {};
+    const draft = localRuntimeDraft(info);
+    const roles = local.models || {};
+    const roleHtml = Object.entries(roles).map(([role, model]) =>
+        `<div><b>${escText(role)}</b><span>${escText(model || "inherits default")}</span></div>`
+    ).join("") || `<div><b>local</b><span>not configured</span></div>`;
+    const statusClass = local.ready ? "good" : (local.enabled ? "warn" : "");
+    const envBlock = localRuntimeEnvBlock(info);
+    const smoke = localRuntimeSmokeCommand(info);
+    host.innerHTML = `
+        <div class="settings-chips">
+            <span class="settings-chip ${statusClass}">runtime: ${escText(mode)}</span>
+            <span class="settings-chip">routing: ${escText((info && info.routing) || "local_first")}</span>
+            <span class="settings-chip ${local.ready ? "good" : "warn"}">local: ${local.ready ? "ready" : "not connected"}</span>
+            <span class="settings-chip ${cloud.ready ? "good" : ""}">foundry: ${cloud.ready ? "ready" : "standby"}</span>
+        </div>
+        <div class="settings-grid">
+            <section class="settings-section">
+                <h3>Local model runtime</h3>
+                <div class="settings-row">
+                    <label for="local-base-url">OpenAI-compatible base URL</label>
+                    <input id="local-base-url" value="${escText(draft.base_url)}" spellcheck="false" />
+                </div>
+                <div class="settings-row">
+                    <label for="local-model">Model</label>
+                    <input id="local-model" value="${escText(draft.model)}" placeholder="gemma4:e4b" spellcheck="false" />
+                </div>
+                <div class="settings-row">
+                    <label for="local-routing">Routing</label>
+                    <select id="local-routing">
+                        ${["local_first", "cloud_first", "local_only", "cloud_only"].map((r) =>
+                            `<option value="${r}"${draft.routing === r ? " selected" : ""}>${r}</option>`).join("")}
+                    </select>
+                </div>
+                <div class="settings-row">
+                    <label for="local-api-key">Local API key label</label>
+                    <input id="local-api-key" value="${escText(draft.api_key)}" spellcheck="false" />
+                </div>
+                <div class="settings-actions">
+                    <button id="local-save-draft" class="btn primary" type="button">Save draft</button>
+                    <button id="local-copy-env" class="btn" type="button">Copy env</button>
+                    <button id="local-copy-smoke" class="btn" type="button">Copy test</button>
+                </div>
+            </section>
+            <section class="settings-section">
+                <h3>Runtime map</h3>
+                <div class="role-model-list">${roleHtml}</div>
+            </section>
+            <section class="settings-section">
+                <h3>submission/.env</h3>
+                <pre id="local-env-block" class="settings-code">${escText(envBlock)}</pre>
+            </section>
+            <section class="settings-section">
+                <h3>Smoke test</h3>
+                <pre id="local-smoke-command" class="settings-code">${escText(smoke)}</pre>
+            </section>
+        </div>`;
+}
+
 function openDiagPanel(name) {
     document.querySelectorAll(".diag-tab").forEach((btn) => {
         const active = btn.dataset.panel === name;
         btn.setAttribute("aria-selected", active ? "true" : "false");
     });
-    ["frontend", "backend", "maf"].forEach((id) => {
+    ["local", "frontend", "backend", "maf"].forEach((id) => {
         const el = $(`diag-${id}`);
         if (el) el.classList.toggle("active", id === name);
     });
 }
+
+let _runtimeSettingsInfo = null;
 
 async function refreshDiagnostics(forcePull = false) {
     const meta = $("diag-meta");
@@ -3249,6 +3385,8 @@ async function refreshDiagnostics(forcePull = false) {
             }
             if (modeRes.status === "fulfilled" && modeRes.value) {
                 state.live = !!modeRes.value.live;
+                _runtimeSettingsInfo = modeRes.value;
+                renderLocalModelSettings(_runtimeSettingsInfo);
             }
         } catch (e) {
             diagLogError("diagnostics", e, "Could not refresh backend snapshot");
@@ -3268,9 +3406,11 @@ async function refreshDiagnostics(forcePull = false) {
     const cntM = $("diag-cnt-maf"); if (cntM) cntM.textContent = String(maf.length);
 
     if (meta) {
-        const runtime = state.live ? "live foundry" : "simulation";
+        const modeLabel = (_runtimeSettingsInfo && _runtimeSettingsInfo.mode) || (state.live ? "live" : "simulation");
+        const runtime = modeLabel === "hybrid" ? "local + foundry" : modeLabel;
         meta.textContent = `runtime: ${runtime} \u00b7 updated ${new Date().toLocaleTimeString()}`;
     }
+    if (!forcePull) renderLocalModelSettings(_runtimeSettingsInfo);
 }
 
 let _diagPollTimer = null;
@@ -3281,6 +3421,7 @@ function openDiagnostics() {
     overlay.hidden = false;
     overlay.setAttribute("aria-hidden", "false");
     setStageLayer("diagnostics", true);
+    openDiagPanel("local");
     refreshDiagnostics(true);
     if (_diagPollTimer) clearInterval(_diagPollTimer);
     _diagPollTimer = setInterval(() => refreshDiagnostics(false), 4000);
@@ -3314,6 +3455,26 @@ function wireDiagnosticsCapture() {
         const tab = event.target.closest(".diag-tab[data-panel]");
         const overlay = $("diagnostics-overlay");
         if (tab && overlay && !overlay.hidden) openDiagPanel(tab.dataset.panel);
+        const target = event.target;
+        if (target && target.id === "local-save-draft") {
+            saveLocalRuntimeDraftFromPanel();
+            const meta = $("diag-meta");
+            if (meta) meta.textContent = "Local model draft saved in this browser";
+        }
+        if (target && target.id === "local-copy-env") {
+            saveLocalRuntimeDraftFromPanel();
+            copySettingsText(($("local-env-block") && $("local-env-block").textContent) || localRuntimeEnvBlock(), "Copied local runtime env");
+        }
+        if (target && target.id === "local-copy-smoke") {
+            saveLocalRuntimeDraftFromPanel();
+            copySettingsText(($("local-smoke-command") && $("local-smoke-command").textContent) || localRuntimeSmokeCommand(), "Copied local runtime smoke test");
+        }
+    });
+    document.addEventListener("input", (event) => {
+        if (event.target && event.target.closest("#diag-local")) saveLocalRuntimeDraftFromPanel();
+    });
+    document.addEventListener("change", (event) => {
+        if (event.target && event.target.closest("#diag-local")) saveLocalRuntimeDraftFromPanel();
     });
 }
 
@@ -4123,7 +4284,7 @@ function restoreSavedCompanySetup(savedState) {
     state.phase = "title";
     hydrateFounderInputsFromSavedState(savedState, { overwrite: true });
     if ($("begin")) $("begin").disabled = !hasRealSignal();
-    if ($("reset")) $("reset").disabled = false;
+    if ($("home")) $("home").disabled = false;
     const hint = $("hint");
     if (hint) hint.textContent = "Saved company loaded. Begin the run to design its world.";
     setActionHint("Saved company loaded. Begin the run to design its world.");
@@ -4512,8 +4673,8 @@ async function beginStory() {
     // contains) off the stage, so #begin may already be gone here - guard it.
     const beginBtn = $("begin");
     if (beginBtn) beginBtn.disabled = true;
-    const resetBtn = $("reset");
-    if (resetBtn) resetBtn.disabled = false;
+    const homeBtn = $("home");
+    if (homeBtn) homeBtn.disabled = false;
     refreshLearned(); // surface anything the workers already remember
 
     // Clear the founding form off the stage immediately
@@ -4954,7 +5115,18 @@ async function renderAgentStandup(standup, opts = {}) {
     let replySeq = 0;
     return new Promise((resolve) => {
         // Leaving the standup restores the normal stage layout (party roster back).
-        const finish = () => { setStageLayer("standup-active", false); resolve(); };
+        const finish = () => {
+            setStageLayer("standup-active", false);
+            const run = latestRunState();
+            if (run && run.world) {
+                restoreRunFromState(run);
+            } else {
+                updateCommandControls();
+                queueFooterAwareLayoutSync();
+            }
+            setActionHint("Stand-up ended. Send Move briefs the next worker.");
+            resolve();
+        };
         async function promptCEO() {
             // The floor is back with the CEO: clear the speaking spotlight so the
             // response card owns the stage.
@@ -5693,7 +5865,7 @@ async function incomeBeat(s) {
         await sleep(1300);
     }
     await narrate(`Act I is live: your skill set the direction, the gates kept it honest, and the workforce turned it into income - ${workers.length || "your"} digital workers, one human seal. The larger win is still ahead: scale this loop until it contributes to automating basic needs.`);
-    setActionHint("Act I launched. Continue operating, counter the rival, or Reset to run another venture.");
+    setActionHint("Act I launched. Continue operating, counter the rival, or return Home to watch the opening again.");
 }
 
 function renderAgentGeneratedUI(schema) {
@@ -5949,11 +6121,32 @@ async function resetStory() {
     location.reload();
 }
 
+function returnHomeToIntro() {
+    diagLog("info", "navigation", "Returned home without resetting the saved run");
+    const path = window.location.pathname || "/game/story.html";
+    window.location.assign(path);
+}
+
 // --- Voice input (browser speech-to-text) ----------------------------------
 // Reusable speech recognition binder
 function bindSpeechRecognition(micBtn, inputEl, statusEl, onResultCallback) {
+    if (!micBtn || !inputEl) return () => {};
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { micBtn.style.display = "none"; return () => {}; }
+
+    const setMicStatus = (text, live = false) => {
+        if (!statusEl) return;
+        statusEl.hidden = false;
+        statusEl.textContent = text;
+        statusEl.classList.toggle("live", !!live);
+    };
+
+    if (!SR) {
+        micBtn.disabled = true;
+        micBtn.title = "Voice dictation is not available in this browser or webview; type instead.";
+        micBtn.setAttribute("aria-label", "Voice dictation unavailable; type instead");
+        setMicStatus("Voice dictation is not available in this browser/webview. Type instead.");
+        return () => {};
+    }
 
     let rec = null;
     let listening = false;
@@ -5972,23 +6165,25 @@ function bindSpeechRecognition(micBtn, inputEl, statusEl, onResultCallback) {
         // Proactively ask for mic permission so the browser shows its prompt and
         // we can give a clear message when access is blocked (common in embedded
         // webviews). Typing always remains the fallback.
+        setMicStatus("Requesting microphone permission...", true);
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             try {
                 const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
                 probe.getTracks().forEach((t) => t.stop());
             } catch (err) {
-                if (statusEl) {
-                    statusEl.textContent = "Microphone blocked - allow mic access in your browser, or type instead.";
-                    statusEl.classList.remove("live");
-                }
+                setMicStatus("Microphone blocked. Allow mic access for 127.0.0.1, or type instead.");
                 return;
             }
+        } else if (!window.isSecureContext) {
+            setMicStatus("Microphone needs a secure browser context. Use http://127.0.0.1 or type instead.");
+            return;
         }
 
         rec = new SR();
         rec.lang = "en-US";
         rec.interimResults = true;
-        rec.continuous = true;
+        rec.continuous = false;
+        rec.maxAlternatives = 1;
         baseText = (inputEl.value || "").trim();
 
         rec.onstart = () => {
@@ -6001,12 +6196,13 @@ function bindSpeechRecognition(micBtn, inputEl, statusEl, onResultCallback) {
             }
         };
         rec.onerror = (e) => {
-            if (statusEl) {
-                statusEl.textContent = (e.error === "not-allowed" || e.error === "service-not-allowed")
-                    ? "Microphone blocked - allow mic access, or type instead."
-                    : "Mic error: " + (e.error || "unknown");
-                statusEl.classList.remove("live");
-            }
+            const err = e && e.error ? e.error : "unknown";
+            const msg = (err === "not-allowed" || err === "service-not-allowed")
+                ? "Microphone blocked. Allow mic access for this site, or type instead."
+                : (err === "no-speech"
+                    ? "No speech heard. Try again, speak closer to the mic, or type instead."
+                    : `Mic error: ${err}. Type instead if it keeps happening.`);
+            setMicStatus(msg);
             stop();
         };
         rec.onend = () => {
@@ -6031,7 +6227,7 @@ function bindSpeechRecognition(micBtn, inputEl, statusEl, onResultCallback) {
             if (onResultCallback) onResultCallback(inputEl.value);
         };
 
-        try { rec.start(); } catch (e) { if (statusEl) statusEl.textContent = "Could not start mic"; }
+        try { rec.start(); } catch (e) { setMicStatus("Could not start mic. Type instead."); stop(); }
     });
 
     return stop;
@@ -6320,8 +6516,8 @@ wireFooterCardCollapse();
     const statusEl = $("player-command-status");
     if (micBtn && inputEl) bindSpeechRecognition(micBtn, inputEl, statusEl);
 })();
-const resetBtn = $("reset");
-if (resetBtn) resetBtn.addEventListener("click", resetStory);
+const homeBtn = $("home");
+if (homeBtn) homeBtn.addEventListener("click", returnHomeToIntro);
 
 const diagOpenBtn = $("diag-open");
 const diagCloseBtn = $("diag-close");
@@ -6337,7 +6533,7 @@ if (diagOverlay) {
 }
 wireDiagnosticsCapture();
 
-// The run-over overlay's single action: begin a fresh run (same as Reset).
+// The run-over overlay's single action starts a genuinely fresh run.
 const runOverBtn = $("run-over-btn");
 if (runOverBtn) runOverBtn.addEventListener("click", () => {
     const overlay = $("run-over-overlay");
@@ -6662,10 +6858,10 @@ function restoreRunFromState(s) {
     // Activate the game UI.
     enterRunView();
 
-    // Pre-fill form so a later reset works correctly.
+    // Pre-fill form so a later home return works correctly.
     hydrateFounderInputsFromSavedState(s, { overwrite: true });
     if ($("begin")) $("begin").disabled = true;
-    if ($("reset")) $("reset").disabled = false;
+    if ($("home")) $("home").disabled = false;
 
     if (s.economics) setResourcesFromEconomics(s.economics, s.org);
     else if (s.org) setResourcesFromOrg(s.org);

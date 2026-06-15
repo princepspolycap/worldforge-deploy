@@ -103,9 +103,15 @@ lower caption:
 - Rival escalation: rival announcement.
 
 Game Master and rival announcements use the `announce-bridge` stage layer: the
-footer glides away, the active stage card remains visible in one lane, and the
-announcer portrait/speech occupies the other. On compact screens this bridge
-collapses back to a centered announcement with the stage card softened behind it.
+footer glides away, the active stage card is promoted as a readable left-lane
+peer, and the announcer portrait/speech occupies the right lane. On compact
+screens this bridge collapses back to a centered announcement with the stage
+card softened behind it.
+
+- Party-worker speech uses the same split-stage geometry through
+  `spotlight-active`: the current artifact/diagram remains in the left lane,
+  while the worker portrait and live transcript occupy the right lane. The
+  party rail steps aside so the worker card never sits behind the hand.
 
 Worker execution reports may use the reasoning theater, card receipts, or a
 temporary worker caption; they are not Game Master announcements.

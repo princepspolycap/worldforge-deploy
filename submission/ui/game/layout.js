@@ -40,6 +40,10 @@ const STAGE_LAYERS = new Set();
 // its own CEO input, the inspector is a focused read, and the dilemma is a modal
 // decision - in all of these the footer hand is unusable or overlapping.
 const FOOTER_QUIETING_LAYERS = new Set(["standup-active", "inspecting-agent", "inspecting-worker", "dilemma", "diagnostics", "theater", "announce-bridge"]);
+// Layers that split the centre plane into the reusable two-lane stage zone
+// (left = world canvas / stage card, right = speaker). Adding a layer name here
+// gives it the two-lane geometry for free via body.stage-split (see story.html).
+const SPLIT_LAYERS = new Set(["announce-bridge", "spotlight-active"]);
 
 export function setStageLayer(name, on) {
     if (!name) return;
@@ -47,6 +51,8 @@ export function setStageLayer(name, on) {
     document.body.classList.toggle(name, !!on);
     const quiet = [...FOOTER_QUIETING_LAYERS].some((layer) => STAGE_LAYERS.has(layer));
     document.body.classList.toggle("footer-quiet", quiet);
+    const split = [...SPLIT_LAYERS].some((layer) => STAGE_LAYERS.has(layer));
+    document.body.classList.toggle("stage-split", split);
     // The footer's playable cluster just changed height; re-derive the stage
     // reserve so the world canvas + hand never fight the captions.
     queueFooterAwareLayoutSync();
@@ -67,18 +73,15 @@ export function syncFooterAwareLayout() {
     document.body.classList.toggle("compact-ui", window.innerWidth <= 1100);
     const footerHeight = Math.ceil(footer.getBoundingClientRect().height || 0);
     if (!footerHeight) return;
-    // ONE measured input for the whole lower band. --hand-bottom drives the
-    // party hand position; --footer-top is the actual footer top edge used by
-    // inspectors and anything that must float *above* the footer. The party
-    // cards intentionally dip PARTY_OVERLAP px behind the footer (footer
-    // z-index 20 > party z-index 18 covers the overlap), creating the card-hand
-    // "tucked in" look. Inspectors and the speaking card use --footer-top so
-    // they stay above the footer even though --hand-bottom is now lower.
-    const PARTY_OVERLAP = 70;
+    // The party hand floats just above the footer. It rests at a stable base
+    // (--hand-bottom) for a short/collapsed footer, but rides up to clear a
+    // taller footer (command panel, reward draft) via the CSS max() anchor, so
+    // it is never swallowed by the console. We publish the one input that drives
+    // that: --footer-top, the live footer height. CSS owns the positioning -
+    // there is no JS layout math here. (--footer-top also positions the
+    // inspector / speaking card that must float above the footer.)
     const root = document.documentElement;
-    root.style.setProperty("--hand-bottom", `${Math.max(footerHeight - PARTY_OVERLAP, 4)}px`);
     root.style.setProperty("--footer-top", `${footerHeight}px`);
-    root.style.setProperty("--party-overlap", `${PARTY_OVERLAP}px`);
     // The narration caption above the hand grows with its line count, so feed
     // its real height in too; the reserve calc grows to clear a tall caption
     // instead of guessing a fixed budget (same single-source pattern).

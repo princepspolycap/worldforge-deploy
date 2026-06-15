@@ -62,8 +62,21 @@
             /* screen grammar */
             --footer-h: 64px;
             --footer-top: 64px;    /* actual measured footer top edge; set by story.js */
-            --party-overlap: 70px; /* px of each worker card tucked behind footer */
-            --hand-bottom: 70px;
+            /* Emphasis lift for the active / flipped worker card - a small hover
+               pop, not a tuck. The hand floats fully above the footer now. */
+            --hand-lift: 14px;
+            /* Gap the floating hand keeps above the footer's top edge. */
+            --hand-gap: 14px;
+            /* Hand zone resting anchor: the lowest the party hand sits when the
+               footer is short. The hand FLOATS - its real bottom is
+               max(--hand-bottom, --footer-top + --hand-gap), so it rests here for
+               a short/collapsed footer but rides up to stay fully above a taller
+               footer (command panel, reward draft) instead of being swallowed.
+               --footer-top is the live footer height (published by layout.js).
+               Collapsing/expanding a short footer card never moves the hand; a
+               tall panel lifts it with a smooth glide. The responsive tiers below
+               raise this resting base where the footer wraps taller. */
+            --hand-bottom: 96px;
             /* Worker-card height = the single source for the hand's footprint AND
                the lower-band reserve below. Keep it just tall enough to hug the
                front-face content (badge -> photo -> name -> metric -> econ ->
@@ -79,11 +92,9 @@
             /* Canvas reserve = a STABLE lower band, deliberately NOT derived
                from the live footer height. The world canvas is the base layer;
                collapsing/expanding the footer (a control overlay) must never
-               re-center it. The hand (#party) and caption (#narration) still
-               track the live footer via --hand-bottom/--dialogue-bottom, since
-               they genuinely sit on top of it; only the centered canvas is
-               anchored. The constant clears the worst-case expanded footer +
-               worker hand, so nothing overlaps. */
+               re-center it - nor move the hand (#party), which now sits in its
+               own stable zone at --hand-bottom. The constant clears the worker
+               hand + caption so the centered artifact never collides with them. */
             --lower-stage-reserve: calc(var(--hand-card-h) + 140px + var(--dialogue-h));
             /* breathing - one shared resting rhythm (~13 breaths/min) so every
                living component pulses together. Components opt in via .breathing
@@ -151,7 +162,7 @@
                          interactive dossier layers and are allowed to dim/blur
                          the scene while they own focus.
                      - footer is the top HUD/control layer. Dynamic footer height flows
-                         back into --hand-bottom from story.js. ---- */
+                         back into --footer-top from layout.js; the hand zone is stable. ---- */
         #stage {
             position: fixed; inset: 0;
             overflow: hidden;
@@ -174,33 +185,56 @@
         body.spotlight-active #scene {
             --lower-stage-reserve: calc(var(--hand-bottom) + var(--hand-card-h) + 34px);
         }
-        /* Announcement bridge: the footer is off-screen, and the announcer plus
-           current stage card compose as one responsive state. */
-        body.announce-bridge #scene {
+        /* ---- Reusable two-lane stage zone (stage-split) ----
+           Splits the centre plane into a LEFT lane (the world canvas / stage
+           card) and a RIGHT lane (a speaker, announcer, or rival). This is the
+           generic geometry; any takeover layer opts in by being listed in
+           SPLIT_LAYERS in layout.js, which derives body.stage-split. The lane
+           width + gap are the single source of truth and the right-lane
+           component sizes itself into --stage-lane-w. */
+        body.stage-split #scene {
             --lower-stage-reserve: 112px;
-            --announce-lane-w: clamp(360px, 34vw, 560px);
-            --announce-gap: clamp(18px, 2vw, 34px);
+            --stage-lane-w: clamp(360px, 34vw, 560px);
+            --stage-gap: clamp(18px, 2vw, 34px);
+            /* back-compat aliases: the announcer card CSS still reads --announce-*. */
+            --announce-lane-w: var(--stage-lane-w);
+            --announce-gap: var(--stage-gap);
             justify-content: flex-start;
         }
-        body.announce-bridge #diagram {
-            flex: 0 1 calc(100% - var(--announce-lane-w) - var(--announce-gap));
-            width: calc(100% - var(--announce-lane-w) - var(--announce-gap)) !important;
-            max-width: calc(100% - var(--announce-lane-w) - var(--announce-gap)) !important;
-            opacity: 0.82 !important;
-            filter: brightness(0.78) saturate(0.94) !important;
-            transform: scale(0.985) !important;
-            transform-origin: center center;
+        body.stage-split #diagram {
+            flex: 0 1 calc(100% - var(--stage-lane-w) - var(--stage-gap));
+            width: calc(100% - var(--stage-lane-w) - var(--stage-gap)) !important;
+            max-width: calc(100% - var(--stage-lane-w) - var(--stage-gap)) !important;
+            z-index: 23;
+            isolation: isolate;
             transition: width 260ms ease, max-width 260ms ease, opacity 240ms ease, filter 240ms ease, transform 260ms ease;
         }
-        body.announce-bridge #diagram .world-canvas,
-        body.announce-bridge #diagram .consequence-board {
+        body.stage-split #diagram .world-canvas,
+        body.stage-split #diagram .consequence-board {
             max-width: 100%;
+        }
+        body.stage-split #diagram .scenario-card,
+        body.stage-split #diagram .consequence-board,
+        body.stage-split #diagram .founding {
+            box-shadow:
+                0 30px 90px -46px rgba(0,0,0,0.95),
+                0 0 54px -34px var(--card-accent, var(--blue));
+        }
+        /* announce-bridge = the Game Master / rival instance of the split. The
+           left lane remains a first-class stage peer: slightly quieter than the
+           speaker lane, but never background/behind it. */
+        body.announce-bridge #diagram {
+            opacity: 0.96 !important;
+            filter: brightness(0.94) saturate(0.98) !important;
+            transform: scale(1) !important;
+            transform-origin: center center;
         }
         /* While an announcement bridge or the reasoning theater owns the stage,
            the playable party hand would overlap the announcer / plan. The stage
            card in #diagram stays as context; the worker tray steps aside, and
            returns the instant the layer clears. */
         body.announce-bridge #party,
+        body.spotlight-active #party,
         body.theater #party { display: none !important; }
         #stage.rail-hidden #scene { padding-right: 44px; }
         #stage.rail-hidden #scene-head { right: 44px; }
@@ -261,6 +295,10 @@
         #cast-stage.speaking + #diagram .world-canvas {
             width: calc(100% - min(30vw, 392px));
             margin-left: min(30vw, 392px);
+        }
+        body.stage-split #cast-stage.speaking + #diagram .world-canvas {
+            width: min(1040px, 100%);
+            margin-left: 0;
         }
         .world-canvas::before {
             content: "";
@@ -1264,14 +1302,36 @@
            The card IS the inspector: tapping flips it in place to its dossier
            (tool calls, reasoning, memory, receipts). One home for cards. */
         #party {
-            position: fixed; left: 44px; right: 44px; bottom: var(--hand-bottom); z-index: 18;
+            position: fixed;
+            /* The party hand is ONE component, not a full-width transparent
+               ghost. It hugs its cards and centers itself, so the box you can
+               grab / inspect IS the worker row - while the world canvas on
+               either side stays clickable because the box no longer covers
+               those empty dead zones. (Previously #party spanned the full width
+               with pointer-events:none, so only the child cards were ever
+               selectable and you could never grab the party itself.) */
+            left: 50%; transform: translateX(-50%);
+            width: max-content; max-width: calc(100% - 88px);
+            /* Float above the footer: rest at --hand-bottom for a short footer,
+               ride up to stay fully visible above a taller one. The smooth bottom
+               transition makes that a glide, never a jump. */
+            bottom: max(var(--hand-bottom), calc(var(--footer-top, 0px) + var(--hand-gap)));
+            transition: bottom 260ms cubic-bezier(.2,.7,.2,1);
+            z-index: 18;
             display: flex; align-items: flex-end; justify-content: center; flex-wrap: nowrap;
             gap: 12px; padding: 8px 6px 0;
-            overflow-x: auto; overflow-y: visible;
-            pointer-events: none;
+            /* Float, never clip. overflow MUST stay visible so a hovered / active /
+               flipped card can rise and glow ABOVE the row. Do not set overflow-x
+               here: per the CSS overflow spec, overflow-x:auto silently forces
+               overflow-y:visible to compute as auto - that hidden vertical clip was
+               the "invisible ceiling" cutting the tops off floating cards. With the
+               usual <=7 workers the row fits the centered box; more simply spill. */
+            overflow: visible;
+            /* The component is grabbable as a unit now. Cards still capture their
+               own clicks; the slim gaps + padding between them belong to #party. */
+            pointer-events: auto;
             isolation: isolate;
         }
-        #party::-webkit-scrollbar { display: none; }
         body.prestart #party { display: none; }
         /* One occupant per stage band. The party hand rides with the world
            canvas only; whenever the diagram instead shows a full narrative
@@ -1300,9 +1360,10 @@
         }
         /* Resting cards: gentle hover tease to signal interactivity. */
         .party-agent:hover:not(.active):not(.flipped) { transform: translateY(-20px); }
-        /* Active (executing) and flipped (dossier open) cards pop fully above
-           the footer — translateY lifts by overlap + breathing room. */
-        .party-agent.active { transform: translateY(calc(-1 * var(--party-overlap, 70px) - 18px)); }
+        /* Active (executing) and flipped (dossier open) cards get a small
+           emphasis pop. The hand already floats above the footer, so this is
+           just a hover-style lift, not a clear-the-console jump. */
+        .party-agent.active { transform: translateY(calc(-1 * var(--hand-lift))); }
         .pa-face {
             position: absolute; inset: 0;
             -webkit-backface-visibility: hidden; backface-visibility: hidden;
@@ -1313,13 +1374,10 @@
             padding: 10px; overflow: hidden;
             display: flex; flex-direction: column;
         }
-        /* Idle worker cards fade out at the bottom; the footer (z:20) sits on
-           top (party z:18) and covers the overlap without adding a second tray
-           background beneath the controls. */
-        .party-agent:not(.active):not(.flipped) {
-            -webkit-mask-image: linear-gradient(to top, transparent 0%, rgba(0,0,0,0.68) 18%, black 38%, black 100%);
-            mask-image: linear-gradient(to top, transparent 0%, rgba(0,0,0,0.68) 18%, black 38%, black 100%);
-        }
+        /* No fade mask: the hand floats fully above the footer, so every card
+           is a complete, crisp glass card with its own border + drop shadow.
+           (Previously the bottom faded out where cards tucked behind the footer;
+           the float anchor removed that overlap.) */
         .party-agent.active .pa-front {
             border-color: var(--spk, rgba(91,140,255,0.78));
             background: linear-gradient(180deg, var(--spk-alpha, rgba(91,140,255,0.18)), rgba(7,10,20,0.78));
@@ -1342,14 +1400,11 @@
             border-color: rgba(245,200,122,0.42);
             box-shadow: 0 0 22px -6px rgba(245,200,122,0.45);
         }
-        /* Flipped card shows the dossier — needs to be ABOVE the footer (z:22)
-           and lifted clear of the overlap so the receipts are fully readable. */
-        .party-agent.flipped { z-index: 22; transform: translateY(calc(-1 * var(--party-overlap, 70px) - 18px)); }
+        /* Flipped card shows the dossier in place (z:22 so it reads above its
+           neighbours). The hand already floats above the footer, so it only
+           takes the small emphasis lift; the dossier back-face scrolls. */
+        .party-agent.flipped { z-index: 22; transform: translateY(calc(-1 * var(--hand-lift))); }
         .party-agent.flipped .pa-inner { transform: rotateY(180deg); }
-        /* Remove the fade mask when the card is lifted so it renders completely. */
-        .party-agent.active, .party-agent.flipped {
-            -webkit-mask-image: none; mask-image: none;
-        }
         .pa-back::-webkit-scrollbar { width: 4px; }
         .pa-back::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.16); border-radius: 999px; }
         .pa-back .cc-head { margin-bottom: 9px; padding-bottom: 8px; gap: 8px; }
@@ -2120,13 +2175,15 @@
         }
 
         @media (max-width: 980px) {
-            body.announce-bridge #scene {
+            body.stage-split #scene {
                 justify-content: center;
             }
-            body.announce-bridge #diagram {
+            body.stage-split #diagram {
                 flex: 0 1 100%;
                 width: 100% !important;
                 max-width: 100% !important;
+            }
+            body.announce-bridge #diagram {
                 opacity: 0.34 !important;
                 filter: blur(3px) brightness(0.62) saturate(0.9) !important;
                 transform: scale(0.96) !important;
@@ -2171,6 +2228,50 @@
         #cast-stage.speaking.worker-attention .cast-announce {
             color: var(--card-accent);
             border-bottom: 1px solid rgba(255,255,255,0.15);
+        }
+        body.stage-split #cast-stage.speaking.worker-attention {
+            left: auto !important; right: 44px !important; top: 64px !important; bottom: 112px !important;
+            width: min(var(--stage-lane-w, 560px), calc(100vw - 88px)) !important;
+            height: auto !important;
+            display: flex; align-items: center; justify-content: center;
+            z-index: 24;
+        }
+        body.stage-split #cast-stage.speaking.worker-attention .cast-card {
+            position: relative; inset: auto;
+            width: 100%; max-height: 100%;
+            background: none; border: 0; box-shadow: none; padding: 0;
+            gap: 16px; align-items: center;
+        }
+        body.stage-split #cast-stage.speaking.worker-attention .cast-card-art {
+            flex: 0 0 auto;
+            width: min(280px, 70vw); height: min(300px, 36vh);
+            border: 1px solid var(--card-accent);
+            box-shadow:
+                0 0 0 1px rgba(0,0,0,0.4) inset,
+                0 30px 70px -28px rgba(0,0,0,0.85),
+                0 0 72px -10px var(--card-accent);
+        }
+        body.stage-split #cast-stage.speaking.worker-attention .cast-speech {
+            width: 100%; max-height: min(260px, 34vh); overflow: auto;
+            padding: 14px 18px 16px; text-align: left;
+        }
+        body.stage-split .rival-arc {
+            opacity: 0 !important;
+            transform: translate(-50%, 12px) !important;
+        }
+
+        @media (max-width: 980px) {
+            body.stage-split #cast-stage.speaking.worker-attention {
+                left: 16px !important; right: 16px !important; top: 88px !important; bottom: 104px !important;
+                width: auto !important;
+            }
+            body.stage-split #cast-stage.speaking.worker-attention .cast-card-art {
+                width: min(260px, 64vw);
+                height: min(280px, 34vh);
+            }
+            body.stage-split #cast-stage.speaking.worker-attention .cast-speech {
+                max-height: min(260px, 36vh);
+            }
         }
 
         @media (max-width: 1180px) {
@@ -2729,7 +2830,7 @@
             background: rgba(255,255,255,0.03); cursor: pointer; transition: 140ms ease;
             font-family: inherit;
         }
-        /* Diagnostics dialog — tabbed, live-refresh, pretty-JSON payloads. */
+        /* Settings dialog - local runtime setup plus live-refresh logs. */
         #diagnostics-overlay {
             position: fixed; inset: 0; z-index: 72; display: flex; align-items: center;
             justify-content: center; background: rgba(2,5,13,0.82);
@@ -2780,6 +2881,56 @@
             display: none; flex-direction: column; gap: 7px;
         }
         .diag-stream.active { display: flex; }
+        .diag-settings-panel {
+            display: none; height: 100%; overflow-y: auto; padding: 14px;
+            box-sizing: border-box;
+        }
+        .diag-settings-panel.active { display: block; }
+        .settings-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 0.74fr); gap: 14px; }
+        .settings-section {
+            border: 1px solid rgba(255,255,255,0.09); border-radius: 10px;
+            background: rgba(255,255,255,0.025); padding: 13px;
+        }
+        .settings-section h3 {
+            margin: 0 0 10px; color: var(--ink); font-family: var(--font-display);
+            font-size: 15px; letter-spacing: 0;
+        }
+        .settings-row { display: grid; gap: 6px; margin-bottom: 10px; }
+        .settings-row label {
+            font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em;
+            text-transform: uppercase; color: var(--ink-faint);
+        }
+        .settings-row input,
+        .settings-row select {
+            width: 100%; box-sizing: border-box; border: 1px solid var(--line);
+            border-radius: 8px; background: rgba(0,0,0,0.22); color: var(--ink);
+            padding: 9px 10px; font: 12px var(--font-mono);
+        }
+        .settings-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
+        .settings-chip {
+            border: 1px solid rgba(255,255,255,0.12); border-radius: 999px;
+            background: rgba(255,255,255,0.04); color: var(--ink-dim);
+            padding: 5px 8px; font: 10px var(--font-mono);
+        }
+        .settings-chip.good { border-color: rgba(52,211,153,0.35); color: var(--good-soft); }
+        .settings-chip.warn { border-color: rgba(245,158,11,0.35); color: var(--gold-soft); }
+        .settings-code {
+            margin: 0; white-space: pre-wrap; word-break: break-word;
+            border: 1px solid rgba(255,255,255,0.08); border-radius: 9px;
+            background: rgba(0,0,0,0.28); color: var(--ink-dim);
+            padding: 10px; font: 10.5px/1.55 var(--font-mono);
+        }
+        .settings-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+        .role-model-list { display: grid; gap: 6px; margin: 0; }
+        .role-model-list div {
+            display: flex; justify-content: space-between; gap: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.06); padding: 5px 0;
+            font: 11px var(--font-mono); color: var(--ink-dim);
+        }
+        .role-model-list b { color: var(--ink); font-weight: 600; }
+        @media (max-width: 820px) {
+            .settings-grid { grid-template-columns: 1fr; }
+        }
         .diag-stream li {
             flex-shrink: 0; border: 1px solid rgba(255,255,255,0.08); border-radius: 9px;
             background: rgba(255,255,255,0.025); padding: 9px 11px;
@@ -3600,8 +3751,7 @@
                 right: 24px;
             }
             #party {
-                left: 24px;
-                right: 24px;
+                max-width: calc(100% - 48px);
             }
             #narration {
                 padding: 0 24px;
@@ -3644,8 +3794,7 @@
                 max-height: 52vh !important;
             }
             #party {
-                left: 16px;
-                right: 16px;
+                max-width: calc(100% - 32px);
                 gap: 8px;
                 padding: 6px 2px 0;
             }
@@ -3731,8 +3880,7 @@
                 inset: -10px;
             }
             #party {
-                left: 12px;
-                right: 12px;
+                max-width: calc(100% - 24px);
                 gap: 6px;
                 padding: 6px 1px 0;
             }
@@ -3983,9 +4131,9 @@
             <div class="footer-utility" aria-label="Run utilities">
                 <div class="controls">
                     <button id="mute" class="iconbtn" title="Toggle audio">&#9834;</button>
-                    <button id="diag-open" class="btn" type="button" title="Open diagnostics logs">Logs</button>
+                    <button id="diag-open" class="btn" type="button" title="Open settings and logs">Settings</button>
                     <button id="retry" class="btn primary is-hidden">Retry</button>
-                    <button id="reset" class="btn" disabled>Reset</button>
+                    <button id="home" class="btn" disabled>Home</button>
                 </div>
             </div>
         </footer>
@@ -4045,17 +4193,21 @@
         <div class="diag-card" role="dialog" aria-modal="true" aria-labelledby="diag-title">
             <div class="diag-head">
                 <div>
-                    <h2 id="diag-title">System diagnostics</h2>
-                    <p id="diag-meta">Loading run logs</p>
+                    <h2 id="diag-title">Settings</h2>
+                    <p id="diag-meta">Loading runtime status</p>
                 </div>
                 <div class="diag-actions">
                     <button id="diag-refresh" class="btn" type="button">Refresh</button>
                     <button id="diag-close" class="btn primary" type="button">Close</button>
                 </div>
             </div>
-            <div class="diag-tabs" role="tablist" aria-label="Log panels">
+            <div class="diag-tabs" role="tablist" aria-label="Settings panels">
+                <button class="diag-tab" role="tab" type="button" data-panel="local"
+                    aria-selected="true" aria-controls="diag-local">
+                    Local LLM
+                </button>
                 <button class="diag-tab" role="tab" type="button" data-panel="frontend"
-                    aria-selected="true" aria-controls="diag-frontend">
+                    aria-selected="false" aria-controls="diag-frontend">
                     Frontend <span id="diag-cnt-frontend" class="diag-tab-cnt"></span>
                 </button>
                 <button class="diag-tab" role="tab" type="button" data-panel="backend"
@@ -4068,7 +4220,8 @@
                 </button>
             </div>
             <div class="diag-body">
-                <ul id="diag-frontend" class="diag-stream active" role="tabpanel"></ul>
+                <div id="diag-local" class="diag-settings-panel active" role="tabpanel"></div>
+                <ul id="diag-frontend" class="diag-stream" role="tabpanel"></ul>
                 <ul id="diag-backend" class="diag-stream" role="tabpanel"></ul>
                 <ul id="diag-maf" class="diag-stream" role="tabpanel"></ul>
             </div>
@@ -4087,7 +4240,7 @@
     </div>
 
     <script src="/game/game/audio.js?v=11"></script>
-    <script type="module" src="/game/game/story.js?v=256"></script>
+    <script type="module" src="/game/game/story.js?v=1260"></script>
     <script src="/game/game/intro.js?v=30"></script>
 </body>
 </html>

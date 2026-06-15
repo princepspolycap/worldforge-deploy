@@ -209,6 +209,31 @@ def model_for(role: str) -> Optional[str]:
     return cloud_model or local_model
 
 
+def runtime_status() -> Dict[str, Any]:
+    """Sanitized runtime config for UI settings and diagnostics."""
+    mode = runtime_mode()
+    roles = ["narrator", "orgdesigner", "antagonist", "strategist", "designer", "marketer", "ops", "npc"]
+    return {
+        "live": is_live(),
+        "mode": mode,
+        "local": mode in {"local", "hybrid"},
+        "routing": AGENT_ROUTING,
+        "demo_mode": DEMO_MODE,
+        "local_runtime": {
+            "enabled": LOCAL_AGENT_ENABLED,
+            "ready": mode in {"local", "hybrid"},
+            "base_url": LOCAL_AGENT_BASE_URL,
+            "default_model": LOCAL_AGENT_MODEL,
+            "models": {role: _local_model_for(role) or "" for role in roles},
+        },
+        "cloud_runtime": {
+            "ready": mode in {"live", "hybrid"},
+            "base_url_configured": bool(FOUNDRY_BASE_URL),
+            "models": {role: _cloud_model_for(role) or "" for role in roles},
+        },
+    }
+
+
 # A designed digital worker carries a `deployment_hint` (reasoning | fast |
 # creative). Map that hint onto one of the configured Foundry deployments so the
 # worker the Org Designer created runs on a model class that fits its job.

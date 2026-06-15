@@ -66,7 +66,7 @@ from state.game_state import (
 )
 from state.knowledge_records import profile_from_payload, record_world_day, refresh_session_knowledge
 from agents.foundry_agents import MasterNarrator, StrategistAgent, DesignerAgent, MarketerAgent, generate_lore
-from agents.model_config import model_for, is_live, runtime_mode, get_foundry_client, create_chat_completion
+from agents.model_config import model_for, is_live, runtime_mode, runtime_status, get_foundry_client, create_chat_completion
 from agents.world_designer import design_world, design_world_named, adapt_remaining_stages, derive_run_name, worker_report_clause, PLACEHOLDER_RUN_NAMES
 from agents.world_council import convene_world_council
 from agents.worker_factory import run_world, execute_stage, bind_world_to_org
@@ -529,8 +529,7 @@ def get_memory():
 @app.get("/api/mode")
 def get_mode():
     """Report whether the reasoning path is local, cloud, hybrid, or simulation."""
-    mode = runtime_mode()
-    return {"live": is_live(), "mode": mode, "local": mode in {"local", "hybrid"}}
+    return runtime_status()
 
 
 class LoreRequest(BaseModel):
