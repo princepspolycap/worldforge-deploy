@@ -23,9 +23,14 @@ local/
 # directed cinematic voice is the baseline every fork hears, no keys needed.
 !generated/lore/narration/
 !generated/lore/narration/*.mp3
-# Veo motion clips are a local-only progressive enhancement - too heavy to
-# commit. The committed MAI stills are the baseline every fork gets.
-generated/lore/video/
+# Motion clips are a local-only progressive enhancement - mostly too heavy to
+# commit, and the committed MAI stills are the baseline every fork gets.
+# EXCEPTION: the single assembled intro film (film.voiced.mp4, ~50MB) ships
+# committed so a fresh `git clone` plays the cinematic with no setup; the
+# tracked film.png still is the graceful fallback. Superseded per-scene clips
+# (old_v2/) and raw render frames (frames/) stay local-only.
+generated/lore/video/*
 *.mp4
 *.webm
 *.mov
+!generated/lore/video/film.voiced.mp4

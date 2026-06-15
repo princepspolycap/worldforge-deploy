@@ -87,7 +87,12 @@ submission/replay/*.log
 # tools/iq_sync.py, so it is a build output, not source.
 submission/knowledge/_index/
 submission/ui/assets/local/
-submission/ui/assets/generated/lore/video/
+# The assembled lore intro film (film.voiced.mp4, ~50MB) ships committed so a
+# fresh `git clone` plays the cinematic with no setup; the tracked film.png
+# still is the graceful fallback. Superseded per-scene clips (old_v2/) and raw
+# render frames (frames/) stay local-only.
+submission/ui/assets/generated/lore/video/*
+!submission/ui/assets/generated/lore/video/film.voiced.mp4
 # Cast idle clips (Veo image-to-video) are heavy + local-only, like the lore
 # film; the committed PNG sprites are the baseline and the UI upgrades to a clip
 # when one is present. Keep a placeholder README tracked so the path is visible.
