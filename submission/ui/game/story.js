@@ -10,6 +10,14 @@ import { T, ROLE_COLOR, mermaidThemeVariables } from "./tokens.js";
 import { toggleCollapsible } from "./motion.js";
 import { scramble, idleGlitch, loopScramble, prefersReduced } from "./anim.js";
 import { runPreflightConsole, classifyProfileUrl } from "./preflight.js?v=4";
+import { renderPartyHand } from "./party.js?v=1";
+import {
+    setStageLayer,
+    stageLayerActive,
+    queueFooterAwareLayoutSync,
+    ensureFooterLayoutObserver,
+    wireFooterCardCollapse,
+} from "./layout.js?v=1";
 
 mermaid.initialize({
     startOnLoad: false,
@@ -46,6 +54,21 @@ function diagLogError(source, err, message = "") {
     diagLog("error", source, message ? `${message}: ${detail}` : detail);
 }
 
+function newClientTraceId(prefix = "trace") {
+    const cryptoApi = globalThis.crypto;
+    const rand = (cryptoApi && cryptoApi.randomUUID)
+        ? cryptoApi.randomUUID().slice(0, 8)
+        : Math.random().toString(36).slice(2, 10);
+    return `${prefix}_${Date.now().toString(36)}_${rand}`;
+}
+
+function responseTraceId(body, payload) {
+    return (body && body.client_trace_id)
+        || (payload && payload.client_trace_id)
+        || (payload && payload.command_trace && payload.command_trace.client_trace_id)
+        || "";
+}
+
 // Sanitize antagonist-generated text: strip internal knowledge-base filenames
 // that leak from simulation templates, and replace harmful/inappropriate
 // language with neutral game-design equivalents. Apply wherever rival
@@ -71,6 +94,9 @@ const ROLE_NAME = {
     ops: "Operations",
     narrator: "World Designer",
     orgdesigner: "Org Designer",
+    rival: "Rival",
+    antagonist: "Rival",
+    villain: "Rival",
 };
 
 // --- API helpers -----------------------------------------------------------
@@ -87,8 +113,17 @@ async function api(path, body) {
             diagLog("warn", "api", `POST ${path} -> ${res.status}`, detail ? { detail: detail.slice(0, 280) } : null);
             throw new Error(`${path} ${res.status} ${detail}`);
         }
-        diagLog("info", "api", `POST ${path} ok`, { ms: Date.now() - started });
-        return res.json();
+        const payload = await res.json();
+        const trace = responseTraceId(body, payload);
+        const diagPayload = { ms: Date.now() - started };
+        if (trace) diagPayload.client_trace_id = trace;
+        if (body && body.stage_id) diagPayload.stage_id = body.stage_id;
+        if (body && (body.text || body.command_text)) diagPayload.text_preview = String(body.text || body.command_text).slice(0, 90);
+        if (payload && payload.player_move && payload.player_move.id) diagPayload.player_move_id = payload.player_move.id;
+        if (payload && payload.stage && payload.stage.id) diagPayload.stage_id = payload.stage.id;
+        if (payload && Array.isArray(payload.adapted_stage_ids)) diagPayload.adapted_stage_count = payload.adapted_stage_ids.length;
+        diagLog("info", "api", `POST ${path} ok`, diagPayload);
+        return payload;
     } catch (e) {
         diagLogError("api", e, `POST ${path} failed`);
         throw e;
@@ -280,6 +315,7 @@ function pinLiveAgentCaption(text) {
     track.classList.add("show");
     track.classList.add("live");
     liveCaptionPinned = true;
+    queueFooterAwareLayoutSync();
 }
 
 function clearLiveAgentCaption() {
@@ -335,6 +371,7 @@ async function narrate(text, speed = 18, opts = {}) {
             track.removeAttribute("aria-hidden");
             track.classList.add("show");
         }
+        queueFooterAwareLayoutSync();
     }
     const target = into || el;
     target.innerHTML = "";
@@ -358,6 +395,7 @@ async function narrate(text, speed = 18, opts = {}) {
         const track = $("narration");
         if (track) {
             track.classList.remove("show");
+            queueFooterAwareLayoutSync();
             setTimeout(() => {
                 if (myToken === typeToken && !track.classList.contains("show")) {
                     const textEl = $("narration-text");
@@ -368,6 +406,7 @@ async function narrate(text, speed = 18, opts = {}) {
                     if (roleEl) roleEl.textContent = "";
                     track.hidden = true;
                     track.setAttribute("aria-hidden", "true");
+                    queueFooterAwareLayoutSync();
                 }
             }, 240);
         }
@@ -378,6 +417,37 @@ async function narrate(text, speed = 18, opts = {}) {
     if (myToken === typeToken) {
         await Promise.race([speechP, sleep(Math.min(20000, 2500 + text.length * 75))]);
     }
+}
+
+async function announceAs(role, text, opts = {}) {
+    const previousWorker = state.activeWorker ? Object.assign({}, state.activeWorker) : null;
+    const previousVoice = currentVoice;
+    state.activeWorker = {
+        role,
+        deployLabel: opts.deployLabel || "",
+        stateText: "announcing",
+        displayName: opts.displayName,
+    };
+    currentVoice = opts.voice || VOICE_BY_ROLE[role] || NARRATOR_VOICE;
+    try {
+        await narrate(text, opts.speed || 18, Object.assign({}, opts, { spotlight: true }));
+    } finally {
+        hideSpeakerSpotlight();
+        state.activeWorker = previousWorker;
+        currentVoice = previousVoice;
+    }
+}
+
+function announceWorldState(text, role = "narrator", opts = {}) {
+    return announceAs(role, text, opts);
+}
+
+function announceRival(text, rivalName) {
+    return announceAs("rival", sanitizeAntagonistDesc(text), {
+        displayName: rivalName || "The rival",
+        voice: "echo",
+        speed: 16,
+    });
 }
 
 // --- Diagram rendering -----------------------------------------------------
@@ -1442,89 +1512,12 @@ function cardSourceLine(card) {
 
 let rewardResolve = null;
 
-let layoutSyncRaf = 0;
-let footerLayoutObserver = null;
-
-// --- Stage layer coordinator -------------------------------------------------
-// Single source of truth for the immersive overlay layers that can take over the
-// stage: the speaker spotlight, the agent / worker inspector, the agent
-// stand-up, the reasoning theater, and the dilemma gate. Components never poke
-// the body classes directly any more - they call setStageLayer(name, on) so
-// every layer knows what else is on stage, and the footer + scene react
-// coherently instead of each toggle fighting the others. Each layer keeps its
-// own body class as the CSS hook; this owns when they turn on/off and derives
-// the shared footer state from the active set.
-const STAGE_LAYERS = new Set();
-// Layers that own the stage and would collide with the footer's playable hand +
-// command input, so those controls step back (the worker mini + economy clock
-// stay - they are identity and live pressure, not controls). The stand-up has
-// its own CEO input, the inspector is a focused read, and the dilemma is a modal
-// decision - in all three the footer hand is unusable or overlapping.
-const FOOTER_QUIETING_LAYERS = new Set(["standup-active", "inspecting-agent", "inspecting-worker", "dilemma", "diagnostics"]);
-
-function setStageLayer(name, on) {
-    if (!name) return;
-    if (on) STAGE_LAYERS.add(name); else STAGE_LAYERS.delete(name);
-    document.body.classList.toggle(name, !!on);
-    const quiet = [...FOOTER_QUIETING_LAYERS].some((layer) => STAGE_LAYERS.has(layer));
-    document.body.classList.toggle("footer-quiet", quiet);
-    // The footer's playable cluster just changed height; re-derive the stage
-    // reserve so the world canvas + hand never fight the captions.
-    queueFooterAwareLayoutSync();
-}
-
-function stageLayerActive(name) {
-    return STAGE_LAYERS.has(name);
-}
-
-function syncFooterAwareLayout() {
-    const scene = $("scene");
-    const footer = document.querySelector("footer");
-    if (!scene || !footer) return;
-    document.body.classList.toggle("compact-ui", window.innerWidth <= 1100);
-    const footerHeight = Math.ceil(footer.getBoundingClientRect().height || 0);
-    if (!footerHeight) return;
-    // ONE measured input for the whole lower band. --hand-bottom drives the
-    // party hand position; --footer-top is the actual footer top edge used by
-    // inspectors and anything that must float *above* the footer. The party
-    // cards intentionally dip PARTY_OVERLAP px behind the footer (footer
-    // z-index 20 > party z-index 18 covers the overlap), creating the card-hand
-    // "tucked in" look. Inspectors and the speaking card use --footer-top so
-    // they stay above the footer even though --hand-bottom is now lower.
-    const PARTY_OVERLAP = 70;
-    const root = document.documentElement;
-    root.style.setProperty("--hand-bottom", `${Math.max(footerHeight - PARTY_OVERLAP, 4)}px`);
-    root.style.setProperty("--footer-top", `${footerHeight}px`);
-    root.style.setProperty("--party-overlap", `${PARTY_OVERLAP}px`);
-    // The narration caption above the hand grows with its line count, so feed
-    // its real height in too; the reserve calc grows to clear a tall caption
-    // instead of guessing a fixed budget (same single-source pattern).
-    const narration = $("narration");
-    const dialogueH = narration ? Math.ceil(narration.getBoundingClientRect().height || 0) : 0;
-    if (dialogueH) root.style.setProperty("--dialogue-h", `${dialogueH}px`);
-}
-
-function queueFooterAwareLayoutSync() {
-    if (layoutSyncRaf) cancelAnimationFrame(layoutSyncRaf);
-    layoutSyncRaf = requestAnimationFrame(() => {
-        layoutSyncRaf = 0;
-        syncFooterAwareLayout();
-    });
-}
-
-function ensureFooterLayoutObserver() {
-    if (footerLayoutObserver || typeof ResizeObserver === "undefined") return;
-    const footer = document.querySelector("footer");
-    const hand = $("card-hand");
-    if (!footer) return;
-    footerLayoutObserver = new ResizeObserver(() => queueFooterAwareLayoutSync());
-    footerLayoutObserver.observe(footer);
-    if (hand) footerLayoutObserver.observe(hand);
-    // The narration caption changes height as a line types in; observe it so
-    // the reserve grows to clear it the moment it does.
-    const narration = $("narration");
-    if (narration) footerLayoutObserver.observe(narration);
-}
+// The stage-layer coordinator (setStageLayer / stageLayerActive) and the
+// footer-aware lower-band layout (syncFooterAwareLayout / queueFooterAwareLayoutSync
+// / ensureFooterLayoutObserver) now live in ./layout.js, imported at the top.
+// They are the single owner of the screen's lower band: keeping the world
+// canvas, party hand, and narration caption from fighting each other as overlay
+// layers open and the footer resizes.
 
 function renderGameHand(game) {
     const host = $("card-hand");
@@ -1897,6 +1890,7 @@ document.addEventListener("keydown", (e) => {
 const ROLE_PORTRAIT = {
     narrator: "narrator", orgdesigner: "orgdesigner", strategist: "strategist",
     designer: "designer", marketer: "marketer", ops: "ops",
+    rival: "villain", antagonist: "villain", villain: "villain",
 };
 const ROLE_MS = {
     narrator: "Azure AI Foundry &middot; chat completions",
@@ -2037,38 +2031,22 @@ function setParty(activeKey, line, activeName) {
     state.activePartyLine = line;
     state.activePartyName = activeName;
     const members = partyMembers();
-    host.innerHTML = members.map((m) => {
-        const active = m.key === activeKey || m.role === activeKey || m.name === activeName || m.name === activeKey;
-        const done = m.status === "completed";
-        const portrait = ROLE_PORTRAIT[m.role] || "narrator";
-        const statusLine = active
-            ? (line || "working with you")
-            : done
-                ? "sealed their stage"
-                : (m.title || "waiting for the brief");
-        const hasCard = !!cardEvidence[m.name];
-        const score = hasCard ? clamp(cardEvidence[m.name].score) : null;
-        const gm = isGameMaster(m.role);
-        const flipped = m.name === flippedOwner;
-        // The card IS the inspector. Front = glanceable identity + the world
-        // meters it moves; tapping flips it in place to its receipts dossier
-        // (the same cc-* renderer), never a second modal.
-        return `<div class="party-agent${active ? " active" : ""}${done ? " done" : ""}${flipped ? " flipped" : ""}"`
-            + ` data-owner="${esc(m.name)}" role="button" tabindex="0" aria-pressed="${flipped ? "true" : "false"}"`
-            + ` title="${esc(m.name)} - click to inspect, press Space to flip this card">`
-            + `<div class="pa-inner">`
-            + `<div class="pa-face pa-front">`
-            + `<div class="pa-layer ${gm ? "gm" : "dw"}">${gm ? "Game Master" : "Digital Worker"}</div>`
-            + `<img class="party-face" src="/game/assets/generated/${portrait}.png" alt="" onerror="this.style.display='none'" />`
-            + `<div class="party-name">${esc(m.name)}</div>`
-            + `<div class="party-role">${esc(ROLE_NAME[m.role] || m.role || "agent")}</div>`
-            + partyMetricMarkup(m)
-            + `<div class="party-line">${esc(statusLine).slice(0, 110)}</div>`
-            + `<div class="party-badge">${hasCard ? `inspect &middot; ${score}/100` : `click inspect`}</div>`
-            + `</div>`
-            + `<div class="pa-face pa-back">${dossierBackHTML(partyCardEv(m))}</div>`
-            + `</div></div>`;
-    }).join("");
+    host.innerHTML = renderPartyHand({
+        members,
+        activeKey,
+        activeName,
+        line,
+        flippedOwner,
+        cardEvidence,
+        rolePortrait: ROLE_PORTRAIT,
+        roleName: ROLE_NAME,
+        isGameMaster,
+        partyMetricMarkup,
+        partyCardEvidence: partyCardEv,
+        dossierBackHTML,
+        clamp,
+        esc,
+    });
 }
 
 // --- Character cards: a face AND a presence -------------------------------
@@ -2674,7 +2652,14 @@ function castKeyForRole(role) {
     if (CAST_ROLES.has(role)) return role;
     const p = ROLE_PORTRAIT[role];
     if (p && CAST_ROLES.has(p)) return p;
+    if (p === "villain") return "villain";
     return "strategist";
+}
+
+function castPortraitSrc(key) {
+    return key === "villain"
+        ? "/game/assets/generated/villain.png"
+        : `/game/assets/generated/characters/${key}.png`;
 }
 
 function openAgentInspector(owner) {
@@ -2964,10 +2949,11 @@ function showSpeakerSpotlight(role, displayName, opts = {}) {
         if (opts.image) setSpeakerSpotlightImage(opts.image, opts.caption);
         return;
     }
-    const color = ROLE_COLOR[role] || ROLE_COLOR[key] || T.narrator;
+    const agentClass = agentClassForRole(role);
+    const color = agentClass === "rival" ? T.bad : (ROLE_COLOR[role] || ROLE_COLOR[key] || T.narrator);
     const heroName = displayName || CAST_NAME[key] || ROLE_NAME[role] || role;
     const roleLabel = ROLE_NAME[role] || role;
-    const src = `/game/assets/generated/characters/${key}.png`;
+    const src = castPortraitSrc(key);
     stage.style.setProperty("--card-accent", hexToRgba(color, 0.9));
     stage.style.setProperty("--cast-aura", hexToRgba(color, 0.34));
     const imgHtml = opts.image
@@ -2978,11 +2964,11 @@ function showSpeakerSpotlight(role, displayName, opts = {}) {
     // announcement treatment with a herald eyebrow, so a world-master speaking
     // reads as a deliberate announcement to the player, not a worker aside.
     // Workers / the rival (rare on this spotlight) keep the role-colored frame.
-    const agentClass = agentClassForRole(role);
-    // A world-master (Game Master) announcement owns the screen: slide the whole
-    // footer off the bottom so the announcement + world canvas get the full
-    // lower band. Worker reports and rival beats keep the footer in place.
-    document.body.classList.toggle("announce-cover", agentClass === "gm");
+    // Game Master and rival announcements are a bridge layer: the announcer and
+    // the active stage card compose together while the footer steps aside.
+    // Worker reports keep the footer in place.
+    const isBridgeAnnouncement = agentClass === "gm" || agentClass === "rival";
+    setStageLayer("announce-bridge", isBridgeAnnouncement);
     let announce = "";
     let stageClass = "speaking show";
     let cardClass = "cast-card worker";
@@ -3046,7 +3032,7 @@ function hideSpeakerSpotlight() {
     stage.className = "";
     stage.innerHTML = "";
     setStageLayer("spotlight-active", false);
-    document.body.classList.remove("announce-cover"); // glide the footer back
+    setStageLayer("announce-bridge", false); // glide the footer back
     spotlightRole = null;
     spotlightName = null;
 }
@@ -3739,6 +3725,7 @@ function reactToRivalEscalation(game) {
     // The game master draws the threat arc: a mermaid diagram of the rival's
     // escalation, current stage lit, so the move is shown, not just told.
     renderRivalArc(arc, rival);
+    void announceRival(`${rival}: ${pressure}`, rival);
     try { if (A && A.chime) A.chime(); } catch (_) {}
 }
 
@@ -4794,6 +4781,18 @@ function speakerProfileForTurn(turn) {
     };
 }
 
+function standupSourceLabel(turn) {
+    const source = String((turn && turn.source) || "").toLowerCase();
+    const framework = String((turn && turn.framework) || "").toLowerCase();
+    if (source === "maf" || source === "foundry" || framework.includes("microsoft-agent-framework")) {
+        return "Foundry MAF";
+    }
+    if (source === "simulation" || framework.includes("deterministic")) {
+        return "simulation fallback";
+    }
+    return source || "";
+}
+
 // Keep the transcript pinned to the newest line, but never yank the view away
 // from a player who has scrolled up to re-read earlier turns.
 function scrollLogToBottom(log) {
@@ -4830,19 +4829,28 @@ async function attachTurnMedia(mediaEl, turn) {
 }
 
 async function renderAgentStandup(standup, opts = {}) {
-    const turns = standup && Array.isArray(standup.turns) ? standup.turns : [];
+    const allTurns = standup && Array.isArray(standup.turns) ? standup.turns : [];
+    const isGameMasterStandup = standup && standup.tier === "game_master";
+    const visibleTurns = (items) => isGameMasterStandup
+        ? (items || [])
+        : (items || []).filter((turn) => {
+            const klass = agentClassForRole(turn.role || "");
+            return klass !== "rival" && klass !== "gm";
+        });
+    const turns = visibleTurns(allTurns);
     if (!turns.length) return;
     const interactive = opts.interactive !== false;
     const trigger = standup.trigger || {};
     // The same transcript renderer serves two tiers: the Game Master council
     // (engine: World Designer + Antagonist + Org Designer ratifying the move)
     // and the worker standup (party reacting). The header names which one.
-    if (standup.tier === "game_master") {
+    if (isGameMasterStandup) {
         setSceneHead("Game Master council", "The world engine ratifies your move",
             `forward motion - ${esc(standup.forward_motion || trigger.summary || "world updated")}`);
     } else {
+        const sourceLabel = standup.source === "foundry" ? "Foundry MAF" : "simulation fallback";
         setSceneHead("Agent stand-up", "The party reacts to your call",
-            `group chat orchestration - ${esc(trigger.rule_id || "decision")}`);
+            `${sourceLabel} - ${esc(trigger.rule_id || "decision")}`);
     }
 
     // Any prior speaker spotlight yields: the transcript itself is now the home
@@ -4867,7 +4875,8 @@ async function renderAgentStandup(standup, opts = {}) {
             const role = turn.role || "narrator";
             const profile = speakerProfileForTurn(turn);
             const handoff = turn.handoff_to ? `<div class="standup-handoff">handoff: ${esc(turn.handoff_to)}</div>` : "";
-            const source = turn.source ? `<span>${esc(turn.source)}</span>` : "";
+            const sourceLabel = standupSourceLabel(turn);
+            const source = sourceLabel ? `<span>${esc(sourceLabel)}</span>` : "";
             // Differentiate the three agent classes in the transcript: the world
             // masters announce (gold), the rival presses (red), the workers react
             // (role/teal) - so a glance separates authorship from reaction.
@@ -4923,7 +4932,11 @@ async function renderAgentStandup(standup, opts = {}) {
 
     const line = standup.next_brief_delta || trigger.summary || "The next worker brief now carries the choice.";
     const selection = (standup.orchestration && standup.orchestration.selection) || STANDUP_SELECTION;
-    lens("reasoning", `Agent group chat: ${turns.length} character turns, ${selection} selection, reacted to ${trigger.rule_id || "the CEO decision"}`);
+    const modeLabel = standup.source === "foundry" ? "Foundry MAF" : "simulation fallback";
+    lens("reasoning", `Agent group chat: ${turns.length} workforce turns, ${selection} selection, ${modeLabel}, reacted to ${trigger.rule_id || "the CEO decision"}`);
+    if (!isGameMasterStandup && allTurns.length !== turns.length) {
+        lens("reliability", "Game Master and rival updates tracked outside the workforce stand-up; the team room only shows worker voices");
+    }
 
     // Keep the standup itself text-first; the narrator only closes the beat.
     state.activeWorker = { role: "narrator", deployLabel: "", stateText: "", displayName: ROLE_NAME.narrator };
@@ -5053,7 +5066,7 @@ async function renderAgentStandup(standup, opts = {}) {
                     });
 
                     // 4. Display the new turns
-                    await displayTurns(nextStandup.turns);
+                    await displayTurns(visibleTurns(nextStandup.turns || []));
 
                     // 5. Loop again
                     promptCEO();
@@ -5199,7 +5212,7 @@ function theaterClose() {
     setStageLayer("theater", false);
 }
 
-async function runNextChapter() {
+async function runNextChapter(commandTrace = {}) {
     if (state.idx >= state.stages.length) return;
     const ch = state.stages[state.idx];
     const ownerName = ch.assigned_worker_title || ROLE_NAME[ch.owner_role] || ch.owner_role;
@@ -5231,6 +5244,8 @@ async function runNextChapter() {
     const lastCommand = state.playerCommands && state.playerCommands.length
         ? state.playerCommands[state.playerCommands.length - 1]
         : null;
+    const clientTraceId = commandTrace.clientTraceId || commandTrace.client_trace_id || (lastCommand && lastCommand.client_trace_id) || "";
+    const commandText = commandTrace.commandText || commandTrace.command_text || (lastCommand && lastCommand.text) || "";
     const commandLine = lastCommand && lastCommand.text
         ? ` Your current CEO move - "${lastCommand.text}" - is riding with this worker.`
         : "";
@@ -5240,22 +5255,34 @@ async function runNextChapter() {
         ? " It carries what it has learned about you."
         : "";
     const goalLine = (ch.goal || "").trim().replace(/\.$/, "");
-    // The reasoning theater takes the stage while the worker thinks - the
-    // narration runs underneath it (audio), the plan forms on screen (visual).
+    await announceWorldState(`Stage ${state.idx + 1}: ${goalLine}. ${ownerName} spins up on Foundry and recalls from IQ memory.${memoryLine}${recallLine}${commandLine}`);
+    // The reasoning theater takes the stage while the worker thinks: the
+    // announcement has cleared, and the plan forms on screen without a lower
+    // dialogue slab reserving space above the party hand.
     mafRunStart(ownerName, ch.title);
     const theaterDone = theaterOpen(ch, ownerName, lastDecision);
-    narrate(`Stage ${state.idx + 1}: ${goalLine}. ${ownerName} spins up on Foundry and recalls from IQ memory.${memoryLine}${recallLine}${commandLine}`);
     await theaterDone;
 
     let res;
+    const runPayload = clientTraceId || commandText
+        ? { client_trace_id: clientTraceId, command_text: commandText }
+        : {};
+    if (clientTraceId) {
+        diagLog("info", "player-command", "Worker run requested for saved CEO move", {
+            client_trace_id: clientTraceId,
+            stage_id: ch.id || "",
+            stage_title: ch.title || "",
+            worker: ownerName,
+        });
+    }
     try {
-        res = await api("/api/world/run-next", {});
+        res = await api("/api/world/run-next", runPayload);
     } catch (e) {
         // One silent retry: long reasoning calls can be cut by transient
         // network blips; the server is idempotent on the pending stage.
         try {
             await narrate("A network blip mid-reasoning. The worker picks its thread back up...");
-            res = await api("/api/world/run-next", {});
+            res = await api("/api/world/run-next", runPayload);
         } catch (e2) {
             if (A.thinkingStop) A.thinkingStop();
             theaterClose();
@@ -5271,6 +5298,17 @@ async function runNextChapter() {
     const stage = res.stage || {};
     const inv = res.invocation || {};
     const score = stage.validation_score ?? 0;
+    if (res.command_trace && res.command_trace.client_trace_id) {
+        diagLog("info", "player-command", "Worker run correlated to CEO move", {
+            client_trace_id: res.command_trace.client_trace_id,
+            stage_id: res.command_trace.stage_id || stage.id || "",
+            worker: inv.worker_title || ownerName,
+            memory_injected: Array.isArray(inv.maf_memory) ? inv.maf_memory.length : 0,
+            tools_called: Array.isArray(inv.maf_tools_called) ? inv.maf_tools_called.length : 0,
+            iq_hits: Array.isArray(inv.iq_sources) ? inv.iq_sources.length : 0,
+            score,
+        });
+    }
     nudgeResources({ proof: Math.max(4, Math.round(score / 10)), trust: score >= 80 ? 5 : -8, autonomy: 3 });
     // Stash this run's evidence so the dilemma gate can show its provenance.
     state.lastInv = inv;
@@ -5545,7 +5583,7 @@ async function runDilemmaGate(stage) {
                 "\u2692 deterministic consequence rule updated state, org, and economics");
             renderDilemmaReceipt({ option, tradeoff, consequence, memory: receiptMemory, nextBrief: receiptNext, principle: receiptPrinciple });
             lens("reliability", `${consequence.rule_id} applied: org and economics mutated before the next chapter`);
-            await narrate(`Decided: ${option}. ${summary}`);
+            await announceWorldState(`Decided: ${option}. ${summary}`, "orgdesigner");
             if (state.org) {
                 await renderMermaid(orgBlueprintMermaid(state.org));
                 await sleep(500);
@@ -5573,7 +5611,7 @@ async function runDilemmaGate(stage) {
             }
         } else {
             nudgeResources(resourceDeltaForDecision(option, tradeoff));
-            await narrate(`Decided: ${option}. Your workforce will execute accordingly.`);
+            await announceWorldState(`Decided: ${option}. Your workforce will execute accordingly.`, "orgdesigner");
         }
         lens("reasoning", `CEO decision recorded - next worker's brief carries "${String(option).slice(0, 50)}" and its company consequence`);
         r({ option, tradeoff, custom });
@@ -5807,12 +5845,12 @@ function updateCommandControls() {
 
     const ready = state.phase === "ready" && hasWorld && !hasPendingReward && state.idx < state.stages.length;
     // The footer must be reachable the instant it is the player's turn. The
-    // Game Master announcement slides the whole footer off-screen (announce-
-    // cover); a lingering announcement after the founding cinematic would
+    // Game Master announcement slides the whole footer off-screen
+    // (announce-bridge); a lingering announcement after the founding cinematic would
     // strand the command line. So the moment any playable footer state is live
     // - the command line, a pending reward draft, or the card hand - dismiss the
     // announcement so the footer glides back. The footer tracks the game loop.
-    if (document.body.classList.contains("announce-cover") && (ready || hasPendingReward)) {
+    if (stageLayerActive("announce-bridge") && (ready || hasPendingReward)) {
         hideSpeakerSpotlight();
     }
     // The command line is the CEO's one verb: brief the next worker. Show it
@@ -5843,6 +5881,7 @@ async function submitPlayerCommand(e) {
     if (state.phase !== "ready" || state.idx >= state.stages.length) return;
 
     let text = "";
+    let clientTraceId = "";
     const formData = collectDynamicCommandData();
     if (formData) {
         text = dynamicCommandSummary(formData);
@@ -5854,16 +5893,33 @@ async function submitPlayerCommand(e) {
     if (text) {
         const stage = state.stages[state.idx] || {};
         const owner = stage.assigned_worker_title || ROLE_NAME[stage.owner_role] || stage.owner_role || "worker";
-        state.playerCommands.push({ stage_id: stage.id || "", text: text, form_data: formData || null, ts: Date.now() });
+        clientTraceId = newClientTraceId("cmd");
+        state.playerCommands.push({ stage_id: stage.id || "", text: text, form_data: formData || null, client_trace_id: clientTraceId, ts: Date.now() });
         setActionHint(`Move registered. Briefing ${owner}...`);
+        diagLog("info", "player-command", "Send Move clicked", {
+            client_trace_id: clientTraceId,
+            stage_id: stage.id || "",
+            stage_index: state.idx + 1,
+            worker: owner,
+            text_preview: text.slice(0, 90),
+            source: formData ? "dynamic_form" : "player_command",
+        });
 
-        showActionReceipt("CEO move captured", [`stage ${state.idx + 1}`, owner], `"${text}" is saved as worker memory and carried into the next stage brief.`, "good");
+        showActionReceipt("CEO move captured", [`stage ${state.idx + 1}`, owner, `trace ${clientTraceId.slice(-8)}`], `"${text}" is saved as worker memory and carried into the next stage brief.`, "good");
         try {
             const saved = await api("/api/world/standup/respond", {
                 text: text,
                 stage_id: stage.id || "",
                 form_data: formData || {},
                 source: formData ? "dynamic_form" : "player_command",
+                client_trace_id: clientTraceId,
+            });
+            diagLog("info", "player-command", "CEO move persisted into memory, move log, and IQ sync cache", {
+                client_trace_id: saved.client_trace_id || clientTraceId,
+                player_move_id: saved.player_move && saved.player_move.id,
+                adapted_stage_count: (saved.adapted_stage_ids || []).length,
+                memory_origin: saved.player_move && saved.player_move.effects_applied && saved.player_move.effects_applied.memory_origin,
+                knowledge_records: saved.state && Array.isArray(saved.state.knowledge_records) ? saved.state.knowledge_records.length : undefined,
             });
             if (saved.state) {
                 setHud(saved.state);
@@ -5879,7 +5935,7 @@ async function submitPlayerCommand(e) {
             lens("reliability", "CEO move stayed local because memory service was unavailable; stage still continues");
         }
     }
-    await runNextChapter();
+    await runNextChapter({ clientTraceId, commandText: text });
 }
 
 async function resetStory() {
@@ -6251,6 +6307,11 @@ window.CampaignStory = window.DungeonStory = {
 
 const commandForm = $("player-command");
 if (commandForm) commandForm.addEventListener("submit", submitPlayerCommand);
+
+// Collapsible footer cards (Game Masters + economy, command panel) live in
+// ./layout.js; this wires their persisted collapse state + click handlers.
+wireFooterCardCollapse();
+
 // Voice path for the player's move card: speak instead of type. Reuses the same
 // browser speech recognition the onboarding uses; typing stays the fallback.
 (function wireCommandVoice() {

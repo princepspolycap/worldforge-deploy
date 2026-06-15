@@ -60,6 +60,9 @@ export const ROLE_COLOR = {
     ops: T.ops,
     narrator: T.narrator,
     orgdesigner: T.designer,
+    antagonist: T.bad,
+    rival: T.bad,
+    villain: T.bad,
 };
 
 // Mermaid "base" theme variables derived from the same tokens.

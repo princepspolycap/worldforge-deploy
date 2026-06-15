@@ -71,10 +71,20 @@
                extra height. The responsive tiers shrink this further. */
             --hand-card-h: 208px;
             --dialogue-bottom: calc(var(--hand-bottom) + var(--hand-card-h) + 22px);
-            /* Measured narration-caption height (story.js); the reserve grows
-               to clear a tall multi-line caption. Default covers ~2 lines. */
-            --dialogue-h: 102px;
-            --lower-stage-reserve: calc(var(--dialogue-bottom) + var(--dialogue-h) + 14px);
+            /* Measured narration-caption height (story.js). It is 0 when the
+               caption is hidden, so the world canvas can sit close enough to
+               the party hand for active cards to float over it instead of
+               leaving a reserved blank band. */
+            --dialogue-h: 0px;
+            /* Canvas reserve = a STABLE lower band, deliberately NOT derived
+               from the live footer height. The world canvas is the base layer;
+               collapsing/expanding the footer (a control overlay) must never
+               re-center it. The hand (#party) and caption (#narration) still
+               track the live footer via --hand-bottom/--dialogue-bottom, since
+               they genuinely sit on top of it; only the centered canvas is
+               anchored. The constant clears the worst-case expanded footer +
+               worker hand, so nothing overlaps. */
+            --lower-stage-reserve: calc(var(--hand-card-h) + 140px + var(--dialogue-h));
             /* breathing - one shared resting rhythm (~13 breaths/min) so every
                living component pulses together. Components opt in via .breathing
                and a local --breathe-glow color. */
@@ -164,6 +174,34 @@
         body.spotlight-active #scene {
             --lower-stage-reserve: calc(var(--hand-bottom) + var(--hand-card-h) + 34px);
         }
+        /* Announcement bridge: the footer is off-screen, and the announcer plus
+           current stage card compose as one responsive state. */
+        body.announce-bridge #scene {
+            --lower-stage-reserve: 112px;
+            --announce-lane-w: clamp(360px, 34vw, 560px);
+            --announce-gap: clamp(18px, 2vw, 34px);
+            justify-content: flex-start;
+        }
+        body.announce-bridge #diagram {
+            flex: 0 1 calc(100% - var(--announce-lane-w) - var(--announce-gap));
+            width: calc(100% - var(--announce-lane-w) - var(--announce-gap)) !important;
+            max-width: calc(100% - var(--announce-lane-w) - var(--announce-gap)) !important;
+            opacity: 0.82 !important;
+            filter: brightness(0.78) saturate(0.94) !important;
+            transform: scale(0.985) !important;
+            transform-origin: center center;
+            transition: width 260ms ease, max-width 260ms ease, opacity 240ms ease, filter 240ms ease, transform 260ms ease;
+        }
+        body.announce-bridge #diagram .world-canvas,
+        body.announce-bridge #diagram .consequence-board {
+            max-width: 100%;
+        }
+        /* While an announcement bridge or the reasoning theater owns the stage,
+           the playable party hand would overlap the announcer / plan. The stage
+           card in #diagram stays as context; the worker tray steps aside, and
+           returns the instant the layer clears. */
+        body.announce-bridge #party,
+        body.theater #party { display: none !important; }
         #stage.rail-hidden #scene { padding-right: 44px; }
         #stage.rail-hidden #scene-head { right: 44px; }
         #stage.rail-hidden #narration { right: 0; }
@@ -1228,10 +1266,12 @@
         #party {
             position: fixed; left: 44px; right: 44px; bottom: var(--hand-bottom); z-index: 18;
             display: flex; align-items: flex-end; justify-content: center; flex-wrap: nowrap;
-            gap: 12px; padding: 14px 6px 6px;
+            gap: 12px; padding: 8px 6px 0;
             overflow-x: auto; overflow-y: visible;
             pointer-events: none;
+            isolation: isolate;
         }
+        #party::-webkit-scrollbar { display: none; }
         body.prestart #party { display: none; }
         /* One occupant per stage band. The party hand rides with the world
            canvas only; whenever the diagram instead shows a full narrative
@@ -1245,6 +1285,7 @@
         #scene:not(:has(#diagram .world-canvas)) #party { display: none !important; }
         #stage.rail-hidden #party { right: 44px; }
         .party-agent {
+            position: relative; z-index: 1;
             flex: 0 0 auto;
             width: 168px; height: var(--hand-card-h);
             perspective: 1100px;
@@ -1266,18 +1307,18 @@
             position: absolute; inset: 0;
             -webkit-backface-visibility: hidden; backface-visibility: hidden;
             border: 1px solid rgba(44,58,94,0.62); border-radius: 14px;
-            background: linear-gradient(180deg, rgba(12,18,32,0.75) 0%, rgba(7,10,20,0.50) 100%);
+            background: linear-gradient(180deg, rgba(12,18,32,0.66) 0%, rgba(7,10,20,0.38) 100%);
             -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
-            box-shadow: 0 18px 48px -28px rgba(0,0,0,0.9);
+            box-shadow: 0 20px 52px -30px rgba(0,0,0,0.92), inset 0 1px 0 rgba(255,255,255,0.035);
             padding: 10px; overflow: hidden;
             display: flex; flex-direction: column;
         }
-        /* Idle worker cards fade out at the bottom — the footer (z:20) sits on
-           top (party z:18) and covers the overlap; the mask softens the edge so
-           it reads as cards tucked into a holder rather than hard-clipped. */
+        /* Idle worker cards fade out at the bottom; the footer (z:20) sits on
+           top (party z:18) and covers the overlap without adding a second tray
+           background beneath the controls. */
         .party-agent:not(.active):not(.flipped) {
-            -webkit-mask-image: linear-gradient(to top, transparent 0%, rgba(0,0,0,0.5) 22%, black 44%, black 100%);
-            mask-image: linear-gradient(to top, transparent 0%, rgba(0,0,0,0.5) 22%, black 44%, black 100%);
+            -webkit-mask-image: linear-gradient(to top, transparent 0%, rgba(0,0,0,0.68) 18%, black 38%, black 100%);
+            mask-image: linear-gradient(to top, transparent 0%, rgba(0,0,0,0.68) 18%, black 38%, black 100%);
         }
         .party-agent.active .pa-front {
             border-color: var(--spk, rgba(91,140,255,0.78));
@@ -1752,6 +1793,12 @@
                 0 30px 70px -28px rgba(0,0,0,0.85),
                 0 0 42px -14px var(--card-accent);
         }
+        .cast-card.rival {
+            border-color: rgba(251,113,133,0.55) !important;
+            background:
+                linear-gradient(160deg, rgba(251,113,133,0.25), rgba(217,163,74,0.05) 38%, rgba(7,10,20,0.5) 70%),
+                linear-gradient(180deg, rgba(12,18,32,0.96), rgba(7,10,20,0.98)) !important;
+        }
         #cast-stage.speaking .cast-card {
             box-shadow:
                 0 0 0 1px rgba(0,0,0,0.4) inset,
@@ -1949,27 +1996,24 @@
             color: var(--gold-soft); margin-bottom: 7px;
             padding-bottom: 6px; border-bottom: 1px solid rgba(244,201,93,0.24);
         }
-        /* Announcement = centered overlay (the user's ask). When a world master
-           (World/Org Designer) heralds a change it takes the whole stage as a
-           modal-style overlay over a soft scrim: the portrait becomes the gold
-           "card", large enough to actually read the master's icon, and the
-           spoken line is shown OUTSIDE/below it in a wider transcription panel -
-           so the card is no longer shrunk to fit the words. Only gm-announce is
-           centered; a normal worker aside stays a small side card. */
+        /* Announcement bridge. When a world master heralds a change, the
+           portrait/speech occupies the announcer lane and the current stage card
+           remains visible in the other lane. Narrow screens fall back to the
+           centered modal shape below. */
         #cast-stage.speaking.gm-announce {
-            left: 0; right: 0; top: 0; bottom: 0;
-            width: auto; height: auto;
+            left: 0 !important; right: 0 !important; top: 0 !important; bottom: 0 !important;
+            width: auto !important; height: auto !important;
             display: flex; flex-direction: column;
-            align-items: center; justify-content: center;
-            /* center the herald in the stage ABOVE the footer, not the whole
-               viewport, so the transcription never collides with the HUD band. */
-            padding-bottom: var(--hand-bottom);
+            align-items: flex-end; justify-content: center;
+            padding: 78px 44px 118px;
             gap: 0; z-index: 24;
         }
         #cast-stage.speaking.gm-announce::before {
             content: ""; position: fixed; inset: 0; z-index: -1;
-            background: radial-gradient(circle at 50% 42%, rgba(5,8,16,0.52), rgba(5,8,16,0.82));
-            -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+            background:
+                linear-gradient(90deg, rgba(5,8,16,0.18) 0%, rgba(5,8,16,0.32) 48%, rgba(5,8,16,0.76) 100%),
+                radial-gradient(circle at 76% 44%, rgba(244,201,93,0.18), transparent 46%);
+            -webkit-backdrop-filter: blur(0.8px); backdrop-filter: blur(0.8px);
             animation: castFade 380ms ease both;
         }
         /* keep the world canvas centered behind the overlay (cancel the speaker
@@ -1981,7 +2025,8 @@
            stacked pieces, so the words read OUTSIDE the card. */
         #cast-stage.speaking.gm-announce .cast-card {
             position: relative; inset: auto;
-            width: min(360px, 86vw); max-height: 82vh;
+            width: min(var(--announce-lane-w, 560px), calc(100vw - 88px));
+            max-height: calc(100vh - 196px);
             background: none; border: 0; box-shadow: none; padding: 0;
             gap: 16px; align-items: center;
             animation: castCardIn 460ms cubic-bezier(.16,.84,.24,1) both;
@@ -1989,7 +2034,7 @@
         /* the portrait IS the gold card now - big and legible */
         #cast-stage.speaking.gm-announce .cast-card-art {
             flex: 0 0 auto;
-            width: min(280px, 70vw); height: min(320px, 40vh);
+            width: min(280px, 70vw); height: min(300px, 36vh);
             border: 1px solid rgba(245,200,122,0.78);
             box-shadow:
                 0 0 0 1px rgba(0,0,0,0.4) inset,
@@ -1999,7 +2044,8 @@
         }
         /* transcription panel: outside the card, wider, easy to read */
         #cast-stage.speaking.gm-announce .cast-speech {
-            width: min(560px, 92vw); padding: 14px 18px 16px; text-align: left;
+            width: 100%; max-height: min(260px, 34vh); overflow: auto;
+            padding: 14px 18px 16px; text-align: left;
         }
         #cast-stage.speaking.gm-announce .cast-announce { align-self: flex-start; }
         @keyframes gmAnnouncePulse {
@@ -2013,17 +2059,19 @@
 
         /* Centered Rival/Antagonist overlay */
         #cast-stage.speaking.rival-announce {
-            left: 0; right: 0; top: 0; bottom: 0;
-            width: auto; height: auto;
+            left: 0 !important; right: 0 !important; top: 0 !important; bottom: 0 !important;
+            width: auto !important; height: auto !important;
             display: flex; flex-direction: column;
-            align-items: center; justify-content: center;
-            padding-bottom: var(--hand-bottom);
+            align-items: flex-end; justify-content: center;
+            padding: 78px 44px 118px;
             gap: 0; z-index: 24;
         }
         #cast-stage.speaking.rival-announce::before {
             content: ""; position: fixed; inset: 0; z-index: -1;
-            background: radial-gradient(circle at 50% 42%, rgba(15,8,8,0.62), rgba(20,5,5,0.92));
-            -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+            background:
+                linear-gradient(90deg, rgba(15,8,8,0.22) 0%, rgba(20,5,5,0.38) 48%, rgba(20,5,5,0.86) 100%),
+                radial-gradient(circle at 76% 44%, rgba(251,113,133,0.2), transparent 46%);
+            -webkit-backdrop-filter: blur(0.8px); backdrop-filter: blur(0.8px);
             box-shadow: inset 0 0 100px rgba(251,113,133,0.18);
             animation: castFade 380ms ease both;
         }
@@ -2032,14 +2080,15 @@
         }
         #cast-stage.speaking.rival-announce .cast-card {
             position: relative; inset: auto;
-            width: min(360px, 86vw); max-height: 82vh;
+            width: min(var(--announce-lane-w, 560px), calc(100vw - 88px));
+            max-height: calc(100vh - 196px);
             background: none; border: 0; box-shadow: none; padding: 0;
             gap: 16px; align-items: center;
             animation: castCardIn 460ms cubic-bezier(.16,.84,.24,1) both;
         }
         #cast-stage.speaking.rival-announce .cast-card-art {
             flex: 0 0 auto;
-            width: min(280px, 70vw); height: min(320px, 40vh);
+            width: min(280px, 70vw); height: min(300px, 36vh);
             border: 1px solid rgba(251,113,133,0.78);
             box-shadow:
                 0 0 0 1px rgba(0,0,0,0.4) inset,
@@ -2048,7 +2097,8 @@
             animation: rivalAnnouncePulse 3.4s ease-in-out 0.5s infinite;
         }
         #cast-stage.speaking.rival-announce .cast-speech {
-            width: min(560px, 92vw); padding: 14px 18px 16px; text-align: left;
+            width: 100%; max-height: min(260px, 34vh); overflow: auto;
+            padding: 14px 18px 16px; text-align: left;
             border: 1px solid rgba(251,113,133,0.3);
             box-shadow: 0 0 24px -8px rgba(251,113,133,0.4);
         }
@@ -2067,6 +2117,47 @@
         @media (prefers-reduced-motion: reduce) {
             #cast-stage.speaking.rival-announce .cast-card { animation: none; }
             #cast-stage.speaking.rival-announce .cast-card-art { animation: none; }
+        }
+
+        @media (max-width: 980px) {
+            body.announce-bridge #scene {
+                justify-content: center;
+            }
+            body.announce-bridge #diagram {
+                flex: 0 1 100%;
+                width: 100% !important;
+                max-width: 100% !important;
+                opacity: 0.34 !important;
+                filter: blur(3px) brightness(0.62) saturate(0.9) !important;
+                transform: scale(0.96) !important;
+            }
+            #cast-stage.speaking.gm-announce,
+            #cast-stage.speaking.rival-announce {
+                align-items: center;
+                padding: 88px 16px 104px;
+            }
+            #cast-stage.speaking.gm-announce::before,
+            #cast-stage.speaking.rival-announce::before {
+                background: radial-gradient(circle at 50% 42%, rgba(5,8,16,0.58), rgba(5,8,16,0.9));
+                -webkit-backdrop-filter: blur(1.5px); backdrop-filter: blur(1.5px);
+            }
+            #cast-stage.speaking.rival-announce::before {
+                background: radial-gradient(circle at 50% 42%, rgba(20,5,5,0.68), rgba(20,5,5,0.94));
+            }
+            #cast-stage.speaking.gm-announce .cast-card,
+            #cast-stage.speaking.rival-announce .cast-card {
+                width: min(560px, calc(100vw - 32px));
+                max-height: calc(100vh - 192px);
+            }
+            #cast-stage.speaking.gm-announce .cast-card-art,
+            #cast-stage.speaking.rival-announce .cast-card-art {
+                width: min(260px, 64vw);
+                height: min(280px, 34vh);
+            }
+            #cast-stage.speaking.gm-announce .cast-speech,
+            #cast-stage.speaking.rival-announce .cast-speech {
+                max-height: min(260px, 36vh);
+            }
         }
 
         /* Digital Worker Diagnostic attention styling (side-spotlight with accent frame) */
@@ -2177,16 +2268,16 @@
             display: flex;
             flex-direction: column;
             grid-template-columns: none;
-            gap: 12px;
-            width: min(820px, 100%);
+            gap: 10px;
+            width: min(900px, 100%);
             max-height: 100%;
             align-self: center;
             overflow-y: auto;
-            padding: 16px 18px 18px;
-            border: 1px solid rgba(244,201,93,0.18);
-            border-radius: 18px;
+            padding: 14px 16px 16px;
+            border: 1px solid rgba(244,201,93,0.12);
+            border-radius: 12px;
             background: linear-gradient(180deg, rgba(12,18,32,0.62), rgba(7,10,20,0.5));
-            box-shadow: 0 30px 80px -44px rgba(0,0,0,0.9), 0 0 60px -30px rgba(244,201,93,0.22);
+            box-shadow: 0 28px 72px -44px rgba(0,0,0,0.9), 0 0 42px -32px rgba(244,201,93,0.18);
             -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
             position: relative; z-index: 2;
             scroll-behavior: smooth;
@@ -2195,13 +2286,13 @@
            framed console, not a gap. Sticky so it stays while the log scrolls. */
         .council.standup-log::before {
             content: "\265A  Agent stand-up \00B7 the workforce reacts to your call";
-            position: sticky; top: -16px; z-index: 3;
-            margin: -16px -18px 4px; padding: 12px 18px;
+            position: sticky; top: -14px; z-index: 3;
+            margin: -14px -16px 2px; padding: 10px 16px;
             font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em;
             text-transform: uppercase; color: var(--gold-soft);
             background: linear-gradient(180deg, #0e1424 0%, #0e1424 78%, rgba(14,20,36,0.92) 100%);
-            border-bottom: 1px solid rgba(244,201,93,0.2);
-            border-radius: 18px 18px 0 0;
+            border-bottom: 1px solid rgba(244,201,93,0.14);
+            border-radius: 12px 12px 0 0;
         }
         /* Backdrop: dim + blur the rest of the stage so the console floats above
            it as a true overlay. The scene behind keeps its world/party context
@@ -2217,17 +2308,50 @@
         .council.standup-log .council-member,
         .council.standup-log .standup-member {
             min-height: 0; width: 100%;
+            border-width: 1px;
+            border-radius: 10px;
+            padding: 12px 14px;
             /* Never shrink below content: cards grow to hold their media and the
                log scrolls, instead of squashing so media overflows the card. */
             flex: 0 0 auto;
+        }
+        .council.standup-log .council-member.agent-gm {
+            border-color: rgba(244,201,93,0.24);
+            box-shadow: inset 2px 0 0 0 rgba(244,201,93,0.42);
+        }
+        .council.standup-log .council-member.agent-rival {
+            border-color: rgba(251,113,133,0.28);
+            box-shadow: inset 2px 0 0 0 rgba(251,113,133,0.58);
+        }
+        .council.standup-log .standup-announce {
+            border-color: rgba(244,201,93,0.24);
+            background: rgba(244,201,93,0.055);
         }
         /* During a standup the transcript owns the stage: the party roster is
            redundant (those workers are in the log) and would overlap it. The
            party hand is hidden by the world-canvas occupancy rule above (the
            standup-log is not a world canvas); here we only reclaim the freed
-           vertical band for the transcript. A direct #scene rule, so it
-           overrides the inherited :root reserve. */
-        body.standup-active #scene { --lower-stage-reserve: 260px; }
+           vertical band for the transcript. Keyed on council CONTENT occupancy
+           (like the party-rail rule) so it covers every conversation transcript
+           - the stand-up AND the party self-organization council - not just the
+           standup-active body class, and reverts the instant the content swaps. */
+        body.standup-active #scene,
+        #scene:has(#diagram .council) { --lower-stage-reserve: 112px; }
+
+        /* A full conversation transcript (the stand-up's back-and-forth, or the
+           party self-organizing) is its own immersive response surface - the
+           talking owns the screen, so the persistent footer would only add a
+           competing framed layer beneath it. Slide the whole footer away for any
+           council on the stage. Content-driven via :has(#diagram .council) so it
+           covers BOTH council renderers (standup-log + self-org) with one rule
+           and glides back the instant the council content is replaced. */
+        body.standup-active footer,
+        body:has(#diagram .council) footer {
+            transform: translateY(118%);
+            opacity: 0;
+            pointer-events: none;
+            transition: transform 520ms cubic-bezier(0.22, 1, 0.36, 1), opacity 360ms ease;
+        }
 
         /* Footer-quiet: a single body class set by setStageLayer() in story.js
            (the one coordinator that owns every stage-layer toggle). When any
@@ -2237,21 +2361,23 @@
            overlap that layer, so it steps aside. The worker mini + econ HUD on
            the left stay visible as persistent context. */
         body.footer-quiet #card-hand,
+        body.footer-quiet #company-context,
         body.footer-quiet #player-command,
         body.footer-quiet #player-command-status,
         body:has(.standup-log) #card-hand,
+        body:has(.standup-log) #company-context,
         body:has(.standup-log) #player-command,
         body:has(.standup-log) #player-command-status { display: none !important; }
 
-        /* Announcement takeover: while a world-master (Game Master) makes an
+        /* Announcement takeover: while a Game Master or rival makes an
            announcement, the entire footer glides off the bottom of the screen
            so the announcement and world canvas own the full lower band. It
            glides back the instant the announcement ends (hideSpeakerSpotlight
            clears the class). The footer's base transition handles the return. */
-        body.announce-cover footer {
-            transform: translateY(118%);
-            opacity: 0;
-            pointer-events: none;
+        body.announce-bridge footer {
+            transform: translateY(118%) !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
             transition: transform 520ms cubic-bezier(0.22, 1, 0.36, 1), opacity 360ms ease;
         }
 
@@ -2317,13 +2443,16 @@
 
         /* ---- Consequence receipt: CEO choice changes the company state ---- */
         .consequence-board {
-            width: min(760px, 100%);
+            width: min(1120px, 100%);
+            max-height: 100%;
+            overflow: auto;
             border: 1px solid rgba(244,201,93,0.34);
             border-radius: 14px;
             background: linear-gradient(180deg, rgba(14,20,36,0.84), rgba(7,10,20,0.68));
             padding: 22px;
             box-shadow: 0 24px 70px -42px rgba(244,201,93,0.65);
         }
+        .consequence-board::-webkit-scrollbar { display: none; }
         .consequence-kicker {
             font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.18em;
             text-transform: uppercase; color: var(--gold-soft); margin-bottom: 9px;
@@ -2358,12 +2487,13 @@
         .receipt-step {
             border: 1px solid var(--line); border-radius: 11px;
             background: rgba(255,255,255,0.018); padding: 13px 15px;
+            min-width: 0;
         }
         .receipt-step.consequence { border-color: rgba(244,201,93,0.28); background: rgba(244,201,93,0.045); }
         .receipt-step.memory { border-color: rgba(123,196,255,0.26); background: rgba(123,196,255,0.04); }
         .receipt-step.next { border-color: rgba(126,231,168,0.26); background: rgba(126,231,168,0.045); }
         .receipt-step-head {
-            display: flex; align-items: center; gap: 8px;
+            display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
             font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em;
             text-transform: uppercase; color: var(--ink-dim); margin-bottom: 8px;
         }
@@ -2377,6 +2507,7 @@
         .receipt-origin, .receipt-adapted {
             margin-left: auto; font-style: normal; font-size: 9px;
             letter-spacing: 0.1em; color: var(--ink-faint);
+            min-width: 0;
         }
         .receipt-adapted { color: #7ee7a8; }
         .receipt-decision { font-family: var(--font-display); font-size: 17px; line-height: 1.3; color: var(--ink); }
@@ -2392,6 +2523,19 @@
         .receipt-arrow { text-align: center; color: var(--gold-soft); font-size: 15px; line-height: 1; padding: 4px 0; opacity: 0.8; }
         .effect-row.moved { border-color: rgba(244,201,93,0.45); background: rgba(244,201,93,0.06); }
         .effect-row.moved strong { color: var(--gold-soft); }
+        @media (min-width: 940px) {
+            .receipt-chain {
+                display: grid;
+                grid-template-columns: minmax(260px, 0.86fr) minmax(420px, 1.14fr);
+                gap: 12px;
+                align-items: stretch;
+            }
+            .receipt-chain .receipt-arrow { display: none; }
+            .receipt-step.decision { grid-column: 1; grid-row: 1; }
+            .receipt-step.consequence { grid-column: 2; grid-row: 1; }
+            .receipt-step.memory { grid-column: 1; grid-row: 2; }
+            .receipt-step.next { grid-column: 2; grid-row: 2; }
+        }
 
         /* ---- Reasoning theater: the agent's plan, center stage ---- */
         #theater {
@@ -2800,10 +2944,15 @@
         @keyframes blink { 50% { opacity: 0; } }
 
         /* ---- Footer: two gameplay cards plus small utility controls ---- */
+        /* align-items:end (not stretch): each footer card sizes to its OWN
+           content and hugs the bottom. This decouples the three columns - the
+           tall Game Masters + economy card no longer forces the command panel
+           (or the utility column) to stretch to match its height. Collapsing or
+           hiding any one card no longer resizes its neighbors. */
         footer {
             position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
             display: grid; grid-template-columns: minmax(260px, 320px) minmax(320px, 1fr) auto;
-            align-items: stretch;
+            align-items: end;
             gap: 16px; padding: 12px 26px;
             transition: opacity 180ms ease, transform 180ms ease;
         }
@@ -2818,7 +2967,49 @@
         }
         .progress { display: flex; align-items: center; gap: 7px; }
         .footer-left { gap: 10px; min-width: 0; }
-        .footer-mid { min-width: 0; }
+        .footer-mid { min-width: 0; position: relative; }
+        .footer-left { position: relative; }
+        /* Collapsible footer cards: each gameplay card (Game Masters + economy,
+           and the command panel) can minimize to a slim bar to reclaim the
+           world canvas. The `is-collapsed` class on the card is the single
+           source of truth (toggled + persisted in story.js); CSS only reacts.
+           When collapsed the card stops stretching to the row height and folds
+           to just its label handle. */
+        .fc-toggle {
+            position: absolute; top: 7px; right: 9px; z-index: 3;
+            width: 21px; height: 21px; padding: 0;
+            display: inline-flex; align-items: center; justify-content: center;
+            border: 1px solid rgba(44,58,94,0.6); border-radius: 6px;
+            background: rgba(255,255,255,0.03); color: var(--ink-faint);
+            cursor: pointer; transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+        }
+        .fc-toggle:hover { color: var(--ink); background: rgba(255,255,255,0.08); border-color: rgba(91,140,255,0.4); }
+        .fc-toggle svg { transition: transform 200ms cubic-bezier(0.22,1,0.36,1); }
+        .footer-card.is-collapsed .fc-toggle { display: none; }
+        /* The slim handle shown only when the card is collapsed. Collapsed is
+           not another card: no glass, border, shadow, or oval. It is a flat
+           text rail that expands the real card when needed. */
+        .fc-collapsed-label {
+            display: none; width: 100%; padding: 2px 0;
+            align-items: center; gap: 6px; justify-content: center;
+            border: 0; border-radius: 0; background: transparent; cursor: pointer;
+            font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.16em;
+            text-transform: uppercase; color: var(--ink-faint);
+            transition: color 140ms ease;
+        }
+        .fc-collapsed-label::before {
+            content: ""; width: 8px; height: 8px;
+            border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor;
+            transform: rotate(-135deg); margin-bottom: -2px;
+        }
+        .fc-collapsed-label:hover { color: var(--ink); }
+        .footer-card.is-collapsed {
+            align-self: end; padding: 0; min-height: 0;
+            border: 0; border-radius: 0; background: transparent; box-shadow: none;
+            -webkit-backdrop-filter: none; backdrop-filter: none;
+        }
+        .footer-card.is-collapsed > *:not(.fc-collapsed-label) { display: none !important; }
+        .footer-card.is-collapsed .fc-collapsed-label { display: flex; }
         .footer-utility {
             align-self: end; justify-self: end;
             display: flex; align-items: center; gap: 8px;
@@ -2831,14 +3022,14 @@
            a tooltip that defines the concept and shows the full value. */
         .company-context {
             display: flex; flex-wrap: nowrap; gap: 6px; align-items: stretch;
-            min-width: 0; overflow-x: auto; padding-bottom: 2px;
+            min-width: 0; overflow-x: auto; padding-bottom: 2px; padding-right: 26px;
         }
         .company-context::-webkit-scrollbar { display: none; }
         .company-context[hidden] { display: none; }
         .ccx-tile {
             flex: 1 1 120px; min-width: 108px; min-height: 34px; padding: 5px 8px;
             border: 1px solid rgba(44,58,94,0.72); border-radius: 7px;
-            background: rgba(255,255,255,0.025); cursor: help;
+            background: transparent; cursor: help;
         }
         .ccx-tile span {
             display: block; margin-bottom: 3px; font-family: var(--font-mono);
@@ -2849,12 +3040,12 @@
             display: block; color: var(--ink); font-size: 10.5px; line-height: 1.22;
             font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .ccx-tile.lead { border-color: rgba(91,140,255,0.32); background: rgba(91,140,255,0.055); }
+        .ccx-tile.lead { border-color: rgba(91,140,255,0.32); }
         .ccx-tile.lead b { font-family: var(--font-display); font-size: 13px; }
-        .ccx-tile.owner { border-color: rgba(45,212,191,0.22); background: rgba(45,212,191,0.035); }
+        .ccx-tile.owner { border-color: rgba(45,212,191,0.22); }
         .ccx-tile.owner b { color: var(--ops); font-size: 10px; }
         .ccx-tile.owner.gap b { color: var(--marketer); }
-        .ccx-tile.rival { border-color: rgba(251,113,133,0.28); background: rgba(251,113,133,0.045); }
+        .ccx-tile.rival { border-color: rgba(251,113,133,0.28); }
         .ccx-tile.rival b { color: var(--bad); }
         /* Active worker mini in the footer (identity only; receipts on cards) */
         .hud-worker { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 320px; cursor: pointer; border-radius: var(--radius-sm); padding: 2px 6px; margin: -2px -6px; transition: background 140ms ease; }
@@ -2873,15 +3064,15 @@
             font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.16em;
             text-transform: uppercase; color: var(--ink-faint);
         }
-        .gm-console-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .gm-console-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
         .gm-console-card {
             min-width: 0; display: flex; align-items: center; gap: 8px;
             border: 1px solid var(--line); border-radius: 8px;
-            background: rgba(255,255,255,0.025); color: var(--ink);
+            background: transparent; color: var(--ink);
             padding: 7px 8px; cursor: pointer; text-align: left; font: inherit;
             transition: 140ms ease;
         }
-        .gm-console-card:hover { border-color: rgba(245,200,122,0.46); background: rgba(245,200,122,0.07); transform: translateY(-1px); }
+        .gm-console-card:hover { border-color: rgba(245,200,122,0.46); transform: translateY(-1px); }
         .gm-console-card img { width: 30px; height: 30px; border-radius: 7px; object-fit: cover; border: 1px solid rgba(255,255,255,0.08); flex: 0 0 auto; }
         .gm-console-card span { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
         .gm-console-card b { font-family: var(--font-display); font-size: 12px; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -2892,20 +3083,20 @@
             display: inline-flex; align-items: baseline; gap: 5px;
             font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-dim);
             padding: 5px 11px; border: 1px solid var(--line); border-radius: 6px;
-            background: rgba(255,255,255,0.025);
+            background: transparent;
             transition: all 150ms ease;
         }
         .econ-pill i { font-style: normal; color: var(--ops); }
         .econ-pill b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
-        .econ-pill.good { border-color: rgba(52,211,153,0.3); background: rgba(52,211,153,0.06); }
+        .econ-pill.good { border-color: rgba(52,211,153,0.3); }
         .econ-pill.good i { color: var(--good); }
         .econ-pill.good b { color: var(--good-soft); }
-        .econ-pill.bad { border-color: rgba(251,113,133,0.3); background: rgba(251,113,133,0.06); }
+        .econ-pill.bad { border-color: rgba(251,113,133,0.3); }
         .econ-pill.bad i { color: var(--bad); }
         .econ-pill.bad b { color: var(--bad); }
-        .econ-pill.warn { border-color: rgba(245,200,122,0.32); background: rgba(245,200,122,0.05); }
+        .econ-pill.warn { border-color: rgba(245,200,122,0.32); }
         .econ-pill.warn b { color: var(--gold-soft); }
-        .econ-pill.gold-glow { border-color: rgba(245,200,122,0.4); background: rgba(245,200,122,0.08); box-shadow: 0 0 10px rgba(245,200,122,0.15); }
+        .econ-pill.gold-glow { border-color: rgba(245,200,122,0.4); }
         .econ-pill.gold-glow i { color: var(--gold-soft); }
         .econ-pill.gold-glow b { color: var(--gold-soft); }
         @keyframes pillFlash {
@@ -2943,8 +3134,8 @@
             padding: 5px;
             border: 1px solid rgba(91,140,255,0.28);
             border-radius: var(--radius-md);
-            background: linear-gradient(180deg, rgba(12,18,32,0.72), rgba(7,10,20,0.48));
-            box-shadow: 0 18px 48px -34px rgba(91,140,255,0.7);
+            background: transparent;
+            box-shadow: none;
         }
         .player-command[hidden] { display: none; }
         .player-command input {
@@ -2968,17 +3159,17 @@
             display: flex; align-items: center; flex-wrap: wrap; gap: 7px;
             min-height: 32px; padding: 7px 9px;
             border: 1px solid rgba(52,211,153,0.26); border-radius: var(--radius-sm);
-            background: rgba(52,211,153,0.055);
+            background: transparent;
             color: var(--ink-dim); animation: receiptIn 220ms ease;
         }
-        .cmd-status.action-receipt.warn { border-color: rgba(245,158,11,0.34); background: rgba(245,158,11,0.06); }
-        .cmd-status.action-receipt.bad { border-color: rgba(251,113,133,0.34); background: rgba(251,113,133,0.06); }
+        .cmd-status.action-receipt.warn { border-color: rgba(245,158,11,0.34); }
+        .cmd-status.action-receipt.bad { border-color: rgba(251,113,133,0.34); }
         .cmd-status.action-receipt b { color: var(--ink); font-weight: 700; }
         .cmd-status.action-receipt div { display: inline-flex; flex-wrap: wrap; gap: 5px; }
         .cmd-status.action-receipt span {
             display: inline-flex; align-items: center; min-height: 18px;
             padding: 2px 6px; border: 1px solid rgba(91,140,255,0.26);
-            border-radius: 999px; color: var(--blue-soft); background: rgba(91,140,255,0.07);
+            border-radius: 5px; color: var(--blue-soft); background: transparent;
             white-space: nowrap;
         }
         .cmd-status.action-receipt em { flex-basis: 100%; font-style: normal; color: var(--ink-faint); line-height: 1.35; }
@@ -3456,7 +3647,7 @@
                 left: 16px;
                 right: 16px;
                 gap: 8px;
-                padding: 10px 2px 4px;
+                padding: 6px 2px 0;
             }
             .party-agent {
                 width: 152px;
@@ -3543,7 +3734,7 @@
                 left: 12px;
                 right: 12px;
                 gap: 6px;
-                padding: 8px 1px 2px;
+                padding: 6px 1px 0;
             }
             .party-agent {
                 width: 132px;
@@ -3741,6 +3932,10 @@
 
         <footer>
             <div class="footer-card footer-left">
+                <button class="fc-toggle" type="button" data-collapse-card="footer-left" aria-expanded="true" aria-label="Minimize Game Masters and economy" title="Minimize Game Masters and economy">
+                    <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M2 4.5 L6 8 L10 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <button class="fc-collapsed-label" type="button" data-collapse-card="footer-left" title="Expand Game Masters and economy">Game Masters &amp; Economy</button>
                 <!-- Game Master console: fixed authors/orchestrators only. Digital
                      workers live in the hand cards and worker inspector. -->
                 <div id="worker" class="gm-console" role="group" aria-label="Game Masters">
@@ -3754,6 +3949,10 @@
                             <img src="/game/assets/generated/orgdesigner.png" alt="" onerror="this.style.display='none'" />
                             <span><b>Org Designer</b><em>Workforce</em></span>
                         </button>
+                        <button class="gm-console-card" type="button" data-gm-role="antagonist" title="Inspect Antagonist Director">
+                            <img id="gm-antagonist-img" src="/game/assets/generated/villain.png" alt="" onerror="this.style.display='none'" />
+                            <span><b id="gm-antagonist-name">Antagonist</b><em>Rival</em></span>
+                        </button>
                     </div>
                     <span id="worker-name" hidden>World Designer</span>
                     <span id="worker-deploy" class="hud-worker-deploy" hidden></span>
@@ -3765,6 +3964,10 @@
                 <div id="econ-hud" class="econ-hud"></div>
             </div>
             <div class="footer-card footer-mid">
+                <button class="fc-toggle" type="button" data-collapse-card="footer-mid" aria-expanded="true" aria-label="Minimize the company dashboard" title="Minimize the company dashboard">
+                    <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M2 4.5 L6 8 L10 4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <button class="fc-collapsed-label" type="button" data-collapse-card="footer-mid" title="Expand the command panel">Command panel</button>
                 <div class="footer-center">
                     <div id="company-context" class="company-context" hidden></div>
                     <span id="hint" class="hint action-hint">Enter a pitch to begin</span>
@@ -3884,7 +4087,7 @@
     </div>
 
     <script src="/game/game/audio.js?v=11"></script>
-    <script type="module" src="/game/game/story.js?v=241"></script>
+    <script type="module" src="/game/game/story.js?v=256"></script>
     <script src="/game/game/intro.js?v=30"></script>
 </body>
 </html>

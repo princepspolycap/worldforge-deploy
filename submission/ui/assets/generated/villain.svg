@@ -4,5 +4,5 @@
         <circle cx="50" cy="47" r="20" fill="#fb7185" opacity="0.10"/>
         <circle cx="50" cy="47" r="14" fill="#fb7185" opacity="0.20"/>
         <path d="M30,68 L50,30 L70,68 Z" fill="none" stroke="#fb7185" stroke-width="3"/><circle cx="50" cy="56" r="6" fill="#fb7185"/>
-        <text x="50" y="90" font-family="monospace" font-size="6.5" fill="#fb7185" text-anchor="middle">VENTURE DYNAMICS INC</text>
+        <text x="50" y="90" font-family="monospace" font-size="6.5" fill="#fb7185" text-anchor="middle">THE INFINITE TRUST</text>
     </svg>

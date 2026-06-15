@@ -18,54 +18,83 @@ verified on June 13, 2026.
 | UX and Presentation | 15% | Voiced intro film -> founding screen -> live reasoning theater, one evidence rail (Active Worker, Agent Framework, Digital Workforce, Foundry IQ Memory, Agent Memory - learned, Verification Gate), XP/levels, Mermaid artifact diagrams, multi-voice neural TTS narration. |
 | Community vote (Discord poll) | 10% | Public demo clip + concise project post + Discord engagement plan that points voters to the required proof points (Foundry reasoning, IQ citations, verification gates, replay evidence). |
 
-Prize note from official rules: one prize per person during the Entry Period
-unless otherwise noted.
+## Prize stacking - what the rules actually say
 
-## Final 24-Hour Checklist (Highest-EV Target: Best Overall Agent)
+Official rules (Section 9): "We will only award one (1) prize per person during
+the Entry Period **unless otherwise noted in the table above**."
+
+What is "otherwise noted" in the table:
+- Top student award, Accessibility award, and Hack for Good each have their own
+  selection criteria and 3 winners each - these are the "otherwise noted" prizes.
+- Best Overall, Best Reasoning, Best Creative, Best Enterprise, Best IQ Tools all
+  say "1 winner" with no special note - these CANNOT stack with each other.
+
+Practical prize strategy:
+- Win ONE of: Best Overall ($15k) OR Best Reasoning ($5k) OR Best IQ Tools ($5k).
+  Best Overall is highest-value; target it first.
+- ALSO potentially win: Accessibility Award and/or Hack for Good as "noted" carve-outs.
+- Max realistic stack: Best Overall + Accessibility + Hack for Good = ~$18k.
+
+## Target Award Matrix
+
+| Award | Prize | How this game qualifies |
+|---|---|---|
+| Best Overall Agent | $15k cash | Highest score across all 6 rubric dimensions; the most complete reasoning-agent demo in the contest |
+| Best Reasoning Agent | $5k cash | Visible multi-step decomposition (World Graph), Foundry-native workers, MAF group chat, IQ recall with citations, four proof points per invocation |
+| Best Use of IQ Tools | $5k cash | Foundry IQ grounds every worker brief; local knowledge playbooks as fallback; citations visible in evidence rail and card backs |
+| Accessibility Award | swag + Azure credits + Copilot Pro | Keyboard-first interaction grammar (space/arrows/1-4 keys); voice input via mic; TTS narration for every beat; no color-only information encoding; verification gate never requires mouse |
+| Hack for Good | swag + Azure credits + Copilot Pro | The entire premise: a solo founder uses a Foundry AI workforce to run a world-improvement campaign; the game is explicitly a tool for climate, health, education, and social good founders |
+
+## Final 24-Hour Checklist
 
 Primary target: Best Overall Agent.
-Secondary target: Best Reasoning Agent.
-Constraint: assume one prize per person, so optimize one polished submission.
+Also target: Accessibility Award + Hack for Good (stackable per rules).
+Secondary target: Best Reasoning Agent / Best IQ Tools (same submission - same rubric score drives both).
 
-1. Submission package lock (must-have)
-- [ ] Public GitHub repo is current, runnable, and includes clear setup + demo steps.
-- [ ] Demo video link (<= 5 minutes) is live on YouTube or Vimeo.
-- [ ] Project description is concise and mapped to rubric language.
-- [ ] Architecture diagram is present and matches shipped code paths.
-- [ ] Team/member fields are complete on the contest project page.
+### 1. Submission package (must-complete before 11:59 PM PT June 14)
+- [ ] Public GitHub repo is current, clean, runnable with `git clone` + `pip install -r requirements.txt`.
+- [ ] Demo video (<= 5 min) is live on YouTube or Vimeo - unlisted is fine, link must work.
+- [ ] Project description text explicitly names: card-stacking roguelike, world improvement, Foundry IQ, MAF, verification gates.
+- [ ] Architecture diagram matches shipped code (Foundry -> MAF -> workers -> IQ -> gates).
+- [ ] Submission form "Projects" tab is complete: description, video link, repo, diagram, team info.
 
-2. Rubric proof pass (judge confidence)
-- [ ] Accuracy: show one complete run from founder input to accepted artifact.
-- [ ] Reasoning: show decomposition (world graph) and one worker invocation with evidence.
-- [ ] Reliability: show verification gate + deterministic validator output + fallback mode.
-- [ ] Creativity: show what is uniquely game-like in this product (not just chat UX).
-- [ ] UX: show end-to-end flow without dead ends, visual glitches, or confusing prompts.
+### 2. Best Overall + Best Reasoning (rubric proof - 6 dimensions)
+- [ ] Accuracy: demo shows full run from pitch to accepted artifact.
+- [ ] Reasoning: show world graph decomposition + worker invocation with IQ citations and tool trace.
+- [ ] Reliability: show verification gate + validator output; mention simulation fallback in description.
+- [ ] Creativity: show the roguelike card hand, party worker cards, and antagonist pressure in description/video.
+- [ ] UX: demo flow has no dead ends, missing buttons, or stale state after reset.
+- [ ] Community vote: Discord post live with screenshot showing reasoning + evidence + gate in one frame.
 
-3. Reliability hardening (high-weight + tie-breaker leverage)
-- [ ] Run simulation smoke path and capture clean output for demo day.
-- [ ] Verify replay log contains agent/tool/evidence events across a full run.
-- [ ] Verify state save/reload continuity after server restart.
-- [ ] Remove flaky paths, stale feature flags, or non-essential toggles from the demo flow.
+### 3. Best Use of IQ Tools
+- [ ] Demo video explicitly shows the Foundry IQ citation appearing in the evidence rail or card back.
+- [ ] Project description calls out: "Foundry IQ grounds every worker brief; local playbooks are the forkable fallback."
+- [ ] At least one IQ hit per worker invocation is visible in the replay log.
 
-4. IQ and reasoning receipts (Best Overall + Best Reasoning + Best IQ signal)
-- [ ] Show at least one Foundry IQ citation in a real chapter execution.
-- [ ] Show at least one tool-use receipt and one memory injection receipt.
-- [ ] Ensure the evidence rail/back-of-card receipts are readable in the video.
+### 4. Hack for Good (3-winner special award)
+- [ ] Project description explicitly names the community need: solo founders running world-improvement campaigns (climate, health, education, food security, housing).
+- [ ] The game's opening premise - "Gamifying World Improvement" - is in the first sentence of the description.
+- [ ] Demo video shows a world-improvement pitch (e.g., "Solar microgrids for rural clinics") flowing into the agent workforce.
+- [ ] Mission framing: the Sahara terraforming / basic needs lore is mentioned as the game's founding mission.
 
-5. Accessibility and presentation polish (award upside)
-- [ ] Keyboard navigation works for primary actions (start, choice, gate action).
-- [ ] Color contrast and text legibility are acceptable in key screens.
-- [ ] Captions or clear narration exist in the demo video.
+### 5. Accessibility Award (3-winner special award)
+- [ ] Keyboard navigation works for every primary action: start run, play card, approve/reject gate, send CEO move.
+- [ ] Voice input (mic button) is functional and labeled in the demo.
+- [ ] TTS narration covers every major game beat (voiced intro + worker narration).
+- [ ] No information is conveyed by color alone (threat meter, card types, gate state all have text labels).
+- [ ] Demo video captions or clear voiceover explains what is happening on screen.
+- [ ] Project description mentions: "keyboard-first, voice-input, and narrated for screen-reader-adjacent use."
 
-6. Community vote execution (10%)
-- [ ] Publish one concise Discord post with: problem, 30-second value summary, repo link, demo link.
-- [ ] Include one screenshot/gif that proves "reasoning + evidence + gate" in a single frame.
-- [ ] Keep outreach compliant (no incentives, no spam, no automation).
+### 6. Community vote (10% of judging)
+- [ ] Discord post at https://aka.ms/agentsleague/discord with: problem in one sentence, 30-sec value summary, repo link, demo link.
+- [ ] Include one screenshot or gif that shows reasoning evidence + verification gate in a single frame.
+- [ ] No incentives, no spam, no automation - strictly compliant.
 
-7. Final compliance sweep
-- [ ] No secrets or private data in repo, video, screenshots, or logs.
-- [ ] License and third-party asset usage are clean for public submission.
-- [ ] Submission is completed before deadline (June 14, 11:59 PM Pacific Time).
+### 7. Final compliance sweep
+- [ ] `git status --ignored` confirms no `.env`, private notes, or generated state in the push.
+- [ ] No credentials, deployment names, quota notes, or private URLs in any committed file.
+- [ ] License is MIT; third-party assets are confirmed MIT-compatible or generated.
+- [ ] Submission filed before June 14, 11:59 PM Pacific Time.
 
 ## Submission Requirements Checklist (spec: "To be considered valid")
 

@@ -26,7 +26,37 @@ world canvas as a glass overlay. Top to bottom by intent:
 | Narration caption | `#narration` | typed subtitle line above the hand | 19 |
 | Party rail | `#party` | the digital-worker hand (rides with the world canvas) | 18 |
 | Footer HUD | `footer` | GM console + econ HUD + card hand + command line | 20 |
-| Inspector / announcement / dilemma | `#cast-stage.inspect` / `.gm-announce`, `#worker-stage`, `#dilemma-overlay` | focused takeover overlays | 24-30 |
+| Inspector / announcement / dilemma | `#cast-stage.inspect`, `body.announce-bridge #cast-stage.speaking`, `#worker-stage`, `#dilemma-overlay` | focused takeover overlays | 24-30 |
+
+## Default World-Canvas Play State
+
+This is the state shown during a normal run when the center contains a Mermaid
+or SVG artifact, the player can see the party, and the footer contains current
+options.
+
+- `#diagram .world-canvas` owns the artifact. It should be readable behind the
+  foreground layers and height-bounded by the lower reserve.
+- `#party` is a held hand, not another panel. It is translucent, horizontally
+  scrollable without a visible scrollbar, and partly tucked behind the footer by
+  `--party-overlap`. Resting cards can be partially occluded; active/flipped
+  cards lift above the footer and remove their fade mask.
+- Party card markup is rendered by [../ui/game/party.js](../ui/game/party.js).
+  `story.js` supplies state, evidence, metrics, and dossiers; the component owns
+  the card face structure.
+- `footer` is a separate control tray. It may expose collapsible subsections,
+  but it should not hide the party by becoming another narrative surface.
+- `#narration` is temporary worker captioning only. If the text is a stage
+  briefing, decision consequence, org/world change, or rival move, route it to
+  `#cast-stage.speaking.gm-announce` or `.rival-announce` instead.
+- The intended visual stack in this state is:
+
+```text
+world-canvas -> party tray/cards -> footer controls
+```
+
+Announcements, dilemmas, stand-ups, inspectors, and reasoning theater are not
+this state. They must enter through `setStageLayer()` and explicitly define how
+the footer and party step aside.
 
 ## The lower band: three independently-fixed elements, one source of truth
 
@@ -35,31 +65,54 @@ offset. Get this wrong and they overlap (the classic bug):
 
 - `footer` -> `bottom: 0`. Its **measured height drives everything**.
 - `#party` (card hand) -> `bottom: var(--hand-bottom)`. Lives INSIDE `#scene`.
-- `#narration` (caption) -> `bottom: var(--dialogue-bottom)`. **Sibling of
-  `#scene`** (both under `#stage`), NOT a child.
+- `#narration` (temporary worker caption) -> `bottom: var(--dialogue-bottom)`.
+  **Sibling of `#scene`** (both under `#stage`), NOT a child.
+- `#cast-stage.speaking.gm-announce` / `.rival-announce` -> centered
+  announcement overlays for Game Master and rival/world-state dialogue. These
+  are the default home for announcements and should not consume lower-band
+  caption reserve.
 
 `#scene` reserves the band with `padding-bottom: var(--lower-stage-reserve)` so
 the centered `#diagram` artifact never slides under that stack.
 
-### Single source of truth = two measured CSS vars on `:root`
+### Single source of truth = shared CSS vars on `:root`
 
-`syncFooterAwareLayout()` in [../ui/game/story.js](../ui/game/story.js) sets ONLY
-two inputs, both on `document.documentElement` (`:root`) so EVERY consumer -
+`syncFooterAwareLayout()` in [../ui/game/story.js](../ui/game/story.js) sets the
+lower-band inputs on `document.documentElement` (`:root`) so EVERY consumer -
 including the sibling `#narration` - resolves the same value:
 
-- `--hand-bottom` = real `footer` height + 28.
-- `--dialogue-h`  = real `#narration` height (grows with caption line count).
+- `--party-overlap` = the amount of each resting worker card tucked behind the
+  footer.
+- `--hand-bottom` = `max(real footer height - party-overlap, 4px)`.
+- `--dialogue-h` = real visible `#narration` height, or `0px` when the caption
+  is hidden. Do not keep a default caption reserve; it creates the blank band
+  above the party hand.
 
 CSS `calc` at `:root` owns the rest; never compute these in JS:
 
-```
---dialogue-bottom      = hand-bottom + hand-card-h(236) + 22
+```text
+--dialogue-bottom      = hand-bottom + hand-card-h(208) + 22
 --lower-stage-reserve  = dialogue-bottom + dialogue-h + 14
 ```
 
+World-state dialogue should route through the announcement layer instead of the
+lower caption:
+
+- Stage briefings: World Designer announcement.
+- Decision consequences and org/workforce changes: Org Designer announcement.
+- Rival escalation: rival announcement.
+
+Game Master and rival announcements use the `announce-bridge` stage layer: the
+footer glides away, the active stage card remains visible in one lane, and the
+announcer portrait/speech occupies the other. On compact screens this bridge
+collapses back to a centered announcement with the stage card softened behind it.
+
+Worker execution reports may use the reasoning theater, card receipts, or a
+temporary worker caption; they are not Game Master announcements.
+
 A `ResizeObserver` watches `footer`, `#card-hand`, and `#narration` and re-runs
-the sync. Special-state reserve overrides are **direct `#scene` rules** (e.g.
-`body.standup-active #scene { --lower-stage-reserve: 260px }`,
+the sync. Special-state reserve overrides are **direct `#scene` rules** (for
+example `body.standup-active #scene { ... }` and
 `body.spotlight-active #scene { ... }`) and beat the inherited `:root` reserve
 with NO `!important` (direct selector > inherited value).
 
@@ -75,8 +128,9 @@ is the two-input-on-`:root` model above.
 agents - never toggle the body classes directly; they call this so every layer
 knows what else is on stage.
 
-- Owns body classes: `spotlight-active`, `inspecting-agent`,
-  `inspecting-worker`, `standup-active`, `theater`, `dilemma`.
+- Owns body classes: `spotlight-active`, `announce-bridge`,
+  `inspecting-agent`, `inspecting-worker`, `standup-active`, `theater`,
+  `dilemma`.
 - Derives `body.footer-quiet` from `FOOTER_QUIETING_LAYERS` - this hides the
   footer's playable cluster (`#card-hand`, `#player-command`,
   `#player-command-status`) so a takeover layer never overlaps the hand. The
@@ -88,7 +142,7 @@ knows what else is on stage.
 The party hand is shown ONLY when `#diagram` renders a `.world-canvas`
 (org graph / MRR chart / scenario):
 
-```
+```css
 #scene:not(:has(#diagram .world-canvas)) #party { display: none !important; }
 ```
 
@@ -117,6 +171,7 @@ their own intrinsic sizing.
 Keep these visually distinct - this is the design language, not decoration.
 
 **Two agent classes:**
+
 1. **World-engine / Game Masters** (`.pa-layer.gm`): World Designer + Org
    Designer. They author the run (Story Circle, workforce, antagonist). Home:
    the footer `#worker` GM console and the `gm` party cards. There are exactly
@@ -127,6 +182,7 @@ Keep these visually distinct - this is the design language, not decoration.
    `#party` hand. Each carries a `WorkerInvocation` of receipts.
 
 **Three card surfaces** (one renderer, two faces each - never a parallel modal):
+
 1. **Party worker cards** (`#party .party-agent`): front = identity + headline
    metric + beat line; back (flip) = the dossier receipts.
 2. **World / stage cards** (the `#diagram` graph nodes): world-engine output,
@@ -134,16 +190,19 @@ Keep these visually distinct - this is the design language, not decoration.
 3. **The roguelike hand** (`#card-hand`): playable `GameCard`s; face must read
    its effect without a tooltip.
 
-## The Game Master announcement is a centered overlay
+## The Game Master announcement is a bridge
 
 When a Game Master heralds a change, `#cast-stage` gets `.speaking.gm-announce`
-and becomes a centered modal overlay over a soft scrim - distinct from a normal
-non-modal worker aside (which stays a small side card). The pattern is CSS-only,
-scoped to `.gm-announce`:
+and `body.announce-bridge` becomes active - distinct from a normal non-modal
+worker aside (which stays a small side card). The pattern is CSS-only, scoped to
+`.gm-announce` / `.rival-announce` plus the `announce-bridge` body class:
 
-- Full-screen flex column centered, with `padding-bottom: var(--hand-bottom)` so
-  it centers in the stage ABOVE the footer (else the transcription collides with
-  the HUD). A `::before` fixed-inset radial scrim gives the modal feel.
+- Wide screens split the viewport into two lanes: the current stage card remains
+  visible on the left, while the announcer portrait and speech occupy the right.
+- Compact screens collapse to a centered announcement with the stage card kept
+  as softened context behind it.
+- The footer glides off-screen through `setStageLayer("announce-bridge", true)`,
+  not by toggling raw body classes.
 - "Transcription outside the card": `.cast-speech` is a child of `.cast-card`, so
   `.cast-card` is made transparent and the gold frame + `gmAnnouncePulse` move
   onto `.cast-card-art` (the portrait). Result: a big legible portrait card on

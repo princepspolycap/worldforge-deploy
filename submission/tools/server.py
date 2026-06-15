@@ -108,6 +108,15 @@ def _state_dump(state: CompanyState) -> dict:
     refresh_venture_model(state)
     return state.model_dump()
 
+
+def _client_trace_id(value: Optional[str]) -> str:
+    """Normalize a browser-generated correlation id for replay/search payloads."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    return re.sub(r"[^A-Za-z0-9_.:-]+", "-", raw)[:96]
+
+
 class PitchRequest(BaseModel):
     pitch: str
     company_name: Optional[str] = "Acolyte's Venture"
@@ -2396,6 +2405,8 @@ def _standup_turn(
         "tool_call": {"tool": tool, "status": "completed"},
         "message": message,
         "handoff_to": handoff_to,
+        "source": "simulation",
+        "framework": "deterministic-standup",
         "speaker_profile": _speaker_profile(speaker, role, worker_id or role),
     }
     turn["character_state"] = _character_state_for_turn(turn)
@@ -2551,37 +2562,28 @@ def _build_standup_turns(
 
     next_goal = (getattr(next_stage, "goal", "") or "the next stage brief") if next_stage else "the continuation loop"
     next_metric = (getattr(next_stage, "success_metric", "") or "the next success metric") if next_stage else "the next operating metric"
-    turns.append(_standup_turn(
-        speaker="World Designer",
-        role="narrator",
-        worker_id="world_designer",
-        tool="adapt_remaining_stages",
-        message=(
-            f"I rewrote the pending world from that choice. Next beat: {next_title}. "
+    world_update = {
+        "owner": "World Designer",
+        "tool": "adapt_remaining_stages",
+        "message": (
+            f"Pending stages were adapted from that choice. Next beat: {next_title}. "
             f"Its brief now starts from: {next_goal[:150]} Success now means: {next_metric[:150]}"
         ),
-        handoff_to="Org Designer",
-    ))
+    }
 
     added_title = org_delta.get("added_role_title")
     removed_title = org_delta.get("removed_role_title")
+    org_update: Dict[str, Any] = {"owner": "Org Designer", "tool": "render_org_graph", "message": ""}
     if added_title or removed_title:
         org_line = []
         if added_title:
             org_line.append(f"added {added_title} as a capability, not another copy of the same speaker")
         if removed_title:
             org_line.append(f"retired {removed_title} so the org stays focused")
-        turns.append(_standup_turn(
-            speaker="Org Designer",
-            role="orgdesigner",
-            worker_id="org_designer",
-            tool="render_org_graph",
-            message=(
-                f"I changed the workforce: {'; '.join(org_line)}. "
-                f"The next worker still owns execution, but the org now remembers what capacity changed and why."
-            ),
-            handoff_to=next_title if next_stage else "",
-        ))
+        org_update["message"] = (
+            f"Workforce changed: {'; '.join(org_line)}. "
+            f"The next worker still owns execution, but the org now remembers what capacity changed and why."
+        )
 
     turns.append(_standup_turn(
         speaker=next_title,
@@ -2617,22 +2619,11 @@ def _build_standup_turns(
             handoff_to=next_title if next_stage else "",
         ))
 
-    # The rival is a shared, ACTIVE player - not a HUD number. When the
-    # antagonist has elevated threat it speaks for itself in the standup, in its
-    # own adversarial voice, taunting the founder at the current Story Circle
-    # beat (Dan Harmon) and naming the counterplay it dares them to use. This is
-    # how the villain lives across the multi-agent conversation.
+    # Rival pressure is tracked separately from the worker stand-up. The rival
+    # is not in the team's meeting and does not hear private CEO strategy; the
+    # workers may discuss how to counter it, but antagonist speech belongs to
+    # rival announcements or the Game Master council tier.
     arc = state.game.antagonist_arc if state.game else None
-    rival_line = _rival_standup_line(state, round_index=0)
-    if rival_line:
-        turns.insert(1, _standup_turn(
-            speaker=arc.antagonist_name or "The rival",
-            role="antagonist",
-            worker_id="antagonist",
-            tool="press_advantage",
-            message=rival_line,
-            handoff_to=owner_title,
-        ))
 
     context = {
         "stage_id": stage.id,
@@ -2643,8 +2634,29 @@ def _build_standup_turns(
         "antagonist_threat": (arc.threat_level if arc else 0),
         "antagonist_stage": (arc.escalation_stage if arc else "watching"),
         "story_beat": _story_beat_for_state(state)[0],
+        "world_update": world_update,
+        "org_update": org_update if org_update.get("message") else {},
     }
     return turns[:5], context
+
+
+def _rival_pressure_context(state: CompanyState) -> Dict[str, Any]:
+    """Public rival pressure snapshot for stand-up receipts, not a speaker turn."""
+    arc = state.game.antagonist_arc if state.game else None
+    if not arc:
+        return {"present": False}
+    latest = (arc.moves or [])[-1] if arc.moves else None
+    return {
+        "present": bool(arc.current_pressure or arc.antagonist_name),
+        "name": arc.antagonist_name or "The rival",
+        "threat_level": arc.threat_level,
+        "escalation_stage": arc.escalation_stage or "watching",
+        "current_pressure": arc.current_pressure,
+        "latest_move_id": getattr(latest, "id", "") if latest else "",
+        "latest_move_title": getattr(latest, "title", "") if latest else "",
+        "counterplay": (arc.open_counterplays[-1] if arc.open_counterplays else ""),
+        "visibility": "tracked as market pressure outside the workforce stand-up",
+    }
 
 
 # CEO directive intents - lets the offline standup actually REACT to what the
@@ -2956,21 +2968,10 @@ def _build_standup_turns_for_history(
 
     consequence = decision.get("consequence") or {}
     summary = consequence.get("summary") or "The CEO choice is now binding direction."
-    # Keep the villain in the room across follow-up rounds: if it is pressing,
-    # it answers the CEO's latest line in its own voice, countering the SPECIFIC
-    # intent the CEO just expressed at the current Story Circle beat.
+    # Keep the rival OUT of the workforce room. Follow-up rounds are the team
+    # translating CEO direction into work; rival pressure remains separate
+    # state/metadata and counterplay, not a participant hearing private plans.
     arc = state.game.antagonist_arc if state.game else None
-    rival_line = _rival_standup_line(
-        state, round_index=round_index, ceo_line=user_msg, intent=intent)
-    if rival_line:
-        turns.append(_standup_turn(
-            speaker=arc.antagonist_name or "The rival",
-            role="antagonist",
-            worker_id="antagonist",
-            tool="press_advantage",
-            message=rival_line,
-            handoff_to=owner_title,
-        ))
     context = {
         "stage_id": stage.id,
         "next_stage_id": next_stage.id if next_stage else "",
@@ -3066,9 +3067,14 @@ def world_standup(payload: StandupRequest):
         },
         "tool_plan": [
             {"tool": "calculate_consequence", "owner": _worker_title_for_stage(stage)},
+            {"tool": "adapt_remaining_stages", "owner": "World Designer"},
+            {"tool": "render_org_graph", "owner": "Org Designer"},
             {"tool": "read_memory", "owner": context.get("next_worker_title") or "next worker"},
             {"tool": "watch_burn", "owner": "Runway Steward"},
         ],
+        "world_update": context.get("world_update") or {},
+        "org_update": context.get("org_update") or {},
+        "rival_pressure": _rival_pressure_context(state),
         "characters": [turn.get("character_state") for turn in turns if turn.get("character_state")],
         "turns": turns,
         "next_brief_delta": (
@@ -3084,6 +3090,9 @@ def world_standup(payload: StandupRequest):
             "stage_id": stage.id,
             "orchestration": packet["orchestration"],
             "trigger": packet["trigger"],
+            "world_update": packet["world_update"],
+            "org_update": packet["org_update"],
+            "rival_pressure": packet["rival_pressure"],
             "turns": turns,
         },
     )
@@ -3153,6 +3162,7 @@ class StandupResponseRequest(BaseModel):
     stage_id: Optional[str] = None
     form_data: Optional[Dict[str, Any]] = None
     source: Optional[str] = None
+    client_trace_id: Optional[str] = None
 
 
 @app.post("/api/world/standup/respond")
@@ -3168,6 +3178,7 @@ def respond_to_standup(payload: StandupResponseRequest):
     if not text:
         raise HTTPException(status_code=400, detail="Response cannot be empty.")
     form_data = payload.form_data or {}
+    trace_id = _client_trace_id(payload.client_trace_id)
     stage = None
     if state.world:
         if payload.stage_id:
@@ -3180,6 +3191,7 @@ def respond_to_standup(payload: StandupResponseRequest):
         "source": payload.source or "standup_response",
         "stage_id": getattr(stage, "id", "") or "",
         "form_data": form_data,
+        "client_trace_id": trace_id,
     })
     adapted_ids: List[str] = []
     adapted_preview: Optional[Dict[str, Any]] = None
@@ -3212,14 +3224,17 @@ def respond_to_standup(payload: StandupResponseRequest):
                     "assigned_worker_title": next_stage.assigned_worker_title,
                 }
     store.log_event("CEO_STANDUP_RESPONSE", "founder", f"CEO responded to standup: {text}", {
+        "client_trace_id": trace_id,
         "text": text,
         "form_data": form_data,
         "memory_injected": mem_entry,
+        "memory_origin": mem_entry.get("origin", "") if mem_entry else "",
         "stage_id": getattr(stage, "id", "") or "",
         "adapted_stage_ids": adapted_ids,
     })
+    player_move = None
     if state.game:
-        state.game.move_log.append(PlayerMove(
+        player_move = PlayerMove(
             id=f"move_ceo_{int(time.time() * 1000)}_{len(state.game.move_log) + 1}",
             turn_index=state.game.turn_index,
             day_index=state.game.day_index,
@@ -3227,20 +3242,42 @@ def respond_to_standup(payload: StandupResponseRequest):
             move_type="ceo_command",
             summary=f"CEO briefed the workforce: {text[:140]}",
             effects_applied={
+                "client_trace_id": trace_id,
                 "text": text,
                 "form_data": form_data,
                 "adapted_stage_ids": adapted_ids,
                 "source": payload.source or "standup_response",
+                "memory_origin": mem_entry.get("origin", "") if mem_entry else "",
             },
-        ))
+        )
+        state.game.move_log.append(player_move)
+        player_move_payload = player_move.model_dump()
+        player_move_payload["client_trace_id"] = trace_id
+        player_move_payload["memory_origin"] = mem_entry.get("origin", "") if mem_entry else ""
+        store.log_event("PLAYER_MOVE", "founder", player_move.summary, player_move_payload)
     if adapted_ids:
         store.log_event("WORLD_ADAPTED", "world_designer",
             f"World Designer bent {len(adapted_ids)} pending stage(s) to the live CEO standup response.",
-            {"stage_ids": adapted_ids, "after": getattr(stage, "id", "") or "", "standup_response": text[:160], "form_data": form_data})
+            {"client_trace_id": trace_id, "stage_ids": adapted_ids, "after": getattr(stage, "id", "") or "", "standup_response": text[:160], "form_data": form_data})
+    if state.game:
+        refresh_session_knowledge(state)
+        store.log_event(
+            "KNOWLEDGE_STRUCTURED", "iq_sync",
+            f"Structured {len(state.knowledge_records)} generated Search document(s) after CEO command.",
+            {
+                "client_trace_id": trace_id,
+                "move_id": player_move.id if player_move else "",
+                "move_type": "ceo_command",
+                "sync_target": "generated SearchDocument cache for Foundry IQ / Azure AI Search sync",
+                "kinds": sorted({doc.kind for doc in state.knowledge_records}),
+            },
+        )
     store.save()
     return {
         "status": "success",
         "message": "Memory updated with response.",
+        "client_trace_id": trace_id,
+        "player_move": player_move.model_dump() if player_move else None,
         "adapted_stage_ids": adapted_ids,
         "adapted_next_stage": adapted_preview,
         "state": _state_dump(state),
@@ -3264,8 +3301,13 @@ def _live_world_state(state) -> Dict[str, Any]:
     return ws
 
 
+class RunNextRequest(BaseModel):
+    client_trace_id: Optional[str] = None
+    command_text: Optional[str] = None
+
+
 @app.post("/api/world/run-next")
-def run_next_stage():
+def run_next_stage(payload: Optional[RunNextRequest] = Body(default=None)):
     """Execute the next pending stage via the Worker Factory."""
     state = store.load()
     if not state or not state.world:
@@ -3284,6 +3326,18 @@ def run_next_stage():
     stage = pending[0]
     idx = world.stages.index(stage)
     world.current_stage_index = idx
+    trace_id = _client_trace_id(payload.client_trace_id if payload else "")
+    command_text = str(payload.command_text or "").strip() if payload else ""
+    if state.game:
+        for move in reversed(state.game.move_log):
+            if move.move_type != "ceo_command":
+                continue
+            move_trace = str((move.effects_applied or {}).get("client_trace_id") or "")
+            if trace_id and move_trace != trace_id:
+                continue
+            command_text = command_text or str((move.effects_applied or {}).get("text") or move.summary or "")
+            trace_id = trace_id or move_trace
+            break
     try:
         start_player_turn(state, stage_id=stage.id)
     except ValueError as exc:
@@ -3337,7 +3391,9 @@ def run_next_stage():
 
     store.log_event("STAGE_EXECUTED", invocation.role,
         f"Stage '{stage.title}' -> score {score}, +{xp_earned} XP ({invocation.deployment}, {invocation.latency_s}s)",
-        {"stage_id": stage.id, "score": score, "xp_earned": xp_earned, "latency_s": invocation.latency_s,
+        {"client_trace_id": trace_id,
+         "briefed_command": command_text[:220],
+         "stage_id": stage.id, "score": score, "xp_earned": xp_earned, "latency_s": invocation.latency_s,
          # Invocation outcome receipt: failed runs keep their partial
          # tool_trace and carry the error string into the replay log.
          "status": invocation.status,
@@ -3366,6 +3422,16 @@ def run_next_stage():
         store.log_event("WORLD_COMPLETED", "system", "All stages completed! Venture stage: launched.")
 
     refresh_session_knowledge(state)
+    store.log_event(
+        "KNOWLEDGE_STRUCTURED", "iq_sync",
+        f"Structured {len(state.knowledge_records)} generated Search document(s) after stage execution.",
+        {
+            "client_trace_id": trace_id,
+            "stage_id": stage.id,
+            "sync_target": "generated SearchDocument cache for Foundry IQ / Azure AI Search sync",
+            "kinds": sorted({doc.kind for doc in state.knowledge_records}),
+        },
+    )
     store.save()
     return stage_response(
         state,
@@ -3378,6 +3444,11 @@ def run_next_stage():
         # The most recent CEO decision the worker was briefed with - the UI
         # name-checks it so the player hears their own words come back.
         recalled_decision=world.decisions[-1] if world.decisions else None,
+        command_trace={
+            "client_trace_id": trace_id,
+            "text": command_text[:220],
+            "stage_id": stage.id,
+        },
     )
 
 
