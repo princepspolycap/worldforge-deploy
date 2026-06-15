@@ -200,6 +200,20 @@
             --announce-lane-w: var(--stage-lane-w);
             --announce-gap: var(--stage-gap);
             justify-content: flex-start;
+            isolation: isolate;
+        }
+        body.stage-split #scene::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+            background:
+                linear-gradient(90deg, rgba(5,8,16,0.16) 0%, rgba(5,8,16,0.22) 48%, rgba(5,8,16,0.34) 100%),
+                radial-gradient(circle at 76% 44%, rgba(244,201,93,0.11), transparent 46%);
+            -webkit-backdrop-filter: blur(0.7px);
+            backdrop-filter: blur(0.7px);
+            animation: castFade 380ms ease both;
         }
         body.stage-split #diagram {
             flex: 0 1 calc(100% - var(--stage-lane-w) - var(--stage-gap));
@@ -228,6 +242,17 @@
             filter: brightness(0.94) saturate(0.98) !important;
             transform: scale(1) !important;
             transform-origin: center center;
+        }
+        body:has(#cast-stage.speaking.rival-announce).stage-split #scene::before {
+            background:
+                linear-gradient(90deg, rgba(15,8,8,0.18) 0%, rgba(20,5,5,0.24) 48%, rgba(20,5,5,0.38) 100%),
+                radial-gradient(circle at 76% 44%, rgba(251,113,133,0.13), transparent 46%);
+        }
+        @media (min-width: 981px) {
+            body.stage-split #cast-stage.speaking.gm-announce::before,
+            body.stage-split #cast-stage.speaking.rival-announce::before {
+                display: none;
+            }
         }
         /* While an announcement bridge or the reasoning theater owns the stage,
            the playable party hand would overlap the announcer / plan. The stage
@@ -1310,13 +1335,17 @@
                those empty dead zones. (Previously #party spanned the full width
                with pointer-events:none, so only the child cards were ever
                selectable and you could never grab the party itself.) */
-            left: 50%; transform: translateX(-50%);
+            left: calc(50% + var(--gm-inset, 0px) / 2); transform: translateX(-50%);
             width: max-content; max-width: calc(100% - 88px);
-            /* Float above the footer: rest at --hand-bottom for a short footer,
-               ride up to stay fully visible above a taller one. The smooth bottom
-               transition makes that a glide, never a jump. */
-            bottom: max(var(--hand-bottom), calc(var(--footer-top, 0px) + var(--hand-gap)));
-            transition: bottom 260ms cubic-bezier(.2,.7,.2,1);
+            /* Float above the command panel, NOT the full footer. The hand is
+               centered directly over the command panel (footer-mid); the Game
+               Master console is a narrow side column. Anchoring to the command
+               panel height means expanding that tall side console no longer
+               lifts the hand and opens a void beneath it. Rests at --hand-bottom
+               when the panel is short/collapsed; rides up to clear it when the
+               command hand is open. Falls back to the full footer height. */
+            bottom: max(var(--hand-bottom), calc(var(--footer-mid-top, var(--footer-top, 0px)) + var(--hand-gap)));
+            transition: bottom 260ms cubic-bezier(.2,.7,.2,1), left 260ms cubic-bezier(.2,.7,.2,1);
             z-index: 18;
             display: flex; align-items: flex-end; justify-content: center; flex-wrap: nowrap;
             gap: 12px; padding: 8px 6px 0;
@@ -1388,7 +1417,12 @@
             0%, 100% { box-shadow: 0 0 14px -3px var(--spk, rgba(91,140,255,0.35)); }
             50% { box-shadow: 0 0 24px -1px var(--spk, rgba(91,140,255,0.6)); }
         }
-        .party-agent.done .pa-front { border-color: rgba(52,211,153,0.5); }
+        .party-agent.done .pa-front {
+            border-color: rgba(148,163,184,0.26);
+            background: linear-gradient(180deg, rgba(12,18,32,0.58) 0%, rgba(7,10,20,0.34) 100%);
+        }
+        .party-agent.done .party-line { color: var(--ink-faint); }
+        .party-agent.done .party-badge { color: var(--ink-dim); }
         .party-agent:not(.active) .pa-front { opacity: 0.9; }
         /* The back face: the receipts dossier flipped in place (no modal). It
            reuses the cc-* dossier renderer; the rules below only tighten the
@@ -2641,8 +2675,8 @@
         /* ---- Reasoning theater: the agent's plan, center stage ---- */
         #theater {
             position: absolute; inset: 0; z-index: 30;
-            display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
-            padding: 44px 64px var(--lower-stage-reserve, 150px); gap: 14px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 64px 64px max(var(--lower-stage-reserve, 150px), 128px); gap: 14px;
             background: rgba(5,8,16,0.86); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
             animation: sceneIn 400ms ease;
         }
@@ -2671,6 +2705,23 @@
         .th-step .th-v { font-size: 13px; color: var(--ink-dim); line-height: 1.5; }
         .th-step .th-v .tool-chip { font-size: 10.5px; }
         .th-step.th-live { border-left: 2px solid var(--strategist); }
+        .th-elapsed {
+            display: inline-flex; align-items: center; gap: 6px; margin-left: 6px;
+            font-family: var(--font-mono); font-size: 10px; color: var(--ink);
+            border: 1px solid rgba(91,140,255,0.24); border-radius: 999px;
+            padding: 1px 7px; background: rgba(91,140,255,0.1);
+        }
+        .th-receipt-grid {
+            display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px;
+            margin-top: 7px;
+        }
+        .th-receipt-grid span {
+            border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;
+            padding: 6px 7px; background: rgba(255,255,255,0.026);
+            font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-dim);
+            min-width: 0;
+        }
+        .th-receipt-grid b { display: block; color: var(--ink); font-weight: 600; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .th-quote {
             width: 100%; max-width: 660px; margin-top: 6px;
             border: 1px solid rgba(91,140,255,0.35); border-radius: 12px;
@@ -4240,7 +4291,7 @@
     </div>
 
     <script src="/game/game/audio.js?v=11"></script>
-    <script type="module" src="/game/game/story.js?v=1260"></script>
+    <script type="module" src="/game/game/story.js?v=1263"></script>
     <script src="/game/game/intro.js?v=30"></script>
 </body>
 </html>

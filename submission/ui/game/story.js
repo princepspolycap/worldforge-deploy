@@ -10,14 +10,14 @@ import { T, ROLE_COLOR, mermaidThemeVariables } from "./tokens.js";
 import { toggleCollapsible } from "./motion.js";
 import { scramble, idleGlitch, loopScramble, prefersReduced } from "./anim.js";
 import { runPreflightConsole, classifyProfileUrl } from "./preflight.js?v=4";
-import { renderPartyHand } from "./party.js?v=1";
+import { renderPartyHand } from "./party.js?v=2";
 import {
     setStageLayer,
     stageLayerActive,
     queueFooterAwareLayoutSync,
     ensureFooterLayoutObserver,
     wireFooterCardCollapse,
-} from "./layout.js?v=3";
+} from "./layout.js?v=5";
 
 mermaid.initialize({
     startOnLoad: false,
@@ -5311,6 +5311,25 @@ async function revealVentureGraph() {
 // deployment - and when the model returns, its actual chain-of-thought preview
 // and thinking-token count land as the final beat before the artifact.
 let theaterToken = 0;
+let theaterElapsedTimer = null;
+
+function stopTheaterElapsed() {
+    if (theaterElapsedTimer) clearInterval(theaterElapsedTimer);
+    theaterElapsedTimer = null;
+}
+
+function startTheaterElapsed() {
+    stopTheaterElapsed();
+    const started = Date.now();
+    const update = () => {
+        const el = document.querySelector("#theater .th-live .th-v");
+        if (!el) { stopTheaterElapsed(); return; }
+        const secs = Math.max(0, Math.round((Date.now() - started) / 1000));
+        el.innerHTML = `Live LLM request in flight on Microsoft Foundry <span class="th-elapsed">${secs}s elapsed</span><br/>Waiting for the model response, token usage, and tool receipts...`;
+    };
+    update();
+    theaterElapsedTimer = setInterval(update, 1000);
+}
 
 async function theaterStep(host, ico, k, v, live) {
     const div = document.createElement("div");
@@ -5355,15 +5374,32 @@ async function theaterOpen(ch, ownerName, lastDecision) {
     await theaterStep(steps, "&#9783;", "Foundry IQ recall", `Querying the knowledge base for: <i>${esc((ch.success_metric || ch.goal || "").slice(0, 90))}</i>`);
     if (t !== theaterToken) return;
     await theaterStep(steps, "&#10022;", "Invoking deployment", "Reasoning over the brief on Microsoft Foundry &mdash; thinking tokens accumulating now...", true);
+    if (t === theaterToken) startTheaterElapsed();
 }
 
 async function theaterReveal(inv) {
     const el = $("theater");
     if (el.hidden) return;
+    stopTheaterElapsed();
     const steps = el.querySelector(".th-steps");
     if (steps) {
         const tokens = Number(inv && inv.reasoning_tokens) || 0;
         const preview = (inv && inv.reasoning_preview) || "";
+        const tokenLine = `${Number(inv && inv.tokens_in) || 0} in / ${Number(inv && inv.tokens_out) || 0} out`;
+        const toolCount = (Array.isArray(inv && inv.tool_trace) ? inv.tool_trace.length : 0)
+            || (Array.isArray(inv && inv.maf_tools_called) ? inv.maf_tools_called.length : 0)
+            || (Array.isArray(inv && inv.tools_drawn) ? inv.tools_drawn.length : 0);
+        const receipt = document.createElement("div");
+        receipt.className = "th-step";
+        receipt.innerHTML = `<span class="th-ico">&#10003;</span><div><span class="th-k">Live call receipt</span>`
+            + `<div class="th-v">The worker returned from ${esc(inv && inv.deployment || "the configured deployment")}.`
+            + `<div class="th-receipt-grid">`
+            + `<span>Status<b>${esc(inv && inv.status || "completed")}</b></span>`
+            + `<span>Latency<b>${esc(inv && inv.latency_s != null ? `${inv.latency_s}s` : "?")}</b></span>`
+            + `<span>Tokens<b>${esc(tokenLine)}</b></span>`
+            + `<span>Tool receipts<b>${esc(String(toolCount))}</b></span>`
+            + `</div></div></div>`;
+        steps.appendChild(receipt);
         const q = document.createElement("div");
         q.className = "th-quote";
         q.innerHTML = `<div class="th-k">&#9670; The model's own reasoning${tokens ? ` <span class="rz-tokens">${tokens} thinking tokens</span>` : ""}</div>`
@@ -5378,6 +5414,7 @@ async function theaterReveal(inv) {
 
 function theaterClose() {
     theaterToken++;
+    stopTheaterElapsed();
     const el = $("theater");
     el.hidden = true;
     el.innerHTML = "";

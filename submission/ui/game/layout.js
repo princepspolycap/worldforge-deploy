@@ -82,6 +82,24 @@ export function syncFooterAwareLayout() {
     // inspector / speaking card that must float above the footer.)
     const root = document.documentElement;
     root.style.setProperty("--footer-top", `${footerHeight}px`);
+    // The party hand is centered directly above the command panel (footer-mid),
+    // not the side Game Master console. Publish the command panel's height so the
+    // hand floats just above THAT - expanding the tall side console no longer
+    // lifts the centered hand and opens a void beneath it. Falls back to the full
+    // footer height when the panel is absent.
+    const mid = document.querySelector("footer .footer-mid");
+    const midHeight = mid ? Math.ceil(mid.getBoundingClientRect().height || 0) : 0;
+    root.style.setProperty("--footer-mid-top", `${midHeight || footerHeight}px`);
+    // The Game Master console is a tall LEFT side panel when expanded. The hand
+    // floats low (just above the command panel), so an open console would sit
+    // under its leftmost card. Publish the console's right edge so the centered
+    // hand re-centers into the space to the RIGHT of it and clears the overlap;
+    // zero when collapsed, so the hand centers on screen normally during play.
+    const gm = document.querySelector("footer .footer-left");
+    const gmInset = gm && !gm.classList.contains("is-collapsed")
+        ? Math.ceil(gm.getBoundingClientRect().right || 0)
+        : 0;
+    root.style.setProperty("--gm-inset", `${gmInset}px`);
     // The narration caption above the hand grows with its line count, so feed
     // its real height in too; the reserve calc grows to clear a tall caption
     // instead of guessing a fixed budget (same single-source pattern).
