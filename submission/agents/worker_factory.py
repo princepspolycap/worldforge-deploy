@@ -681,10 +681,17 @@ def execute_stage(
     _recall_res = tools_call("recall", {"query": retrieval_query, "top_k": 2})
     _recall_ms = round((time.perf_counter() - _t_recall) * 1000, 1)
     retrieval_hits = (_recall_res.get("result") or {}).get("hits") or []
+    # Which knowledge base actually answered: the real Foundry IQ KB
+    # (origin "foundry-iq") or the local playbook fallback ("local-knowledge").
+    # This is the field that PROVES the IQ path - kept on the receipt so the UI
+    # can never overclaim local files as real Foundry IQ.
+    _iq_origins = {str(h.get("origin", "")) for h in retrieval_hits if h.get("origin")}
+    _iq_origin = "foundry-iq" if "foundry-iq" in _iq_origins else (sorted(_iq_origins)[0] if _iq_origins else "")
     # tools/call receipt: the real recall call, with args and what came back.
     invocation.tool_trace.append({
         "tool": "recall",
         "source": _recall_res.get("source", "local"),
+        "origin": _iq_origin,
         "args": {"query": retrieval_query[:80], "top_k": 2},
         "result": f"{len(retrieval_hits)} hits: " + (", ".join(str(h.get('source', '')) for h in retrieval_hits[:3]) or "none"),
         "ms": _recall_ms,

@@ -346,6 +346,30 @@ workforce - became the spine that ties the mechanism to the meaning.
 
 ### What is intentionally still a placeholder
 
+- **The footer "Send Move" is a narrative + memory lever, not yet an economic
+  one (future expansion).** Today a typed CEO move hits
+  `/api/world/standup/respond`, which does exactly three things: writes a
+  procedural-memory string (`remember_for_run`), calls `adapt_remaining_stages`
+  (which only rewrites pending stages' `title` / `goal` / `success_metric` text -
+  no numeric mutation), and appends a `PlayerMove` to the move log. It returns
+  the same `state` it loaded, so `economics` and `org` are untouched - which is
+  why "give me 10 workers" or "cut price" changes the wording of the next brief
+  but not the HUD, in both simulation and live mode (live only re-words the
+  adaptation/standup via the narrator model; there is no live-only effect
+  branch). In `/api/world/run-next` the move text reaches the worker only
+  indirectly (via recalled memory and the rewritten stage text) and is otherwise
+  just a `briefed_command` field in the replay log - it is not passed into
+  `execute_stage`. The economic levers are disjoint and already exist: gate
+  decisions (`apply_decision_consequence`), shipped stages
+  (`apply_stage_outcome`), reward cards, and the hire menu (`/api/org/hire` ->
+  `hire_worker`, which fully mutates org/burn/share/runway). The expansion is a
+  small deterministic intent->effect step inside `respond_to_standup` that maps a
+  bounded set of CEO intents ("hire / more workers" -> `hire_worker`, "cut price
+  / spend on growth" -> `add_market_share` + a burn delta) onto
+  `state.economics` / `state.org`, returns the mutated state with a receipt, and
+  stays deterministic-first (optional Foundry parse in live for fuzzier
+  phrasing). That closes the loop so a free-form move produces a visible,
+  attributable world-state change.
 - **The on-ramp (templates + LLM front-routing) is the next thing to build.**
   Today the org/venture decomposition is live, but a player still starts from a
   near-blank field or a grand mission. The template gallery (click "3D-printed

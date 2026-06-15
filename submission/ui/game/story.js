@@ -3225,16 +3225,80 @@ function mafTraceEntries(run) {
     const invocations = (run && run.world && Array.isArray(run.world.invocations)) ? run.world.invocations : [];
     const out = [];
     invocations.slice(-30).reverse().forEach((inv) => {
-        const toolNames = (inv.maf_tools_called || inv.tools_drawn || []).slice(0, 6);
-        const trace = Array.isArray(inv.tool_trace) ? inv.tool_trace.slice(-3) : [];
+        // The real call ledger is `tool_trace` ({tool, source, args, result, ms}).
+        // Tool names: prefer the MAF-reported list, then the drawn toolbox, then
+        // derive from the actual calls - simulation reports tools only in the
+        // trace, which is why the old `maf_tools_called`-only read showed none.
+        const trace = Array.isArray(inv.tool_trace) ? inv.tool_trace : [];
+        let toolNames = (inv.maf_tools_called && inv.maf_tools_called.length) ? inv.maf_tools_called
+            : ((inv.tools_drawn && inv.tools_drawn.length) ? inv.tools_drawn
+                : trace.map((t) => t.tool).filter(Boolean));
+        toolNames = Array.from(new Set(toolNames)).slice(0, 8);
+        const client = inv.maf_client || (inv.framework && inv.framework !== "simulation" ? "" : "");
         out.push({
             ts: Date.now(),
-            message: `${inv.worker_title || inv.role || "worker"} · ${cleanDeployLabel(inv.deployment) || "simulation"} · ${inv.framework || "direct"}`,
+            message: `${inv.worker_title || inv.role || "worker"} · ${cleanDeployLabel(inv.deployment) || "simulation"} · ${inv.framework || "direct"}${client ? " · " + client : ""}`,
             payload: {
                 stage: inv.stage_id || "",
                 status: inv.status || "completed",
+                tools_called: trace.length,
                 tools: toolNames,
-                trace: trace.map((t) => ({ call: t.call, ms: t.duration_ms, source: t.source })),
+                // Correct field names (tool/source/args/result/ms) so the real
+                // call - args and result - is visible, not just {source}.
+                trace: trace.slice(-8).map((t) => ({
+                    tool: t.tool,
+                    source: t.source,
+                    args: t.args,
+                    result: typeof t.result === "string" ? t.result.slice(0, 220) : t.result,
+                    ms: t.ms,
+                })),
+            },
+        });
+    });
+    return out;
+}
+
+// Foundry IQ verification: per invocation, the IQ sources that grounded the
+// run (inv.iq_sources), the actual `recall` calls from the toolbox ledger
+// (query -> hits), and any injected memory of kind iq_recall. This is the tab
+// that answers "did the agent really use Foundry IQ?" with receipts.
+function iqTraceEntries(run) {
+    const invocations = (run && run.world && Array.isArray(run.world.invocations)) ? run.world.invocations : [];
+    const out = [];
+    invocations.slice(-30).reverse().forEach((inv) => {
+        const sources = Array.isArray(inv.iq_sources) ? inv.iq_sources : [];
+        const trace = Array.isArray(inv.tool_trace) ? inv.tool_trace : [];
+        const recalls = trace.filter((t) => String(t.tool || "").toLowerCase() === "recall");
+        const memRecalls = (Array.isArray(inv.maf_memory) ? inv.maf_memory : [])
+            .filter((m) => String(m.kind || "") === "iq_recall")
+            .map((m) => m.text || "");
+        // The honest path label: did the REAL Foundry IQ knowledge base answer
+        // (origin "foundry-iq"), or the local playbook fallback? Read straight
+        // from the recall receipt's origin - never inferred, never overclaimed.
+        const origins = recalls.map((t) => String(t.origin || "")).filter(Boolean);
+        const realIq = origins.includes("foundry-iq");
+        const iqPath = recalls.length === 0
+            ? "no recall"
+            : (origins.length === 0
+                ? "origin not recorded"
+                : (realIq ? "foundry-iq (real KB)" : "local-knowledge (fallback)"));
+        out.push({
+            ts: Date.now(),
+            message: `${inv.worker_title || inv.role || "worker"} · ${sources.length ? sources.length + " IQ source" + (sources.length === 1 ? "" : "s") : "no IQ recall"} · ${iqPath}`,
+            payload: {
+                stage: inv.stage_id || "",
+                iq_path: iqPath,
+                grounded_in_real_foundry_iq: realIq,
+                iq_sources: sources,
+                recall_calls: recalls.map((t) => ({
+                    query: (t.args && t.args.query) || "",
+                    top_k: (t.args && t.args.top_k) || undefined,
+                    origin: t.origin || "",
+                    hits: typeof t.result === "string" ? t.result : "",
+                    source: t.source,
+                    ms: t.ms,
+                })),
+                memory_recalls: memRecalls,
             },
         });
     });
@@ -3379,7 +3443,7 @@ function openDiagPanel(name) {
         const active = btn.dataset.panel === name;
         btn.setAttribute("aria-selected", active ? "true" : "false");
     });
-    ["local", "frontend", "backend", "maf"].forEach((id) => {
+    ["local", "frontend", "backend", "maf", "iq"].forEach((id) => {
         const el = $(`diag-${id}`);
         if (el) el.classList.toggle("active", id === name);
     });
@@ -3411,14 +3475,17 @@ async function refreshDiagnostics(forcePull = false) {
     const frontend = diagnostics.frontend.slice(0, 100);
     const backend = backendReplayEntries(run).slice(0, 100);
     const maf = mafTraceEntries(run).slice(0, 80);
+    const iq = iqTraceEntries(run).slice(0, 80);
 
     diagRenderList($("diag-frontend"), frontend, "No frontend events yet");
     diagRenderList($("diag-backend"), backend, "No backend replay entries yet");
     diagRenderList($("diag-maf"), maf, "No MAF/tool traces yet");
+    diagRenderList($("diag-iq"), iq, "No Foundry IQ recalls yet");
 
     const cntF = $("diag-cnt-frontend"); if (cntF) cntF.textContent = String(frontend.length);
     const cntB = $("diag-cnt-backend"); if (cntB) cntB.textContent = String(backend.length);
     const cntM = $("diag-cnt-maf"); if (cntM) cntM.textContent = String(maf.length);
+    const cntI = $("diag-cnt-iq"); if (cntI) cntI.textContent = String(iq.length);
 
     if (meta) {
         const modeLabel = (_runtimeSettingsInfo && _runtimeSettingsInfo.mode) || (state.live ? "live" : "simulation");
@@ -6370,6 +6437,19 @@ function bindSpeechRecognition(micBtn, inputEl, statusEl, onResultCallback) {
         statusEl.classList.toggle("live", !!live);
     };
 
+    // Single seam for writing a transcript back into the box. Setting `.value`
+    // alone wasn't enough: nothing re-read it, so the Send button stayed gated
+    // and the text could look like it never arrived. Now we also fire a native
+    // `input` event (so any listener/validator reacts) and focus the field so
+    // the transcribed text is unmistakably IN the edit box. Covers every mic -
+    // onboarding pitch, footer Send-Move, dilemma own-answer, standup reply.
+    const applyTranscript = (value) => {
+        inputEl.value = value;
+        try { inputEl.dispatchEvent(new Event("input", { bubbles: true })); } catch (_) {}
+        try { if (!inputEl.disabled) inputEl.focus(); } catch (_) {}
+        if (onResultCallback) onResultCallback(value);
+    };
+
     // Neither Azure STT nor browser SR — mic is dead, typing is the path.
     // (We still allow the button to exist; the click handler checks at runtime.)
 
@@ -6450,8 +6530,7 @@ function bindSpeechRecognition(micBtn, inputEl, statusEl, onResultCallback) {
                 if (text) {
                     const joined = [baseText, text].filter(Boolean).join(" ").trim();
                     baseText = joined;
-                    inputEl.value = joined;
-                    if (onResultCallback) onResultCallback(inputEl.value);
+                    applyTranscript(joined);
                     setMicStatus("Heard you.");
                     statusEl && statusEl.classList.remove("live");
                 } else {
@@ -6535,8 +6614,7 @@ function bindSpeechRecognition(micBtn, inputEl, statusEl, onResultCallback) {
                 }
                 const joined = [baseText, finalTxt].filter(Boolean).join(" ").trim();
                 if (finalTxt) baseText = joined;
-                inputEl.value = (joined + (interim ? " " + interim : "")).trim();
-                if (onResultCallback) onResultCallback(inputEl.value);
+                applyTranscript((joined + (interim ? " " + interim : "")).trim());
             };
 
             try { rec.start(); } catch (e) { setMicStatus("Could not start mic. Type instead."); stop(); }

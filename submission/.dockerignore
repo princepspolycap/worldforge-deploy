@@ -1,0 +1,64 @@
+# Build context = submission/. This file is the primary leak guard for the
+# container image: secrets, prior-run state, and maintainer notes must NEVER be
+# uploaded to the registry build or baked into a layer.
+
+# --- Secrets (never ship) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+**/secrets/
+**/.secrets
+
+# --- Maintainer-only / private notes ---
+private/
+
+# --- Prior-run game state and learned memory (start the deployed app clean) ---
+state/state.json
+state/state.*.json
+state/memory.json
+state/memory.*.json
+state/profile_cache.json
+state/slots/
+replay/*
+!replay/.gitkeep
+
+# --- Caches / build cruft ---
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+.DS_Store
+*.log
+*.tmp
+*.temp
+.cache/
+
+# --- Deploy tooling itself (not needed inside the image) ---
+deploy/
+Dockerfile
+.dockerignore
+
+# --- Locally generated art that is gitignored / not redistributable ---
+ui/assets/local/
+
+# --- Local-only narration/lore VIDEO (~240M, all gitignored). A fresh clone
+#     never has these; the intro UI fetch-probes each clip and falls back to the
+#     tracked PNG still on 404, so excluding them keeps the image lean and makes
+#     the deployed app match the open-source clone experience. Tracked .mp3
+#     narration and .png stills are intentionally kept. ---
+ui/assets/generated/**/*.mp4
+ui/assets/generated/lore/video/
+
+# --- Unused alternate art (the server serves only the top-level
+#     generated/*.png set via _ROLE_PORTRAIT; these dirs are superseded /
+#     pre-versioned variants the runtime never references). ---
+ui/assets/generated/characters/
+ui/assets/generated/lore/_prev/

@@ -60,6 +60,42 @@ def _aad_credential():
     return _AAD_CREDENTIAL
 
 
+async def _aclose_chat_client(client: Any) -> None:
+    """Close a MAF chat client's underlying async httpx transport on the loop
+    that created it.
+
+    MAF's OpenAIChatClient/FoundryChatClient wrap an httpx.AsyncClient. We run
+    them on a private asyncio loop and then close the loop; if the client is
+    left for the garbage collector, httpx tries to aclose() it later on the
+    now-closed loop and logs a noisy (harmless) "Event loop is closed"
+    traceback. Closing here, while the loop is still alive, prevents that.
+    Best-effort across the differing client shapes; never raises.
+    """
+    seen: set = set()
+    # The wrapper, then likely nested OpenAI/httpx async clients it holds.
+    targets = [
+        client,
+        getattr(client, "client", None),
+        getattr(client, "_client", None),
+        getattr(getattr(client, "client", None), "_client", None),
+    ]
+    for obj in targets:
+        if obj is None or id(obj) in seen:
+            continue
+        seen.add(id(obj))
+        for attr in ("aclose", "close"):
+            fn = getattr(obj, attr, None)
+            if not callable(fn):
+                continue
+            try:
+                res = fn()
+                if asyncio.iscoroutine(res):
+                    await res
+            except Exception:
+                pass
+            break
+
+
 def maf_available() -> bool:
     """True when agent-framework is importable. Cached after first check."""
     global _AVAILABLE, _IMPORT_ERROR
@@ -214,37 +250,41 @@ def run_maf_agent(
             # Compatibility fallback: the resource /openai/v1 endpoint.
             client = OpenAIChatClient(model=deployment, api_key=api_key, base_url=base_url)
             meta["maf_client"] = "OpenAIChatClient"
-        agent = Agent(
-            client=client,
-            name=name,
-            instructions=instructions,
-            tools=[_wrap(n, f) for n, f in (tool_fns or {}).items()] or None,
-            context_providers=[CampaignMemory()],
-        )
-        resp = await agent.run(prompt)
-        # UsageDetails is an open TypedDict in current MAF builds (attribute
-        # access always misses) - read mapping-style first, attributes second.
-        usage = getattr(resp, "usage_details", None) or getattr(resp, "usage", None)
+        try:
+            agent = Agent(
+                client=client,
+                name=name,
+                instructions=instructions,
+                tools=[_wrap(n, f) for n, f in (tool_fns or {}).items()] or None,
+                context_providers=[CampaignMemory()],
+            )
+            resp = await agent.run(prompt)
+            # UsageDetails is an open TypedDict in current MAF builds (attribute
+            # access always misses) - read mapping-style first, attributes second.
+            usage = getattr(resp, "usage_details", None) or getattr(resp, "usage", None)
 
-        def _u(key: str) -> Any:
-            if isinstance(usage, dict):
-                return usage.get(key)
-            return getattr(usage, key, None)
+            def _u(key: str) -> Any:
+                if isinstance(usage, dict):
+                    return usage.get(key)
+                return getattr(usage, key, None)
 
-        for src, dst in (("input_token_count", "tokens_in"), ("output_token_count", "tokens_out"),
-                         ("prompt_tokens", "tokens_in"), ("completion_tokens", "tokens_out")):
-            v = _u(src)
-            if isinstance(v, int):
-                meta[dst] = v
-        # Reasoning ("thinking") tokens when the service exposes them - vendor
-        # extras ride as additional int keys on the open TypedDict.
-        extras = (usage if isinstance(usage, dict)
-                  else getattr(usage, "additional_counts", None) or {})
-        if isinstance(extras, dict):
-            for k, v in extras.items():
-                if "reasoning" in str(k).lower() and isinstance(v, int):
-                    meta["reasoning_tokens"] = meta.get("reasoning_tokens", 0) + v
-        return str(resp)
+            for src, dst in (("input_token_count", "tokens_in"), ("output_token_count", "tokens_out"),
+                             ("prompt_tokens", "tokens_in"), ("completion_tokens", "tokens_out")):
+                v = _u(src)
+                if isinstance(v, int):
+                    meta[dst] = v
+            # Reasoning ("thinking") tokens when the service exposes them - vendor
+            # extras ride as additional int keys on the open TypedDict.
+            extras = (usage if isinstance(usage, dict)
+                      else getattr(usage, "additional_counts", None) or {})
+            if isinstance(extras, dict):
+                for k, v in extras.items():
+                    if "reasoning" in str(k).lower() and isinstance(v, int):
+                        meta["reasoning_tokens"] = meta.get("reasoning_tokens", 0) + v
+            return str(resp)
+        finally:
+            # Close the client's httpx transport on THIS loop (see helper).
+            await _aclose_chat_client(client)
 
     global _FOUNDRY_PATH_OK, _FOUNDRY_FALLBACK_REASON
     try_foundry = bool(foundry_project_endpoint()) and _FOUNDRY_PATH_OK is not False
@@ -518,6 +558,13 @@ def run_maf_group_chat(
                 msg = fallback_message(p)
                 source = "simulation"
                 client_name = ""
+            finally:
+                # Close this participant's client on the live loop so its httpx
+                # transport is not finalized later on a closed loop (noisy log).
+                try:
+                    loop.run_until_complete(_aclose_chat_client(client))
+                except Exception:
+                    pass
 
             conversation_history.append(f"{name} ({role}): {msg}")
             turns.append(build_turn(p, msg, source, client_name))
