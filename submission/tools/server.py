@@ -12,7 +12,7 @@ import re
 import urllib.error
 from html import escape as html_escape
 from typing import Dict, Any, List, Optional, Tuple, Iterator
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, Response
@@ -65,6 +65,7 @@ from state.game_state import (
     _invocation_for_stage as latest_invocation_for_stage,
 )
 from state.knowledge_records import profile_from_payload, record_world_day, refresh_session_knowledge
+from state.usage import UsageStore, visitor_hash, client_ip_from_headers
 from agents.foundry_agents import MasterNarrator, StrategistAgent, DesignerAgent, MarketerAgent, generate_lore
 from agents.model_config import model_for, is_live, runtime_mode, runtime_status, get_foundry_client, create_chat_completion
 from agents.world_designer import design_world, design_world_named, adapt_remaining_stages, derive_run_name, worker_report_clause, PLACEHOLDER_RUN_NAMES
@@ -101,6 +102,37 @@ app.add_middleware(
 STATE_FILE = os.environ.get("CAMPAIGN_STATE_FILE") or os.environ.get("DUNGEON_STATE_FILE") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "state.json")
 store = StateStore(filepath=STATE_FILE)
+
+# Lightweight, privacy-respecting usage analytics (page opens, runs started,
+# worlds generated, distinct visitors). Defaults next to state.json on ephemeral
+# storage; point CAMPAIGN_USAGE_FILE at a mounted volume for durable counts.
+USAGE_FILE = os.environ.get("CAMPAIGN_USAGE_FILE") or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "state", "usage.json")
+usage = UsageStore(filepath=USAGE_FILE)
+
+
+@app.middleware("http")
+async def _track_usage(request: Request, call_next):
+    """Record meaningful product actions + approximate distinct visitors.
+
+    Runs for every request but only counts the routes in usage.ACTION_BY_ROUTE
+    (everything else, like the /api/state poll and static assets, is ignored).
+    The client IP is hashed, never stored, and analytics never break a request.
+    """
+    response = await call_next(request)
+    try:
+        path = request.url.path
+        if path == "/" or path == "/story" or path.startswith("/api/"):
+            if response.status_code < 400:
+                ip = client_ip_from_headers(
+                    request.headers.get("x-forwarded-for", ""),
+                    request.client.host if request.client else "",
+                )
+                vh = visitor_hash(ip, request.headers.get("user-agent", ""))
+                usage.record(request.method, path, vh)
+    except Exception:
+        pass
+    return response
 
 
 def _state_dump(state: CompanyState) -> dict:
@@ -530,6 +562,18 @@ def get_memory():
 def get_mode():
     """Report whether the reasoning path is local, cloud, hybrid, or simulation."""
     return runtime_status()
+
+
+@app.get("/api/usage")
+def get_usage():
+    """Usage analytics: how many people opened the game and what they did.
+
+    Counts meaningful actions (page opens, runs started, worlds generated,
+    gameplay) and an approximate distinct-visitor count from a salted hash of
+    the client IP (no raw IP is ever stored). Polling and static assets are
+    excluded so the numbers reflect real player behavior. See state/usage.py.
+    """
+    return usage.snapshot()
 
 
 class LoreRequest(BaseModel):

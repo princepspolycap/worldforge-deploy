@@ -452,6 +452,46 @@ cp submission/.env.example submission/.env
 Restarting the server is required to pick up Python changes; bump the `story.js?v=N` query in
 `story.html` when changing JS so the browser drops the cached module.
 
+## Repos, deploy, and usage analytics
+
+There are three git remotes, and confusing them is how we break things. Know which is which
+before committing or pushing:
+
+- **`upstream`** = `github.com/microsoft/agentsleague-afterbuild` - Microsoft's repo. Never push
+  here; we only `git pull upstream main` for starter-kit updates.
+- **`origin`** = `github.com/princepspolycap/agentsleague-afterbuild` - our **development** repo
+  (where ongoing work lands). This working tree tracks `origin/main`.
+- **`acrsrc`** = `github.com/princepspolycap/worldforge-deploy` - the **deploy** repo that Azure
+  Container Registry builds the live app from. Pushing here ships to production.
+
+The **live competition build is a separate, frozen submission** - it is _not_ this dev/deploy
+line. So changes on `main` (incl. anything pushed to `acrsrc`) affect the running app at the
+Container Apps URL but must not be assumed to match what was submitted for judging. When a task
+says "the version we submitted," that is a different snapshot; do not edit it through this tree.
+
+The live app is **Azure Container Apps** (`worldforge-game`, resource group
+`agentsleague-creative-rg`, region `eastus2`), deployed via
+[submission/deploy/deploy_container_app.sh](../../submission/deploy/deploy_container_app.sh).
+Container state is **ephemeral** - `state.json`, `memory.json`, slots, and `usage.json` all reset
+on restart/redeploy unless an env var points them at a mounted volume.
+
+**Usage analytics** answer "how many people used the game" without any third-party SDK. The single
+seam is [submission/state/usage.py](../../submission/state/usage.py) (`UsageStore`) plus one
+`@app.middleware("http")` hook and the `GET /api/usage` endpoint in
+[submission/tools/server.py](../../submission/tools/server.py). It counts only meaningful product
+actions (`ACTION_BY_ROUTE`: page opens, runs started, worlds generated, stage/dilemma/decision/
+reward) and an approximate distinct-visitor count from a **salted hash of the client IP** (read
+from `X-Forwarded-For`; raw IP is never stored). High-frequency polling (`/api/state`) and static
+assets are deliberately excluded so totals reflect real behavior. Analytics must never break a
+request (the middleware swallows its own errors). Default ledger is `state/usage.json` (ephemeral);
+set `CAMPAIGN_USAGE_FILE` to a durable path for counts that survive restarts. Extend
+`ACTION_BY_ROUTE` to track a new action; do not add a parallel counter.
+
+At the Azure level, raw request counts overcount wildly (UI polling + assets), and behind the
+ingress every client collapses to the proxy IP `100.100.0.146`, so platform logs can't tell
+visitors apart. Prefer `/api/usage` (or KQL over `ContainerAppConsoleLogs_CL` filtered to
+meaningful routes) when reporting real usage.
+
 ## Verify before you call it done
 
 - **Python:** `python3 -c "import ast; ast.parse(open('<file>').read())"` and run the relevant

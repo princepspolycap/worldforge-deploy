@@ -21,6 +21,7 @@ state/state.*.json
 state/memory.json
 state/memory.*.json
 state/profile_cache.json
+state/usage.json
 state/slots/
 replay/*
 !replay/.gitkeep
